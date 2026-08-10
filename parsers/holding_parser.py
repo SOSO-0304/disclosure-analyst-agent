@@ -1,38 +1,35 @@
-# parsers/exchange_parser.py
+# parsers/holding_parser.py
 
 from pathlib import Path
 
-from exchange_common import (
-    parse_exchange_xml,
+from common import (
+    parse_xml_to_markdown,
     save_markdown,
 )
 
 
-PROJECT_ROOT = (
-    Path(__file__)
-    .resolve()
-    .parents[1]
-)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 INPUT_DIR = (
     PROJECT_ROOT
     / "data"
     / "raw"
-    / "exchange"
+    / "holding"
 )
 
 OUTPUT_DIR = (
     PROJECT_ROOT
     / "data"
     / "parsed"
-    / "exchange"
+    / "holding"
 )
 
 
-def parse_exchange():
+def parse_holding():
 
     success_count = 0
     error_count = 0
+
     errors = []
 
     company_dirs = sorted(
@@ -43,31 +40,22 @@ def parse_exchange():
 
     for company_dir in company_dirs:
 
-        company = (
-            company_dir.name
-        )
+        company = company_dir.name
 
-        print(
-            f"\n[기업] {company}"
-        )
+        print(f"\n[기업] {company}")
 
         disclosure_dirs = sorted(
             path
-            for path
-            in company_dir.iterdir()
+            for path in company_dir.iterdir()
             if path.is_dir()
         )
 
         for disclosure_dir in disclosure_dirs:
 
-            document_id = (
-                disclosure_dir.name
-            )
+            document_id = disclosure_dir.name
 
             xml_files = sorted(
-                disclosure_dir.glob(
-                    "*.xml"
-                )
+                disclosure_dir.glob("*.xml")
             )
 
             if not xml_files:
@@ -80,9 +68,10 @@ def parse_exchange():
                 for xml_path in xml_files:
 
                     markdown = (
-                        parse_exchange_xml(
+                        parse_xml_to_markdown(
                             xml_path=xml_path,
                             company=company,
+                            doc_group="holding",
                             document_id=document_id,
                         )
                     )
@@ -121,25 +110,23 @@ def parse_exchange():
                 })
 
                 print(
-                    f"[ERROR] "
-                    f"{company} / "
-                    f"{document_id}: "
-                    f"{e}"
+                    f"[ERROR] {company} / "
+                    f"{document_id}: {e}"
                 )
 
     print("\n============================")
-    print("Exchange Parsing 완료")
+    print("Holding Parsing 완료")
     print("============================")
     print(f"성공: {success_count}")
     print(f"실패: {error_count}")
 
-    if errors:
-        save_errors(errors)
+    save_errors(errors)
 
 
-def save_errors(
-    errors: list[dict],
-) -> None:
+def save_errors(errors):
+
+    if not errors:
+        return
 
     error_path = (
         OUTPUT_DIR
@@ -165,6 +152,10 @@ def save_errors(
                 f"{error['error']}\n"
             )
 
+    print(
+        f"오류 로그: {error_path}"
+    )
+
 
 if __name__ == "__main__":
-    parse_exchange()
+    parse_holding()

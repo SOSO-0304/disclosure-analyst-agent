@@ -6,3 +6,6 @@
 
 # Dataset
 data/*
+
+# macOS
+.DS_Store

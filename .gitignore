@@ -6,6 +6,12 @@
 
 # Dataset
 data/*
+!data/canonical/
+!data/canonical/.gitkeep
+!data/retrieval/
+!data/retrieval/.gitkeep
+!data/quality/
+!data/quality/.gitkeep
 
 # macOS
 .DS_Store

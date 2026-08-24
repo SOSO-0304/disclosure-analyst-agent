@@ -1,0 +1,7 @@
+services:
+  disclosure-agent:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data

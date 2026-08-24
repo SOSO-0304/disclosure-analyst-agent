@@ -1,17 +1,69 @@
-# Virtual environment
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
 .venv/
+venv/
+env/
+ENV/
 
-# VS Code
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Build and package outputs
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test and quality-tool cache
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.tox/
+.nox/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated disclosure data
+/data/raw/**
+/data/canonical/**
+/data/retrieval/**
+/data/quality/**
+
+# Preserve empty data directories
+!/data/raw/.gitkeep
+!/data/canonical/.gitkeep
+!/data/retrieval/.gitkeep
+!/data/quality/.gitkeep
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# IDE settings
 .vscode/
+.idea/
 
-# Dataset
-data/*
-!data/canonical/
-!data/canonical/.gitkeep
-!data/retrieval/
-!data/retrieval/.gitkeep
-!data/quality/
-!data/quality/.gitkeep
-
-# macOS
+# Operating system files
 .DS_Store
+Thumbs.db
+desktop.ini

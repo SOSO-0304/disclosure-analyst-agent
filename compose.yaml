@@ -1,7 +1,32 @@
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: disclosure-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   disclosure-agent:
-    build: .
+    build:
+      context: .
     env_file:
       - .env
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - ./data:/app/data
+
+volumes:
+  postgres_data:

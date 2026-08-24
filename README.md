@@ -59,11 +59,26 @@ data/parsed/
 
 ```text
 disclosure-analyst-agent/
+├── src/disclosure_agent/
+│   ├── domain/
+│   ├── inventory/
+│   ├── parsing/
+│   ├── extractors/
+│   ├── rendering/
+│   ├── storage/
+│   ├── retrieval/
+│   ├── llm/
+│   └── api/
+├── config/
+├── alembic/
+├── tests/
 ├── data/
 │   ├── raw/
-│   └── parsed/
-├── parsers/
-├── requirements.txt
+│   ├── canonical/
+│   ├── retrieval/
+│   └── quality/
+├── parsers/                 # legacy data-ingestion scripts
+├── pyproject.toml
 ├── .gitignore
 └── README.md
 ```

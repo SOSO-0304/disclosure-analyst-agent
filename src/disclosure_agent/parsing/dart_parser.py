@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from lxml import etree
 
 from disclosure_agent.domain.models import DisclosureField, DisclosureTable, Section, TextBlock
@@ -16,7 +15,9 @@ class DartParser:
         flat_fields: list[DisclosureField] = []
         for file_no, path in enumerate(file_paths, 1):
             root = load_dart_xml(path)
-            body = _first(root.xpath("//BODY")) or root
+            body = _first(root.xpath("//BODY"))
+            if body is None:
+                body = root
             top = [e for e in body if _section_level(e.tag) is not None]
             for order, element in enumerate(top, 1):
                 section = self._parse_section(element, [], f"f{file_no}", order)
@@ -53,9 +54,6 @@ class DartParser:
                     tables.append(table)
                     for row in table.rows:
                         coded = [c for c in row.cells if c.code]
-                        if not coded:
-                            continue
-                        # Preserve every coded DART cell; semantic normalization happens later.
                         for cell in coded:
                             field_order += 1
                             fields.append(DisclosureField(
@@ -64,7 +62,6 @@ class DartParser:
                                 raw_value=cell.text, order=field_order,
                             ))
                 continue
-            # Paragraph-like nodes outside tables. Avoid recursively flattening nested tables.
             if not child.xpath(".//TABLE"):
                 text = element_text(child)
                 if text:

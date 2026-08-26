@@ -1,63 +1,140 @@
-"""Parser for exchange HTML-form disclosures."""
+"""Parser for exchange HTML-form disclosures, including .xml-named HTML."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from disclosure_agent.domain.models import (
-    CanonicalDisclosure, Company, DisclosureField, DisclosureMetadata,
-    DisclosureType, ExchangePayload, RevisionInfo, SourceFile,
+    BlockType,
+    CanonicalBlock,
+    CanonicalDocument,
+    CanonicalSection,
+    IssueSeverity,
+    ParseIssue,
+    ParseStatus,
+    ParseSummary,
+    SourceFile,
+    SourceLocator,
 )
-from disclosure_agent.parsing.table_parser import logical_html_rows, parse_table
-from disclosure_agent.parsing.text_normalizer import optional_int, optional_str, parse_date
-from disclosure_agent.parsing.xml_loader import load_exchange_html
+from disclosure_agent.parsing.table_parser import parse_table, raw_element_text
+from disclosure_agent.parsing.text_normalizer import normalize_text
+from disclosure_agent.parsing.xml_loader import load_html
 
 
 class ExchangeParser:
-    def parse(self, file_paths: list[str | Path], *, manifest: dict[str, Any]) -> CanonicalDisclosure:
-        path = Path(file_paths[0])
-        root = load_exchange_html(path)
-        title_nodes = root.xpath("//title")
-        title = " ".join(title_nodes[0].itertext()).strip() if title_nodes else manifest["report_nm"]
-        tables = [parse_table(t, f"{manifest['doc_id']}:table:{i}", i)
-                  for i, t in enumerate(root.xpath("//table"), 1)]
-        fields: list[DisclosureField] = []
-        order = 0
-        for table in root.xpath("//table"):
-            for values in logical_html_rows(table):
-                if len(values) < 2:
-                    continue
-                label_parts, value = values[:-1], values[-1]
-                if " > ".join(label_parts) == value:
-                    continue
-                order += 1
-                fields.append(DisclosureField(
-                    label=label_parts[-1], path=label_parts,
-                    value=value, raw_value=value, order=order,
-                ))
-        receipt_date = parse_date(manifest.get("rcept_dt"))
-        if receipt_date is None:
-            raise ValueError(f"Invalid receipt date: {manifest.get('rcept_dt')}")
-        return CanonicalDisclosure(
-            document_id=str(manifest["doc_id"]),
-            document_type=DisclosureType.EXCHANGE,
-            company=_company(manifest),
-            metadata=_metadata(manifest, receipt_date),
-            revision=RevisionInfo(is_correction=bool(manifest.get("is_correction", False))),
-            source_files=[SourceFile(path=str(p), file_name=Path(p).name, order=i)
-                          for i, p in enumerate(file_paths)],
-            payload=ExchangePayload(title=title, fields=fields, tables=tables),
+    """Preserve exchange-form tables before event extraction."""
+
+    parser_version = "2.0.0"
+
+    def parse(
+        self,
+        path: str | Path,
+        source: SourceFile,
+        *,
+        filing_id: str,
+        title: str,
+    ) -> CanonicalDocument:
+        loaded = load_html(path, source.source_file_id)
+        section_id = f"{filing_id}:{source.source_file_id}:section:1"
+        section = CanonicalSection(
+            section_id=section_id,
+            order=0,
+            level=1,
+            title_raw=title,
+            title_normalized=normalize_text(title),
+            source_locator=SourceLocator(source_file_id=source.source_file_id, xpath="/html"),
         )
+        blocks: list[CanonicalBlock] = []
 
+        for node in loaded.root.xpath(
+            "//h1[not(ancestor::table)] | //h2[not(ancestor::table)] | "
+            "//h3[not(ancestor::table)] | //p[not(ancestor::table)] | //table"
+        ):
+            xpath = node.getroottree().getpath(node)
+            if str(node.tag).lower() == "table":
+                table_number = sum(block.table is not None for block in blocks) + 1
+                table = parse_table(
+                    node,
+                    f"{filing_id}:{source.source_file_id}:table:{table_number}",
+                    source.source_file_id,
+                )
+                blocks.append(
+                    CanonicalBlock(
+                        block_id=f"{filing_id}:{source.source_file_id}:block:{len(blocks) + 1}",
+                        section_id=section_id,
+                        order=len(blocks),
+                        block_type=BlockType.TABLE,
+                        table=table,
+                        source_locator=SourceLocator(
+                            source_file_id=source.source_file_id,
+                            xpath=xpath,
+                        ),
+                    )
+                )
+                continue
 
-def _company(m: dict[str, Any]) -> Company:
-    return Company(corp_code=str(m["corp_code"]), corp_name=str(m["corp_name"]),
-                   listed_name=optional_str(m.get("listed_name")), stock_code=optional_str(m.get("stock_code")),
-                   industry=optional_str(m.get("industry")), sector=optional_str(m.get("sector")))
+            raw_text = raw_element_text(node)
+            normalized = normalize_text(raw_text)
+            if normalized is None:
+                continue
+            tag = str(node.tag).lower()
+            block_type = BlockType.HEADING if tag.startswith("h") else BlockType.PARAGRAPH
+            blocks.append(
+                CanonicalBlock(
+                    block_id=f"{filing_id}:{source.source_file_id}:block:{len(blocks) + 1}",
+                    section_id=section_id,
+                    order=len(blocks),
+                    block_type=block_type,
+                    text_raw=raw_text,
+                    text_normalized=normalized,
+                    heading_level=int(tag[1]) if tag.startswith("h") else None,
+                    source_locator=SourceLocator(
+                        source_file_id=source.source_file_id,
+                        xpath=xpath,
+                    ),
+                )
+            )
 
+        issues: list[ParseIssue] = list(loaded.issues)
+        if not blocks:
+            issues.append(
+                ParseIssue(
+                    issue_code="empty_document",
+                    severity=IssueSeverity.ERROR,
+                    message="No canonical content blocks were emitted from the HTML source.",
+                    source_file_id=source.source_file_id,
+                )
+            )
+        errors = sum(issue.severity is IssueSeverity.ERROR for issue in issues)
+        warnings = sum(issue.severity is IssueSeverity.WARNING for issue in issues)
+        status = ParseStatus.SUCCESS
+        if not blocks:
+            status = ParseStatus.FAILED
+        elif loaded.recovered or errors or warnings:
+            status = ParseStatus.PARTIAL
 
-def _metadata(m: dict[str, Any], receipt_date) -> DisclosureMetadata:
-    return DisclosureMetadata(report_name=str(m["report_nm"]), receipt_no=str(m["rcept_no"]),
-        receipt_date=receipt_date, doc_group=str(m["doc_group"]), doc_subtype=optional_str(m.get("doc_subtype")),
-        filer_name=optional_str(m.get("flr_nm")), base_year=optional_int(m.get("base_year")),
-        base_month=optional_int(m.get("base_month")))
+        return CanonicalDocument(
+            document_id=f"{filing_id}:{source.source_role.value}",
+            filing_id=filing_id,
+            document_role=source.source_role,
+            title_raw=title,
+            title_normalized=normalize_text(title),
+            primary_source_file_id=source.source_file_id,
+            source_file_ids=[source.source_file_id],
+            sections=[section],
+            blocks=blocks,
+            parse_summary=ParseSummary(
+                status=status,
+                parser_name=type(self).__name__,
+                parser_version=self.parser_version,
+                detected_encoding=loaded.detected_encoding,
+                recovered=loaded.recovered,
+                source_element_count=sum(1 for _ in loaded.root.iter()),
+                emitted_section_count=1,
+                emitted_block_count=len(blocks),
+                emitted_table_count=sum(block.table is not None for block in blocks),
+                warning_count=warnings,
+                error_count=errors,
+            ),
+            parse_issues=issues,
+        )

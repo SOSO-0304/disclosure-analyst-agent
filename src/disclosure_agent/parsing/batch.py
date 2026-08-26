@@ -1,131 +1,120 @@
-"""Batch conversion from manifest/raw corpus to canonical JSONL."""
+"""Validated and atomic batch conversion from corpus sources to canonical JSONL."""
+
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
+import orjson
+
+from disclosure_agent.domain.models import ParseStatus
+from disclosure_agent.inventory.builder import InventoryBuilder, validate_manifest_rows
 from disclosure_agent.parsing.document_parser import DocumentParser
 from disclosure_agent.storage.jsonl import append_canonical
 
-SUPPORTED_SOURCE_SUFFIXES = {".xml", ".html", ".htm", ".pdf"}
 
+def parse_corpus(
+    corpus_root: str | Path,
+    output_path: str | Path,
+    *,
+    compute_hashes: bool = True,
+) -> Counter[str]:
+    """Parse all manifest rows, preserving the prior output until completion."""
 
-def _build_source_index(corpus_root: Path) -> dict[str, list[Path]]:
-    """Scan supported source files once and index them by receipt number."""
-    index: dict[str, list[Path]] = defaultdict(list)
-    raw_root = corpus_root / "raw"
-    if not raw_root.exists():
-        return index
-
-    for path in raw_root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in SUPPORTED_SOURCE_SUFFIXES:
-            continue
-        # Examples:
-        #   20240514001522.xml
-        #   20240514001522_viewer.html
-        #   20240514001522.pdf
-        receipt = path.name.split("_", 1)[0].split(".", 1)[0]
-        if receipt.isdigit():
-            index[receipt].append(path)
-
-    def priority(path: Path) -> tuple[int, str]:
-        suffix = path.suffix.lower()
-        if suffix == ".xml":
-            rank = 0
-        elif suffix in {".html", ".htm"} and "viewer" in path.stem.lower():
-            rank = 1
-        elif suffix in {".html", ".htm"}:
-            rank = 2
-        else:  # PDF is preserved as provenance/fallback source.
-            rank = 3
-        return rank, str(path)
-
-    for paths in index.values():
-        paths.sort(key=priority)
-    return index
-
-
-def _resolve_files(corpus_root: Path, row: dict, source_index: dict[str, list[Path]]) -> list[Path]:
-    raw_path = corpus_root / row["file_path"]
-    if raw_path.is_file():
-        return [raw_path]
-    if raw_path.is_dir():
-        files = sorted(
-            (p for p in raw_path.iterdir() if p.is_file() and p.suffix.lower() in SUPPORTED_SOURCE_SUFFIXES),
-            key=str,
-        )
-        if files:
-            return files
-    receipt = str(row["rcept_no"])
-    return source_index.get(receipt, [])
-
-
-def parse_corpus(corpus_root: str | Path, output_path: str | Path) -> Counter:
     root = Path(corpus_root)
     manifest_path = root / "manifest.jsonl"
     output = Path(output_path)
-    if output.exists():
-        output.unlink()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = output.with_suffix(f"{output.suffix}.tmp")
+    failure_path = output.with_name(f"{output.stem}.failures.jsonl")
+    temporary_failures = failure_path.with_suffix(f"{failure_path.suffix}.tmp")
+    temporary_output.unlink(missing_ok=True)
+    temporary_failures.unlink(missing_ok=True)
+    temporary_output.touch()
 
-    with manifest_path.open(encoding="utf-8") as fp:
-        rows = [json.loads(line) for line in fp if line.strip()]
+    with manifest_path.open(encoding="utf-8") as stream:
+        rows = [json.loads(line) for line in stream if line.strip()]
+    entries = validate_manifest_rows(rows)
 
+    inventory = InventoryBuilder(root, compute_hashes=compute_hashes)
     print("Indexing source files once...")
-    source_index = _build_source_index(root)
-    indexed_files = sum(len(v) for v in source_index.values())
-    print(f"Indexed {indexed_files} source files for {len(source_index)} receipt numbers.")
+    source_index = inventory.build_source_index()
+    indexed_files = sum(len(paths) for paths in source_index.values())
+    print(f"Indexed {indexed_files} source files for {len(source_index)} receipts.")
 
     parser = DocumentParser()
-    stats: Counter = Counter()
-    failures: list[dict[str, str]] = []
-    total = len(rows)
-
-    for number, row in enumerate(rows, 1):
+    stats: Counter[str] = Counter()
+    total = len(entries)
+    for number, entry in enumerate(entries, 1):
         try:
-            files = _resolve_files(root, row, source_index)
-            if not files:
-                raise FileNotFoundError(row["file_path"])
-            document = parser.parse(files, manifest=row)
-            append_canonical(output, document)
-            stats["parsed"] += 1
-            stats[f"parsed:{row['doc_group']}"] += 1
-        except Exception as exc:
-            stats["failed"] += 1
-            stats[f"failed:{row.get('doc_group', 'unknown')}"] += 1
-            failures.append({
-                "doc_id": str(row.get("doc_id", "")),
-                "doc_group": str(row.get("doc_group", "")),
-                "file_path": str(row.get("file_path", "")),
+            _, sources = inventory.build(entry)
+            package = parser.parse(sources, manifest=entry)
+            append_canonical(temporary_output, package)
+            stats["packages"] += 1
+            stats[f"packages:{entry.doc_group.value}"] += 1
+            package_failed = False
+            for document in package.documents:
+                status = document.parse_summary.status
+                stats[f"documents:{status.value}"] += 1
+                if status in {ParseStatus.FAILED, ParseStatus.UNSUPPORTED}:
+                    package_failed = True
+            if package_failed:
+                stats["packages_with_failed_documents"] += 1
+        # A single corrupt inventory row must be recorded without losing the batch.
+        except Exception as exc:  # noqa: BLE001
+            stats["inventory_failures"] += 1
+            failure = {
+                "doc_id": entry.doc_id,
+                "doc_group": entry.doc_group.value,
+                "file_path": entry.file_path,
                 "error_type": type(exc).__name__,
                 "error": str(exc),
-            })
-            print(f"FAILED {row.get('doc_id')}: {type(exc).__name__}: {exc}")
+            }
+            with temporary_failures.open("ab") as stream:
+                stream.write(orjson.dumps(failure, option=orjson.OPT_SORT_KEYS))
+                stream.write(b"\n")
 
         if number % 100 == 0 or number == total:
-            print(f"[{number}/{total}] parsed={stats['parsed']} failed={stats['failed']}")
+            print(
+                f"[{number}/{total}] packages={stats['packages']} "
+                f"inventory_failures={stats['inventory_failures']}"
+            )
 
-    failure_path = output.with_name(f"{output.stem}.failures.jsonl")
-    if failures:
-        with failure_path.open("w", encoding="utf-8") as fp:
-            for failure in failures:
-                fp.write(json.dumps(failure, ensure_ascii=False) + "\n")
-    elif failure_path.exists():
-        failure_path.unlink()
-
+    temporary_output.replace(output)
+    if temporary_failures.exists():
+        temporary_failures.replace(failure_path)
+    else:
+        failure_path.unlink(missing_ok=True)
     return stats
 
 
 def main() -> None:
+    """CLI entry point for canonical batch parsing."""
+
     import argparse
-    argp = argparse.ArgumentParser()
-    argp.add_argument("corpus_root", type=Path)
-    argp.add_argument("--output", type=Path, default=Path("data/processed/canonical.jsonl"))
-    args = argp.parse_args()
-    stats = parse_corpus(args.corpus_root, args.output)
+
+    argument_parser = argparse.ArgumentParser()
+    argument_parser.add_argument("corpus_root", type=Path)
+    argument_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data/processed/canonical.jsonl"),
+    )
+    argument_parser.add_argument(
+        "--skip-hashes",
+        action="store_true",
+        help="Skip source SHA-256 calculation for a faster local smoke test.",
+    )
+    arguments = argument_parser.parse_args()
+    stats = parse_corpus(
+        arguments.corpus_root,
+        arguments.output,
+        compute_hashes=not arguments.skip_hashes,
+    )
     print("\n=== canonical parsing ===")
     for key in sorted(stats):
-        print(f"{key:24} {stats[key]}")
+        print(f"{key:36} {stats[key]}")
 
 
 if __name__ == "__main__":

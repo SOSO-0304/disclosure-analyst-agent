@@ -18,6 +18,7 @@ from disclosure_agent.inventory.builder import InventoryBuilder
 from disclosure_agent.parsing.batch import parse_corpus
 from disclosure_agent.parsing.content_detector import detect_content_format
 from disclosure_agent.parsing.document_parser import DocumentParser
+from disclosure_agent.parsing.markup_repair import repair_dart_xml
 from disclosure_agent.parsing.pdf_parser import PdfParser
 from disclosure_agent.parsing.periodic_html_parser import parse_viewer_metadata
 from disclosure_agent.parsing.table_parser import parse_table
@@ -156,6 +157,92 @@ def test_xml_recovery_is_visible_as_partial_status(tmp_path: Path) -> None:
     assert primary.parse_summary.status is ParseStatus.PARTIAL
     assert primary.parse_summary.recovered is True
     assert any(issue.issue_code == "markup_recovery" for issue in primary.parse_issues)
+
+
+def test_lexical_xml_repair_preserves_source_text_without_mutating_file(
+    tmp_path: Path,
+) -> None:
+    directory = make_periodic_sources(tmp_path)
+    source_path = directory / "20240312000736.xml"
+    malformed = minimal_dart_xml(
+        "R&D와 M&A, S&P / <PUBG: BATTLEGROUNDS> <기간: 2023년 1월~12월> <자료: 회사 제공>"
+    ).encode()
+    source_path.write_bytes(malformed)
+    entry = CorpusManifestEntry.model_validate(manifest_payload())
+    _, sources = InventoryBuilder(tmp_path, compute_hashes=False).build(entry)
+
+    package = DocumentParser().parse(sources, manifest=entry)
+    primary = package.documents[0]
+    emitted_text = " ".join(block.text_raw or "" for block in primary.blocks)
+    issue_by_code = {issue.issue_code: issue for issue in primary.parse_issues}
+
+    assert primary.parse_summary.status is ParseStatus.SUCCESS
+    assert primary.parse_summary.recovered is True
+    assert "R&D와 M&A, S&P" in emitted_text
+    assert "<PUBG: BATTLEGROUNDS>" in emitted_text
+    assert "<기간: 2023년 1월~12월>" in emitted_text
+    assert "<자료: 회사 제공>" in emitted_text
+    assert issue_by_code["bare_ampersand_repaired"].occurrence_count == 3
+    assert issue_by_code["pseudo_tag_repaired"].occurrence_count == 3
+    assert source_path.read_bytes() == malformed
+
+
+def test_repair_diagnostics_are_aggregated_instead_of_repeated(tmp_path: Path) -> None:
+    directory = make_periodic_sources(tmp_path)
+    source_path = directory / "20240312000736.xml"
+    source_path.write_text(minimal_dart_xml("A&B C&D E&F"), encoding="utf-8")
+    entry = CorpusManifestEntry.model_validate(manifest_payload())
+    _, sources = InventoryBuilder(tmp_path, compute_hashes=False).build(entry)
+
+    primary = DocumentParser().parse(sources, manifest=entry).documents[0]
+    ampersand_issues = [
+        issue for issue in primary.parse_issues if issue.issue_code == "bare_ampersand_repaired"
+    ]
+
+    assert len(ampersand_issues) == 1
+    assert ampersand_issues[0].occurrence_count == 3
+    assert len(ampersand_issues[0].details["examples"]) == 3
+    assert primary.parse_summary.warning_count == 3
+
+
+def test_lexical_repair_leaves_valid_markup_entities_and_cdata_unchanged() -> None:
+    raw = (
+        b'<?xml version="1.0"?><!DOCTYPE DOCUMENT ['
+        b'<!ENTITY writer "DART">]><DOCUMENT xmlns:x="urn:test">'
+        b'<x:tag x:id="1"><P>A &amp; B &#38; '
+        b"<![CDATA[C&D <literal>]]></P></x:tag></DOCUMENT>"
+    )
+
+    repaired = repair_dart_xml(raw, "source-1")
+
+    assert repaired.content == raw
+    assert repaired.issues == []
+
+
+def test_unterminated_literal_angle_does_not_consume_the_next_real_tag(
+    tmp_path: Path,
+) -> None:
+    directory = make_periodic_sources(tmp_path)
+    source_path = directory / "20240312000736.xml"
+    source_path.write_text(minimal_dart_xml("매출 증가율 < 10"), encoding="utf-8")
+    entry = CorpusManifestEntry.model_validate(manifest_payload())
+    _, sources = InventoryBuilder(tmp_path, compute_hashes=False).build(entry)
+
+    primary = DocumentParser().parse(sources, manifest=entry).documents[0]
+    emitted_text = " ".join(block.text_raw or "" for block in primary.blocks)
+
+    assert primary.parse_summary.status is ParseStatus.SUCCESS
+    assert "매출 증가율 < 10" in emitted_text
+    assert any(issue.issue_code == "pseudo_tag_repaired" for issue in primary.parse_issues)
+
+
+def test_malformed_known_dart_tag_is_not_converted_to_literal_text() -> None:
+    raw = b"<DOCUMENT><BODY><TABLE BORDER=1><TR><TD>A</TD></TR></TABLE></BODY></DOCUMENT>"
+
+    repaired = repair_dart_xml(raw, "source-1")
+
+    assert b"<TABLE BORDER=1>" in repaired.content
+    assert b"&lt;TABLE" not in repaired.content
 
 
 def test_viewer_parser_extracts_toc_metadata_only(tmp_path: Path) -> None:

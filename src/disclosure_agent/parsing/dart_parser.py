@@ -29,7 +29,11 @@ _TABLE_TAGS = {"TABLE", "TABLE-GROUP"}
 def _local_name(element: etree._Element) -> str:
     if not isinstance(element.tag, str):
         return ""
-    return etree.QName(element).localname.upper()
+    try:
+        return etree.QName(element).localname.upper()
+    except ValueError:
+        # Recovery mode can retain malformed names such as ``PUBG:``.
+        return element.tag.upper()
 
 
 def _section_level(element: etree._Element) -> int | None:
@@ -52,7 +56,7 @@ def _xpath(element: etree._Element) -> str | None:
 class DartParser:
     """Parse one physical DART XML file into one semantic document."""
 
-    parser_version = "2.0.0"
+    parser_version = "2.1.0"
 
     def parse(
         self,
@@ -104,11 +108,17 @@ class DartParser:
                 )
             )
 
-        error_count = sum(issue.severity is IssueSeverity.ERROR for issue in self.issues)
-        warning_count = sum(issue.severity is IssueSeverity.WARNING for issue in self.issues)
+        error_count = sum(
+            issue.occurrence_count for issue in self.issues if issue.severity is IssueSeverity.ERROR
+        )
+        warning_count = sum(
+            issue.occurrence_count
+            for issue in self.issues
+            if issue.severity is IssueSeverity.WARNING
+        )
         if not self.blocks:
             status = ParseStatus.FAILED
-        elif loaded.recovered or error_count or warning_count:
+        elif loaded.structural_recovery or error_count:
             status = ParseStatus.PARTIAL
         else:
             status = ParseStatus.SUCCESS

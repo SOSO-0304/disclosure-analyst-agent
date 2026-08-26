@@ -16,7 +16,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "2.1.0"
 
 
 def utc_now() -> datetime:
@@ -433,6 +433,7 @@ class ParseIssue(CanonicalModel):
     issue_code: str = Field(min_length=1)
     severity: IssueSeverity
     message: str = Field(min_length=1)
+    occurrence_count: int = Field(default=1, ge=1)
     source_file_id: str | None = None
     source_locator: SourceLocator | None = None
     details: dict[str, Any] = Field(default_factory=dict)

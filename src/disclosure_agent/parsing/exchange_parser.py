@@ -105,12 +105,16 @@ class ExchangeParser:
                     source_file_id=source.source_file_id,
                 )
             )
-        errors = sum(issue.severity is IssueSeverity.ERROR for issue in issues)
-        warnings = sum(issue.severity is IssueSeverity.WARNING for issue in issues)
+        errors = sum(
+            issue.occurrence_count for issue in issues if issue.severity is IssueSeverity.ERROR
+        )
+        warnings = sum(
+            issue.occurrence_count for issue in issues if issue.severity is IssueSeverity.WARNING
+        )
         status = ParseStatus.SUCCESS
         if not blocks:
             status = ParseStatus.FAILED
-        elif loaded.recovered or errors or warnings:
+        elif loaded.structural_recovery or errors:
             status = ParseStatus.PARTIAL
 
         return CanonicalDocument(

@@ -39,7 +39,7 @@ FilingPackage
 └── package_issues[]
 ```
 
-Schema version은 `2.0.0`입니다. 이전 `CanonicalDisclosure` JSONL과 호환되지 않으므로
+Schema version은 `2.1.0`입니다. 이전 `CanonicalDisclosure` JSONL과 호환되지 않으므로
 기존 `canonical.jsonl`은 새 코드로 다시 생성해야 합니다.
 
 핵심 원칙:
@@ -49,6 +49,8 @@ Schema version은 `2.0.0`입니다. 이전 `CanonicalDisclosure` JSONL과 호환
 - `text_raw`를 남기고 검색용 `text_normalized`는 별도 필드에 둡니다.
 - 표의 빈 셀, 행·열 좌표, `rowspan`/`colspan`, `ACODE`, `ACONTEXT`, 단위 정보를 보존합니다.
 - XML 복구와 PDF 텍스트 부재를 성공으로 숨기지 않고 `partial`/`failed`로 기록합니다.
+- 원본 XML은 수정하지 않고, 단독 `&`와 자연어 `<...>`를 메모리상의 parse buffer에서만
+  복구하며 복구 횟수와 대표 위치를 `ParseIssue.occurrence_count`에 기록합니다.
 - DART viewer HTML은 보고서 본문이 아니라 PDF의 TOC/offset companion metadata로 취급합니다.
 
 ## Corpus 구조

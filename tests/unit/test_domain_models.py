@@ -324,7 +324,7 @@ def test_filing_package_round_trips_through_json() -> None:
     decoded = FilingPackage.model_validate_json(encoded)
 
     assert decoded == package
-    assert json.loads(encoded)["schema_version"] == "2.0.0"
+    assert json.loads(encoded)["schema_version"] == "2.1.0"
 
 
 def test_schema_generation_is_serializable() -> None:

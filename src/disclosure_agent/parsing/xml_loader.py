@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass
+from html import unescape
 from pathlib import Path
 
 from lxml import etree, html
@@ -12,6 +14,73 @@ from disclosure_agent.domain.models import IssueSeverity, ParseIssue
 from disclosure_agent.parsing.markup_repair import repair_dart_xml
 
 _ENCODING = re.compile(rb"<\?xml[^>]+encoding=[\"']([^\"']+)", re.IGNORECASE)
+_PROTECTED_REGIONS = re.compile(
+    rb"<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|<!DOCTYPE(?:[^>\[]|\[[\s\S]*?\])*>",
+    re.DOTALL | re.IGNORECASE,
+)
+_TEXT_REFERENCE = re.compile(rb"&(?:amp|lt|gt|apos|quot|#[0-9]+|#x[0-9a-fA-F]+);")
+
+
+def _shield_references(raw: bytes) -> tuple[bytes, dict[str, str]]:
+    """libxml2 recovery can erase even valid references after a syntax error.
+
+    Replace references with collision-free ASCII tokens for recovery only. CDATA,
+    declarations and comments are opaque; they must not be unescaped afterwards.
+    """
+    prefix = "DARTREF" + uuid.uuid4().hex + "X"
+    while prefix.encode() in raw:
+        prefix = "DARTREF" + uuid.uuid4().hex + "X"
+    restored: dict[str, str] = {}
+    tokens: dict[bytes, bytes] = {}
+
+    def replace(match: re.Match[bytes]) -> bytes:
+        reference = match.group()
+        if reference not in tokens:
+            value = unescape(reference.decode("ascii"))
+            if reference.startswith(b"&#"):
+                # Invalid XML codepoints stay subject to ordinary diagnostics.
+                number = reference[2:-1]
+                try:
+                    codepoint = int(number[1:], 16) if number.startswith(b"x") else int(number)
+                except ValueError:
+                    return reference
+                if not (
+                    codepoint in (9, 10, 13)
+                    or 32 <= codepoint <= 0xD7FF
+                    or 0xE000 <= codepoint <= 0xFFFD
+                    or 0x10000 <= codepoint <= 0x10FFFF
+                ):
+                    return reference
+                value = chr(codepoint)
+            token = f"{prefix}{len(tokens)}Z"
+            tokens[reference] = token.encode()
+            restored[token] = value
+        return tokens[reference]
+
+    parts: list[bytes] = []
+    position = 0
+    for match in _PROTECTED_REGIONS.finditer(raw):
+        parts.append(_TEXT_REFERENCE.sub(replace, raw[position : match.start()]))
+        parts.append(match.group())
+        position = match.end()
+    parts.append(_TEXT_REFERENCE.sub(replace, raw[position:]))
+    return b"".join(parts), restored
+
+
+def _restore_references(root: etree._Element, replacements: dict[str, str]) -> None:
+    if not replacements:
+        return
+    pattern = re.compile("|".join(map(re.escape, replacements)))
+
+    def restore(value: str | None) -> str | None:
+        return pattern.sub(lambda m: replacements[m.group()], value) if value else value
+
+    for element in root.iter():
+        if isinstance(element.tag, str):
+            element.text = restore(element.text)
+            for key, value in list(element.attrib.items()):
+                element.set(key, restore(value))
+        element.tail = restore(element.tail)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,8 +184,26 @@ def load_dart_xml(path: str | Path, source_file_id: str) -> LoadedMarkup:
     except etree.XMLSyntaxError:
         structural_recovery = True
         parser = _xml_parser(recover=True)
-        root = etree.fromstring(repaired.content, parser=parser)
+        protected, replacements = _shield_references(repaired.content)
+        root = etree.fromstring(protected, parser=parser)
         parser_issues = _issues_from_error_log(parser.error_log, source_file_id)
+        if root is not None:
+            _restore_references(root, replacements)
+        if replacements:
+            for issue in parser_issues:
+                issue.details["columns_refer_to"] = "protected_parse_buffer"
+            parser_issues.append(
+                ParseIssue(
+                    issue_code="recovery_references_protected",
+                    severity=IssueSeverity.WARNING,
+                    message="Text references were protected during structural XML recovery.",
+                    source_file_id=source_file_id,
+                    details={
+                        "distinct_reference_count": len(replacements),
+                        "recovery_columns_refer_to": "protected_parse_buffer",
+                    },
+                )
+            )
     issues = [*repaired.issues, *parser_issues]
     return LoadedMarkup(
         root=root,

@@ -39,8 +39,9 @@ FilingPackage
 └── package_issues[]
 ```
 
-Schema version은 `2.1.0`입니다. 이전 `CanonicalDisclosure` JSONL과 호환되지 않으므로
-기존 `canonical.jsonl`은 새 코드로 다시 생성해야 합니다.
+Schema version은 `2.2.0`입니다. 새 중첩 표 관계 필드는 기본값이 있어 2.1.0 입력도 읽을 수
+있지만, 문자·중첩 표·정정사항 보존 수정은 기존 JSONL에 소급 적용되지 않습니다.
+이전 결과는 비교용으로 보관하고 새 출력 경로로 다시 생성합니다.
 
 핵심 원칙:
 
@@ -52,6 +53,19 @@ Schema version은 `2.1.0`입니다. 이전 `CanonicalDisclosure` JSONL과 호환
 - 원본 XML은 수정하지 않고, 단독 `&`와 자연어 `<...>`를 메모리상의 parse buffer에서만
   복구하며 복구 횟수와 대표 위치를 `ParseIssue.occurrence_count`에 기록합니다.
 - DART viewer HTML은 보고서 본문이 아니라 PDF의 TOC/offset companion metadata로 취급합니다.
+
+### 2.2.0 보존 규칙
+
+- `&reg;` 등 알려진 HTML entity는 문자로 복원하고, 정의되지 않은 entity는 원문 표현과
+  경고를 보존합니다. XML 구조 복구 중에도 정상 문자 참조가 사라지지 않도록 보호합니다.
+- `<PUBG: 배틀그라운드>`, `<신설 '23. 3.16.>`와 확인된 unpaired 제품명 표현을 보존합니다.
+  정상 namespace/확장 태그와 CDATA, 원본 파일은 변경하지 않습니다.
+- BODY를 원래 순서대로 순회하여 COVER·LIBRARY/CORRECTION·직접 텍스트·tail을 보존합니다.
+- 중첩 표는 독립 TABLE block으로 한 번만 저장합니다. 부모 셀의 `nested_table_ids`와
+  자식 표의 `parent_table_id`/`parent_cell_locator`로 연결합니다. 부모 셀의 `text_raw`에는
+  자식 표 내용을 중복 삽입하지 않습니다. 원래 위치는 source locator로 추적합니다.
+- 표 ID와 block ID가 달라질 수 있으므로 새/이전 JSONL의 ID를 섞어 검색 인덱스를 만들지 않습니다.
+- 구조 복구가 남으면 `partial`을 유지합니다. `success`만으로 무손실을 인증하지 않습니다.
 
 ## Corpus 구조
 
@@ -112,6 +126,25 @@ ruff format --check src tests
 - `inventory_failures == 0`
 - `failed`/`unsupported` document가 0이거나 승인된 예외 목록에만 존재
 - correction filing의 원문은 보존되고, lineage 미해결은 경고로 식별
+
+2.2.0 재파싱 및 독립 검증 (기존 결과는 그대로 둡니다):
+
+```powershell
+python -m disclosure_agent.parsing.batch data `
+  --output data\processed\canonical-v22-smoke.jsonl `
+  --skip-hashes
+python scripts\canonical_audit.py --self-test
+python scripts\canonical_audit.py `
+  --input data\processed\canonical-v22-smoke.jsonl `
+  --data-root data
+```
+
+이전 JSONL을 지정하려면 `--before data\processed\이전파일명.jsonl`을 추가합니다.
+검증기는 production parser를 호출하지 않으며 한글/영문 PUBG, 중첩 표의 소유 행·셀,
+전체 표 위치를 독립 검사합니다. 표의 값 비교는 기본적으로 표본 검사이고,
+`--all-tables`를 추가하면 전체 표를 비교합니다. 원문 구조가 모호한 경우에는
+`UNVERIFIED`/`REVIEW`로 남깁니다. 매번 새로운 `data/quality/canonical-audit-*.zip`을
+생성하며 원본 공시와 전체 Canonical JSONL은 ZIP에 넣지 않습니다.
 
 ## 다음 단계
 

@@ -16,7 +16,7 @@ from disclosure_agent.domain.models import (
     SourceFile,
     SourceLocator,
 )
-from disclosure_agent.parsing.table_parser import parse_table, raw_element_text
+from disclosure_agent.parsing.table_parser import build_table_ids, parse_table, raw_element_text
 from disclosure_agent.parsing.text_normalizer import normalize_text
 from disclosure_agent.parsing.xml_loader import load_html
 
@@ -24,7 +24,7 @@ from disclosure_agent.parsing.xml_loader import load_html
 class ExchangeParser:
     """Preserve exchange-form tables before event extraction."""
 
-    parser_version = "2.0.0"
+    parser_version = "2.2.0"
 
     def parse(
         self,
@@ -45,6 +45,7 @@ class ExchangeParser:
             source_locator=SourceLocator(source_file_id=source.source_file_id, xpath="/html"),
         )
         blocks: list[CanonicalBlock] = []
+        table_ids = build_table_ids(loaded.root, f"{filing_id}:{source.source_file_id}")
 
         for node in loaded.root.xpath(
             "//h1[not(ancestor::table)] | //h2[not(ancestor::table)] | "
@@ -52,11 +53,11 @@ class ExchangeParser:
         ):
             xpath = node.getroottree().getpath(node)
             if str(node.tag).lower() == "table":
-                table_number = sum(block.table is not None for block in blocks) + 1
                 table = parse_table(
                     node,
-                    f"{filing_id}:{source.source_file_id}:table:{table_number}",
+                    table_ids[node],
                     source.source_file_id,
+                    table_ids=table_ids,
                 )
                 blocks.append(
                     CanonicalBlock(

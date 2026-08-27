@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from html.entities import html5
 
 from disclosure_agent.domain.models import IssueSeverity, ParseIssue
 
@@ -17,6 +18,19 @@ _QNAME = re.compile(_NAME_PART + rb"(?::" + _NAME_PART + rb")?")
 _ENTITY = re.compile(rb"&(?:#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_][A-Za-z0-9_.:-]*);")
 _PREDEFINED_ENTITIES = {b"amp", b"lt", b"gt", b"apos", b"quot"}
 _MAX_EXAMPLES = 5
+# Reviewed labels observed in the corpus. Unknown extension tags are not guessed.
+_LITERAL_LABELS = {
+    b"BGMI",
+    b"STS",
+    b"CG",
+    b"MANIFESTO",
+    b"GranData",
+    b"DataBada",
+    b"DREAM",
+    b"SIT",
+    b"IIT",
+    b"SHEESH",
+}
 _KNOWN_DART_TAGS = {
     b"A",
     b"B",
@@ -71,6 +85,7 @@ class _IssueCollector:
     def __init__(self, raw: bytes, source_file_id: str) -> None:
         self.raw = raw
         self.source_file_id = source_file_id
+        self.declared_entities = set(re.findall(rb"<!ENTITY\s+([\w:.-]+)\s", raw))
         self._counts: dict[tuple[str, str], int] = {}
         self._examples: dict[tuple[str, str], list[dict[str, object]]] = {}
 
@@ -197,7 +212,12 @@ def _find_tag_end(raw: bytes, start: int) -> int | None:
                 quote = None
             continue
         if current in {ord('"'), ord("'")}:
-            quote = current
+            # Apostrophes in <신설 '23. 3.16.> are prose, not attributes.
+            previous = position - 1
+            while previous > start and raw[previous : previous + 1].isspace():
+                previous -= 1
+            if raw[previous : previous + 1] == b"=":
+                quote = current
         elif current == ord(">"):
             return position
         elif current == ord("<"):
@@ -264,18 +284,24 @@ def _repair_entities(
         body = entity[1:-1]
         if body.startswith(b"#") or body in _PREDEFINED_ENTITIES:
             output.extend(entity)
-        elif body.lower() == b"nbsp":
-            output.extend(b"&#160;")
+        elif body in collector.declared_entities:
+            output.extend(entity)
+        elif (value := html5.get(body.decode("ascii") + ";")) is not None:
+            output.extend("".join(f"&#{ord(char)};" for char in value).encode("ascii"))
             collector.record(
                 "named_entity_normalized",
-                "The HTML nbsp entity was converted to a numeric XML entity.",
+                "An HTML named entity was converted to numeric XML references.",
                 base_offset + position,
                 entity,
             )
         else:
-            # A DART DTD may define additional named entities.  Their semantic
-            # value cannot be inferred safely here, so valid syntax is retained.
-            output.extend(entity)
+            output.extend(b"&amp;" + entity[1:])
+            collector.record(
+                "undefined_entity_preserved",
+                "An undefined entity was retained as literal text, not expanded.",
+                base_offset + position,
+                entity,
+            )
         position = entity_match.end()
     return bytes(output)
 
@@ -286,6 +312,11 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
     collector = _IssueCollector(raw, source_file_id)
     output = bytearray()
     position = 0
+    unpaired_labels = {
+        name
+        for name in _LITERAL_LABELS
+        if re.search(rb"</" + re.escape(name) + rb"\s*>", raw) is None
+    }
 
     while position < len(raw):
         next_ampersand = raw.find(b"&", position)
@@ -356,9 +387,23 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
             continue
 
         token = raw[position + 1 : tag_end]
+        if _is_known_dart_tag(token):
+            # Repair only an extra terminal quote after a complete attribute.
+            # Do not reinterpret arbitrary malformed structural tags as prose.
+            fixed = re.sub(rb"(=\s*\"[^\"<>]*\")\"(\s*/?\s*)$", rb"\1\2", token)
+            fixed = re.sub(rb"(=\s*'[^'<>]*')'(\s*/?\s*)$", rb"\1\2", fixed)
+            if fixed != token:
+                collector.record(
+                    "duplicate_attribute_quote_repaired",
+                    "An extra terminal attribute quote was removed in the parse buffer.",
+                    position,
+                    raw[position : tag_end + 1],
+                )
+                token = fixed
+        literal_label = token.strip() in unpaired_labels
         if token.lstrip().startswith(b"!"):
             output.extend(raw[position : tag_end + 1])
-        elif _is_valid_tag(token) or _is_known_dart_tag(token):
+        elif not literal_label and (_is_valid_tag(token) or _is_known_dart_tag(token)):
             output.append(ord("<"))
             output.extend(
                 _repair_entities(

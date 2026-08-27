@@ -18,12 +18,12 @@ from disclosure_agent.domain.models import (
     SourceFile,
     SourceLocator,
 )
-from disclosure_agent.parsing.table_parser import parse_table, raw_element_text
+from disclosure_agent.parsing.table_parser import build_table_ids, parse_table, raw_element_text
 from disclosure_agent.parsing.text_normalizer import normalize_text
 from disclosure_agent.parsing.xml_loader import load_dart_xml
 
 _BLOCK_TEXT_TAGS = {"P", "PARAGRAPH", "NOTE", "LIST", "WARNING"}
-_TABLE_TAGS = {"TABLE", "TABLE-GROUP"}
+_STRUCTURAL_TAGS = {"TABLE", "TABLE-GROUP", "PGBRK", "TITLE", *_BLOCK_TEXT_TAGS}
 
 
 def _local_name(element: etree._Element) -> str:
@@ -56,7 +56,7 @@ def _xpath(element: etree._Element) -> str | None:
 class DartParser:
     """Parse one physical DART XML file into one semantic document."""
 
-    parser_version = "2.1.0"
+    parser_version = "2.2.0"
 
     def parse(
         self,
@@ -75,28 +75,23 @@ class DartParser:
 
         body_nodes = loaded.root.xpath("//*[local-name()='BODY']")
         body = body_nodes[0] if body_nodes else loaded.root
-        top_sections = [child for child in body if _section_level(child) is not None]
-
-        if top_sections:
-            for order, element in enumerate(top_sections):
-                self._parse_section(element, parent_id=None, order=order)
-        else:
-            root_section_id = self._new_section_id()
-            self.sections.append(
-                CanonicalSection(
-                    section_id=root_section_id,
-                    order=0,
-                    level=0,
-                    title_raw=title,
-                    title_normalized=normalize_text(title),
-                    source_locator=SourceLocator(
-                        source_file_id=source.source_file_id,
-                        xpath=_xpath(body),
-                    ),
-                )
+        self.table_ids = build_table_ids(body, f"{filing_id}:{source.source_file_id}")
+        root_section_id = self._new_section_id()
+        self.sections.append(
+            CanonicalSection(
+                section_id=root_section_id,
+                order=0,
+                level=0,
+                title_raw=title,
+                title_normalized=normalize_text(title),
+                source_locator=SourceLocator(
+                    source_file_id=source.source_file_id, xpath=_xpath(body)
+                ),
             )
-            for child in body:
-                self._emit_content(child, root_section_id)
+        )
+        # Siblings of SECTION-* within BODY include covers and LIBRARY/CORRECTION.
+        # They are canonical source content, even when retrieval later filters them.
+        self._walk_children(body, root_section_id)
 
         if not self.blocks:
             self.issues.append(
@@ -187,39 +182,23 @@ class DartParser:
                 attributes_raw={str(key): value for key, value in element.attrib.items()},
             )
         )
-        if normalize_text(title_raw):
-            self.blocks.append(
-                CanonicalBlock(
-                    block_id=self._new_block_id(),
-                    section_id=section_id,
-                    order=len(self.blocks),
-                    block_type=BlockType.HEADING,
-                    text_raw=title_raw,
-                    text_normalized=normalize_text(title_raw),
-                    heading_level=min(max(level, 1), 6),
-                    source_locator=SourceLocator(
-                        source_file_id=self.source.source_file_id,
-                        xpath=_xpath(title_node),
-                    ),
-                )
-            )
+        self._walk_children(element, section_id)
 
-        child_section_order = 0
+    def _walk_children(self, element: etree._Element, section_id: str) -> None:
+        self._emit_text(element, section_id, element.text, slot="text")
         for child in element:
-            if child is title_node:
-                continue
-            if _section_level(child) is not None:
-                self._parse_section(
-                    child,
-                    parent_id=section_id,
-                    order=child_section_order,
-                )
-                child_section_order += 1
-            else:
+            if isinstance(child.tag, str):
                 self._emit_content(child, section_id)
+            elif isinstance(child, etree._Entity):
+                self._emit_text(child, section_id, child.text, slot="entity")
+            self._emit_text(child, section_id, child.tail, slot="tail")
 
     def _emit_content(self, element: etree._Element, section_id: str) -> None:
         name = _local_name(element)
+        if _section_level(element) is not None:
+            order = sum(section.parent_section_id == section_id for section in self.sections)
+            self._parse_section(element, parent_id=section_id, order=order)
+            return
         if name == "PGBRK":
             self.blocks.append(
                 CanonicalBlock(
@@ -236,45 +215,57 @@ class DartParser:
             return
 
         if name == "TABLE":
-            table_number = sum(block.table is not None for block in self.blocks) + 1
-            table_id = f"{self.filing_id}:{self.source.source_file_id}:table:{table_number}"
-            table = parse_table(element, table_id, self.source.source_file_id)
-            self.blocks.append(
-                CanonicalBlock(
-                    block_id=self._new_block_id(),
-                    section_id=section_id,
-                    order=len(self.blocks),
-                    block_type=BlockType.TABLE,
-                    table=table,
-                    source_locator=SourceLocator(
-                        source_file_id=self.source.source_file_id,
-                        xpath=_xpath(element),
-                    ),
-                )
-            )
+            for node in element.iter():
+                if _local_name(node) == "TABLE":
+                    self._emit_table(node, section_id)
             return
 
         contains_structural_children = any(
-            _section_level(child) is not None or _local_name(child) in _TABLE_TAGS
-            for child in element
+            _section_level(child) is not None or _local_name(child) in _STRUCTURAL_TAGS
+            for child in element.iterdescendants()
         )
         if name == "TABLE-GROUP" or contains_structural_children:
-            for child in element:
-                if _section_level(child) is not None:
-                    self._parse_section(child, parent_id=section_id, order=0)
-                else:
-                    self._emit_content(child, section_id)
+            self._walk_children(element, section_id)
             return
 
-        raw_text = raw_element_text(element)
+        self._emit_text(element, section_id, raw_element_text(element))
+
+    def _emit_table(self, element: etree._Element, section_id: str) -> None:
+        table = parse_table(
+            element, self.table_ids[element], self.source.source_file_id, table_ids=self.table_ids
+        )
+        self.blocks.append(
+            CanonicalBlock(
+                block_id=self._new_block_id(),
+                section_id=section_id,
+                order=len(self.blocks),
+                block_type=BlockType.TABLE,
+                table=table,
+                source_locator=SourceLocator(
+                    source_file_id=self.source.source_file_id, xpath=_xpath(element)
+                ),
+            )
+        )
+
+    def _emit_text(
+        self,
+        element: etree._Element,
+        section_id: str,
+        raw_text: str | None,
+        *,
+        slot: str | None = None,
+    ) -> None:
         normalized = normalize_text(raw_text)
         if normalized is None:
             return
+        name = _local_name(element)
         block_type = BlockType.PARAGRAPH
         if name == "NOTE":
             block_type = BlockType.NOTE
         elif name == "LIST":
             block_type = BlockType.LIST
+        elif name == "TITLE" and slot is None:
+            block_type = BlockType.HEADING
         elif name not in _BLOCK_TEXT_TAGS:
             block_type = BlockType.UNKNOWN
         self.blocks.append(
@@ -285,10 +276,28 @@ class DartParser:
                 block_type=block_type,
                 text_raw=raw_text,
                 text_normalized=normalized,
+                heading_level=(
+                    min(
+                        max(
+                            next(
+                                section.level
+                                for section in self.sections
+                                if section.section_id == section_id
+                            ),
+                            1,
+                        ),
+                        6,
+                    )
+                    if block_type is BlockType.HEADING
+                    else None
+                ),
                 source_locator=SourceLocator(
                     source_file_id=self.source.source_file_id,
                     xpath=_xpath(element),
                 ),
-                attributes_raw={str(key): value for key, value in element.attrib.items()},
+                attributes_raw={
+                    **{str(key): value for key, value in element.attrib.items()},
+                    **({"text_slot": slot} if slot else {}),
+                },
             )
         )

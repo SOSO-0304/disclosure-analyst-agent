@@ -16,7 +16,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-SCHEMA_VERSION = "2.1.0"
+SCHEMA_VERSION = "2.2.0"
 
 
 def utc_now() -> datetime:
@@ -371,6 +371,7 @@ class TableCell(CanonicalModel):
     is_negated: bool | None = None
     attributes_raw: dict[str, Any] = Field(default_factory=dict)
     source_locator: SourceLocator | None = None
+    nested_table_ids: list[str] = Field(default_factory=list)
 
 
 class TableData(CanonicalModel):
@@ -384,10 +385,13 @@ class TableData(CanonicalModel):
     header_row_indices: list[int] = Field(default_factory=list)
     cells: list[TableCell] = Field(default_factory=list)
     attributes_raw: dict[str, Any] = Field(default_factory=dict)
+    parent_table_id: str | None = None
+    parent_cell_locator: SourceLocator | None = None
 
     @model_validator(mode="after")
     def validate_grid(self) -> Self:
         coordinates: set[tuple[int, int]] = set()
+        occupied: set[tuple[int, int]] = set()
         for cell in self.cells:
             coordinate = (cell.row_index, cell.column_index)
             if coordinate in coordinates:
@@ -397,6 +401,11 @@ class TableData(CanonicalModel):
                 raise ValueError("table cell row span exceeds row_count")
             if cell.column_index + cell.column_span > self.column_count:
                 raise ValueError("table cell column span exceeds column_count")
+            for row in range(cell.row_index, cell.row_index + cell.row_span):
+                for column in range(cell.column_index, cell.column_index + cell.column_span):
+                    if (row, column) in occupied:
+                        raise ValueError(f"overlapping table cells at {(row, column)}")
+                    occupied.add((row, column))
         if any(row >= self.row_count for row in self.header_row_indices):
             raise ValueError("header row index exceeds row_count")
         return self

@@ -20,6 +20,33 @@ def raw_element_text(element: etree._Element) -> str:
     return "".join(element.itertext())
 
 
+def _tag(element: etree._Element) -> str:
+    return element.tag.rsplit("}", 1)[-1].upper() if isinstance(element.tag, str) else ""
+
+
+def build_table_ids(root: etree._Element, prefix: str) -> dict[etree._Element, str]:
+    return {
+        node: f"{prefix}:table:{index}"
+        for index, node in enumerate((node for node in root.iter() if _tag(node) == "TABLE"), 1)
+    }
+
+
+def _parent_table(element: etree._Element) -> etree._Element | None:
+    return next((node for node in element.iterancestors() if _tag(node) == "TABLE"), None)
+
+
+def _cell_text(element: etree._Element) -> str:
+    """Exclude child tables, retaining surrounding text and child-table tails."""
+    parts = [element.text or ""]
+    for child in element:
+        if _tag(child) != "TABLE" and isinstance(child.tag, str):
+            parts.append(_cell_text(child))
+        elif isinstance(child, etree._Entity):
+            parts.append(child.text or "")
+        parts.append(child.tail or "")
+    return "".join(parts)
+
+
 def _attribute(element: etree._Element, name: str) -> str | None:
     wanted = name.lower()
     for key, value in element.attrib.items():
@@ -50,6 +77,8 @@ def parse_table(
     element: etree._Element,
     table_id: str,
     source_file_id: str,
+    *,
+    table_ids: dict[etree._Element, str] | None = None,
 ) -> TableData:
     """Parse a table without shifting empty cells or flattening spans."""
 
@@ -58,17 +87,27 @@ def parse_table(
     header_rows: set[int] = set()
     row_count = 0
     column_count = 0
-    row_elements = element.xpath(".//TR | .//tr")
+    if table_ids is None:
+        table_ids = build_table_ids(element, table_id + ":nested")
+        table_ids[element] = table_id
+    row_elements = [
+        row
+        for row in element.iterdescendants()
+        if _tag(row) == "TR" and _parent_table(row) is element
+    ]
 
     for row_index, row in enumerate(row_elements):
         column_index = 0
-        for cell in row.xpath("./TH | ./TD | ./TE | ./TU | ./th | ./td"):
-            while (row_index, column_index) in occupied:
-                column_index += 1
-
+        for cell in (child for child in row if _tag(child) in {"TH", "TD", "TE", "TU"}):
             row_span = _span(_attribute(cell, "rowspan"))
             column_span = _span(_attribute(cell, "colspan"))
-            raw_text = raw_element_text(cell)
+            # The whole colspan must fit around active rowspans, not only its origin.
+            while any(
+                (row_index, column) in occupied
+                for column in range(column_index, column_index + column_span)
+            ):
+                column_index += 1
+            raw_text = _cell_text(cell)
             normalized_text = normalize_text(raw_text) or ""
             negated = parse_bool_attribute(_attribute(cell, "anegated"))
             is_header = str(cell.tag).lower() in {"th", "te"}
@@ -96,6 +135,11 @@ def parse_table(
                         source_file_id=source_file_id,
                         xpath=_xpath(cell),
                     ),
+                    nested_table_ids=[
+                        table_ids[node]
+                        for node in cell.iterdescendants()
+                        if _tag(node) == "TABLE" and _parent_table(node) is element
+                    ],
                 )
             )
 
@@ -113,6 +157,10 @@ def parse_table(
 
     caption_nodes = element.xpath("./CAPTION | ./caption")
     caption_raw = raw_element_text(caption_nodes[0]) if caption_nodes else None
+    parent = _parent_table(element)
+    parent_cell = next(
+        (node for node in element.iterancestors() if _tag(node) in {"TD", "TH", "TE", "TU"}), None
+    )
     return TableData(
         table_id=table_id,
         caption_raw=caption_raw,
@@ -122,4 +170,10 @@ def parse_table(
         header_row_indices=sorted(header_rows),
         cells=cells,
         attributes_raw=_attributes(element),
+        parent_table_id=table_ids.get(parent),
+        parent_cell_locator=(
+            SourceLocator(source_file_id=source_file_id, xpath=_xpath(parent_cell))
+            if parent is not None and parent_cell is not None
+            else None
+        ),
     )

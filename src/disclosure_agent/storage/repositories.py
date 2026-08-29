@@ -25,6 +25,8 @@ from disclosure_agent.storage.supply_contract_persistence import (
     SupplyContractPersistenceBundle,
 )
 
+UPSERT_BATCH_SIZE = 500
+
 
 class SupplyContractRepository:
     """Upsert one deterministic Supply Contract persistence snapshot."""
@@ -101,16 +103,18 @@ def _upsert(
     if not materialized:
         return
 
-    statement = insert(model).values(materialized)
-    excluded = set(conflict_columns) | set(exclude_update)
-    update_values = {
-        column.name: getattr(statement.excluded, column.name)
-        for column in model.__table__.columns
-        if column.name not in excluded
-    }
-    session.execute(
-        statement.on_conflict_do_update(
-            index_elements=list(conflict_columns),
-            set_=update_values,
+    for start in range(0, len(materialized), UPSERT_BATCH_SIZE):
+        batch = materialized[start : start + UPSERT_BATCH_SIZE]
+        statement = insert(model).values(batch)
+        excluded = set(conflict_columns) | set(exclude_update)
+        update_values = {
+            column.name: getattr(statement.excluded, column.name)
+            for column in model.__table__.columns
+            if column.name not in excluded
+        }
+        session.execute(
+            statement.on_conflict_do_update(
+                index_elements=list(conflict_columns),
+                set_=update_values,
+            )
         )
-    )

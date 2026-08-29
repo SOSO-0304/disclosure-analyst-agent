@@ -26,6 +26,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "contract_name": (
         "- 체결계약명",
+        "- 세부내용",
         "1. 판매ㆍ공급계약 내용",
     ),
     "contract_amount": (

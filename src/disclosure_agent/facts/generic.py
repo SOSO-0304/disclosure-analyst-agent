@@ -9,10 +9,11 @@ auditable.  Higher-level typed event extractors may later interpret these facts.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from disclosure_agent.domain.models import FilingPackage, TableCell, TableData
 

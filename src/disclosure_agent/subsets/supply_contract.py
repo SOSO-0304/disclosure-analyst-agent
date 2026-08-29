@@ -9,7 +9,8 @@ The builder performs a single streaming pass over the immutable canonical file:
 5. verify the selected filing IDs exactly match the corpus manifest inventory;
 6. hash the validated subset and atomically publish subset + manifest.
 
-The source canonical file is never modified.
+The source canonical file is never modified and selected package objects are not
+retained in memory after their provenance counters have been collected.
 """
 
 from __future__ import annotations
@@ -110,15 +111,7 @@ def _load_inventory_ids(path: Path) -> tuple[set[str], str]:
     return expected, digest.hexdigest()
 
 
-def _parser_versions(packages: list[FilingPackage]) -> dict[str, str]:
-    versions: dict[str, set[str]] = defaultdict(set)
-    for package in packages:
-        for document in package.documents:
-            name = document.parse_summary.parser_name
-            version = document.parse_summary.parser_version
-            if name and version:
-                versions[name].add(version)
-
+def _finalize_parser_versions(versions: dict[str, set[str]]) -> dict[str, str]:
     conflicts = {name: values for name, values in versions.items() if len(values) > 1}
     if conflicts:
         rendered = ", ".join(
@@ -126,13 +119,14 @@ def _parser_versions(packages: list[FilingPackage]) -> dict[str, str]:
         )
         raise SubsetBuildError(f"Multiple parser versions in selected subset: {rendered}")
 
-    return {name: next(iter(values)) for name, values in sorted(versions.items())}
+    return {
+        name: next(iter(values))
+        for name, values in sorted(versions.items())
+        if values
+    }
 
 
-def _validate_selected_packages(
-    packages: list[FilingPackage], expected_ids: set[str]
-) -> tuple[int, int, int, int]:
-    selected_ids = [package.filing_id for package in packages]
+def _verify_selected_ids(selected_ids: list[str], expected_ids: set[str]) -> None:
     if len(selected_ids) != len(set(selected_ids)):
         raise SubsetBuildError("Duplicate filing_id values in selected canonical packages")
 
@@ -149,22 +143,6 @@ def _validate_selected_packages(
             "Canonical subset does not match inventory Supply Contract filing IDs: "
             + "; ".join(details)
         )
-
-    schema_versions = {package.schema_version for package in packages}
-    if schema_versions != {SCHEMA_VERSION}:
-        raise SubsetBuildError(
-            "Selected packages do not all use the current canonical schema: "
-            f"{sorted(schema_versions)}"
-        )
-
-    document_count = sum(len(package.documents) for package in packages)
-    source_file_count = sum(len(package.source_files) for package in packages)
-    source_hash_present = sum(
-        source.sha256 is not None
-        for package in packages
-        for source in package.source_files
-    )
-    return len(packages), document_count, source_file_count, source_hash_present
 
 
 def _temporary_sibling(path: Path) -> Path:
@@ -187,8 +165,8 @@ def build_supply_contract_subset(
     ``document_group == exchange`` and
     ``document_subtype == 단일판매공급계약체결``.
 
-    The 1,106 expected filings are *not* hard-coded. Their exact filing IDs are
-    independently derived from ``data/manifest.jsonl`` and compared as a set.
+    The expected filing count is not hard-coded. Exact filing IDs are derived
+    independently from ``data/manifest.jsonl`` and compared as a set.
     """
 
     canonical = Path(canonical_path)
@@ -196,6 +174,8 @@ def build_supply_contract_subset(
     output = Path(output_path)
     manifest = Path(manifest_path)
 
+    if progress_every < 0:
+        raise SubsetBuildError("progress_every must be zero or greater")
     if not canonical.is_file():
         raise SubsetBuildError(f"Canonical snapshot not found: {canonical}")
     if canonical.resolve() in {output.resolve(), manifest.resolve()}:
@@ -218,8 +198,13 @@ def build_supply_contract_subset(
     temp_manifest = _temporary_sibling(manifest)
 
     canonical_digest = hashlib.sha256()
-    selected_packages: list[FilingPackage] = []
+    selected_ids: list[str] = []
+    schema_versions: set[str] = set()
+    parser_version_sets: dict[str, set[str]] = defaultdict(set)
     scanned_packages = 0
+    document_count = 0
+    source_file_count = 0
+    source_hash_present = 0
 
     try:
         with canonical.open("rb") as source, temp_output.open("wb") as target:
@@ -238,7 +223,7 @@ def build_supply_contract_subset(
                 if not isinstance(payload, dict) or not _is_supply_contract_payload(payload):
                     if progress_every > 0 and scanned_packages % progress_every == 0:
                         print(
-                            f"scanned={scanned_packages} selected={len(selected_packages)}",
+                            f"scanned={scanned_packages} selected={len(selected_ids)}",
                             file=sys.stderr,
                         )
                     continue
@@ -250,30 +235,42 @@ def build_supply_contract_subset(
                         f"Invalid selected canonical package at line {line_number}"
                     ) from exc
 
-                # The model validator already enforces filing_id == filing.doc_id.
-                selected_packages.append(package)
+                # FilingPackage validates filing_id == filing.doc_id.
+                selected_ids.append(package.filing_id)
+                schema_versions.add(package.schema_version)
+                document_count += len(package.documents)
+                source_file_count += len(package.source_files)
+                source_hash_present += sum(
+                    source_file.sha256 is not None for source_file in package.source_files
+                )
+                for document in package.documents:
+                    name = document.parse_summary.parser_name
+                    version = document.parse_summary.parser_version
+                    if name and version:
+                        parser_version_sets[name].add(version)
+
                 target.write(_normalise_jsonl_line(line))
 
                 if progress_every > 0 and scanned_packages % progress_every == 0:
                     print(
-                        f"scanned={scanned_packages} selected={len(selected_packages)}",
+                        f"scanned={scanned_packages} selected={len(selected_ids)}",
                         file=sys.stderr,
                     )
 
             target.flush()
             os.fsync(target.fileno())
 
-        (
-            package_count,
-            document_count,
-            source_file_count,
-            source_hash_present,
-        ) = _validate_selected_packages(selected_packages, expected_ids)
+        _verify_selected_ids(selected_ids, expected_ids)
+        if schema_versions != {SCHEMA_VERSION}:
+            raise SubsetBuildError(
+                "Selected packages do not all use the current canonical schema: "
+                f"{sorted(schema_versions)}"
+            )
+        parser_versions = _finalize_parser_versions(parser_version_sets)
 
         # Hash only after the temporary subset has passed count/schema/inventory checks.
         subset_sha256 = _sha256_file(temp_output)
         subset_size_bytes = temp_output.stat().st_size
-        parser_versions = _parser_versions(selected_packages)
 
         metadata: dict[str, Any] = {
             "subset_name": "supply-contract-v22",
@@ -295,10 +292,10 @@ def build_supply_contract_subset(
                 "sha256": inventory_sha256,
                 "expected_package_count": len(expected_ids),
             },
-            "selected_package_count": package_count,
+            "selected_package_count": len(selected_ids),
             "selected_document_count": document_count,
             "selected_source_file_count": source_file_count,
-            "filing_ids": sorted(expected_ids),
+            "filing_ids": sorted(selected_ids),
             "source_file_hash_coverage": {
                 "present": source_hash_present,
                 "total": source_file_count,
@@ -316,8 +313,8 @@ def build_supply_contract_subset(
             stream.flush()
             os.fsync(stream.fileno())
 
-        # Publish data first and manifest last. The manifest acts as the commit marker
-        # for a complete subset build; neither source input is ever modified.
+        # Publish data first and manifest last. The manifest is the commit marker for
+        # a complete subset build; neither source input is ever modified.
         os.replace(temp_output, output)
         os.replace(temp_manifest, manifest)
         return metadata

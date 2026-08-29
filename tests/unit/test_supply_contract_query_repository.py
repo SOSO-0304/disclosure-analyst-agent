@@ -17,6 +17,7 @@ def test_terminated_contract_query_uses_original_contract_year_and_company() -> 
     assert "root_event.contract_date" in sql
     assert "supply_contract_lifecycle.status" in sql
     assert "supply_contract_termination_links.status" in sql
+    assert "supply_contract_termination_events.termination_date >= root_event.contract_date" in sql
     assert "companies.listed_name" in sql
     assert date(2025, 1, 1) in compiled.params.values()
     assert date(2026, 1, 1) in compiled.params.values()

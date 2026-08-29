@@ -81,7 +81,9 @@ def _package(
     )
 
 
-def test_reader_replaces_in_base_order_and_builds_deterministic_manifest(tmp_path: Path) -> None:
+def test_reader_replaces_in_base_order_and_builds_deterministic_manifest(
+    tmp_path: Path,
+) -> None:
     base = tmp_path / "base.jsonl"
     overlay = tmp_path / "overlay.jsonl"
     base_a = _package("a", "20240101000001", status=ParseStatus.PARTIAL, tables=2)

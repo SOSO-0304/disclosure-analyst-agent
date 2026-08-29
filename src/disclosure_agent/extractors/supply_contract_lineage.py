@@ -1,10 +1,10 @@
 """Resolve Supply Contract correction lineage using explicit disclosure dates.
 
-The resolver is intentionally conservative.  A correction is linked only when
-``2. 정정관련 공시서류제출일`` identifies exactly one filing for the same
-company inside the selected Supply Contract corpus.  Ambiguous or out-of-corpus
-predecessors are surfaced as unresolved states instead of being guessed from
-text similarity.
+The resolver is intentionally conservative. A correction is linked only when
+``2. 정정관련 공시서류제출일`` identifies exactly one earlier filing for the
+same company inside the selected Supply Contract corpus. Ambiguous or
+out-of-corpus predecessors are surfaced as unresolved states instead of being
+guessed from text similarity.
 """
 
 from __future__ import annotations
@@ -60,10 +60,16 @@ def resolve_supply_contract_lineage(
 ) -> SupplyContractLineage:
     """Resolve correction predecessor links without fuzzy matching.
 
-    All supplied packages are indexed by ``(corp_code, receipt_date)``.  For a
+    All supplied packages are indexed by ``(corp_code, receipt_date)``. For a
     correction filing, the explicit related-filing submission date is read from
-    the disclosure body.  Exactly one same-company package on that date yields
-    a resolved predecessor; zero or multiple candidates remain unresolved.
+    the disclosure body. Exactly one same-company *earlier* package on that date
+    yields a resolved predecessor; zero or multiple candidates remain
+    unresolved.
+
+    The earlier-receipt constraint matters for same-day correction chains. A
+    later correction can cite the same submission date as an earlier filing; if
+    future receipts were allowed as candidates, two correction filings could be
+    linked to each other and form an artificial cycle.
     """
 
     package_list = list(packages)
@@ -98,6 +104,7 @@ def resolve_supply_contract_lineage(
             candidate
             for candidate in by_company_date.get((package.company.corp_code, related_date), [])
             if candidate.filing_id != package.filing_id
+            and candidate.filing.receipt_number < package.filing.receipt_number
         ]
         candidates.sort(key=lambda item: (item.filing.receipt_number, item.filing_id))
 

@@ -45,6 +45,8 @@ htmlcov/
 /data/canonical/**
 /data/retrieval/**
 /data/quality/**
+/data/processed/**/*.jsonl
+/data/processed/**/*.jsonl.zst
 
 # Preserve empty data directories
 !/data/raw/.gitkeep

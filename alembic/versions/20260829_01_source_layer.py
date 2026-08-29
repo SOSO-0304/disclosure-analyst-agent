@@ -41,6 +41,16 @@ def upgrade() -> None:
     op.create_index("ix_load_runs_status", "load_runs", ["status"])
 
     op.create_table(
+        "source_companies",
+        sa.Column("corp_code", sa.String(length=16), primary_key=True),
+        sa.Column("stock_code", sa.String(length=16)),
+        sa.Column("corp_name", sa.Text(), nullable=False),
+        sa.Column("listed_name", sa.Text(), nullable=False),
+        sa.Column("industry", sa.Text()),
+        sa.Column("sector", sa.Text()),
+    )
+
+    op.create_table(
         "source_filings",
         sa.Column("filing_id", sa.String(length=128), primary_key=True),
         sa.Column(
@@ -52,12 +62,12 @@ def upgrade() -> None:
         sa.Column(
             "corp_code",
             sa.String(length=16),
-            sa.ForeignKey("companies.corp_code", ondelete="RESTRICT"),
+            sa.ForeignKey("source_companies.corp_code", ondelete="RESTRICT"),
             nullable=False,
         ),
         sa.Column("receipt_number", sa.String(length=32), nullable=False),
         sa.Column("document_group", sa.String(length=32), nullable=False),
-        sa.Column("document_subtype", sa.Text(), nullable=False),
+        sa.Column("document_subtype", sa.Text()),
         sa.Column("report_name", sa.Text(), nullable=False),
         sa.Column("receipt_date", sa.Date(), nullable=False),
         sa.Column("filer_name", sa.Text(), nullable=False),
@@ -205,7 +215,7 @@ def upgrade() -> None:
 
     op.execute("CREATE SCHEMA IF NOT EXISTS source_staging")
     for table_name in (
-        "companies",
+        "source_companies",
         "source_filings",
         "source_documents",
         "source_sections",
@@ -225,4 +235,5 @@ def downgrade() -> None:
     op.drop_table("source_sections")
     op.drop_table("source_documents")
     op.drop_table("source_filings")
+    op.drop_table("source_companies")
     op.drop_table("load_runs")

@@ -89,9 +89,6 @@ def build_supply_contract_persistence_bundle(
     correction_by_id = {
         link.correction_filing_id: link for link in projection.correction_lineage.links
     }
-    termination_link_by_id = {
-        link.termination_filing_id: link for link in projection.termination_lineage.links
-    }
     latest_by_root = {
         state.root_filing_id: state.latest_formation_filing_id for state in projection.states
     }

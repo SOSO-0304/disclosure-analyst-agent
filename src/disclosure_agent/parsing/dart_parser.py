@@ -56,7 +56,7 @@ def _xpath(element: etree._Element) -> str | None:
 class DartParser:
     """Parse one physical DART XML file into one semantic document."""
 
-    parser_version = "2.2.0"
+    parser_version = "2.2.1"
 
     def parse(
         self,

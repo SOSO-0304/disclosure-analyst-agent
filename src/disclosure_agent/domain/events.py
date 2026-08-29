@@ -13,6 +13,7 @@ class EventType(StrEnum):
     """Supported typed disclosure events."""
 
     SUPPLY_CONTRACT = "supply_contract"
+    SUPPLY_CONTRACT_TERMINATION = "supply_contract_termination"
 
 
 class DisclosureEvent(BaseModel):
@@ -44,3 +45,22 @@ class SupplyContractEvent(DisclosureEvent):
     contract_end_date: date | None = None
     contract_date: date | None = None
     major_conditions: str | None = None
+
+
+class SupplyContractTerminationEvent(DisclosureEvent):
+    """Typed representation of a supply-contract termination filing."""
+
+    event_type: EventType = EventType.SUPPLY_CONTRACT_TERMINATION
+    termination_type: str | None = None
+    contract_name: str | None = None
+    termination_amount: int | None = None
+    recent_revenue: int | None = None
+    revenue_ratio: Decimal | None = None
+    counterparty: str | None = None
+    relationship: str | None = None
+    contract_start_date: date | None = None
+    contract_end_date: date | None = None
+    termination_reason: str | None = None
+    termination_date: date | None = None
+    notes: str | None = None
+    related_disclosures: str | None = None

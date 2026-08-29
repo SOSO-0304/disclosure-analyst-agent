@@ -88,7 +88,11 @@ def _package(
     )
 
 
-def _inventory_entry(filing_id: str, receipt_number: str, subtype: str) -> CorpusManifestEntry:
+def _inventory_entry(
+    filing_id: str,
+    receipt_number: str,
+    subtype: str,
+) -> CorpusManifestEntry:
     return CorpusManifestEntry(
         doc_id=filing_id,
         corp_code="00123456",
@@ -120,7 +124,7 @@ def _write_jsonl(path: Path, records: list[object]) -> None:
             stream.write(orjson.dumps(payload, option=orjson.OPT_SORT_KEYS) + b"\n")
 
 
-def test_build_supply_contract_subset_uses_exact_subtype_and_writes_manifest(tmp_path: Path):
+def test_build_subset_uses_exact_subtype_and_writes_manifest(tmp_path: Path):
     present_hash = "a" * 64
     supply_a = _package("exchange_a", "20260102800001", SUPPLY_CONTRACT_SUBTYPE)
     termination = _package("exchange_b", "20260102800002", "단일판매공급계약해지")
@@ -168,11 +172,13 @@ def test_build_supply_contract_subset_uses_exact_subtype_and_writes_manifest(tmp
     assert metadata["source_canonical"]["sha256"] == hashlib.sha256(
         canonical.read_bytes()
     ).hexdigest()
-    assert metadata["subset"]["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert metadata["subset"]["sha256"] == hashlib.sha256(
+        output.read_bytes()
+    ).hexdigest()
     assert manifest.is_file()
 
 
-def test_build_supply_contract_subset_rejects_inventory_mismatch(tmp_path: Path):
+def test_build_subset_rejects_inventory_mismatch(tmp_path: Path):
     canonical = tmp_path / "canonical.jsonl"
     inventory = tmp_path / "manifest.jsonl"
     output = tmp_path / "subset.jsonl"

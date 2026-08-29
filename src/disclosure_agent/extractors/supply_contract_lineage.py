@@ -15,6 +15,7 @@ guessed from free-text similarity.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -36,6 +37,9 @@ MATCH_FIELDS = (
     "contract_start_date",
 )
 MIN_FINGERPRINT_MATCHES = 2
+KOREAN_DATE_PATTERN = re.compile(
+    r"^\s*(?P<year>\d{4})\s*년\s*(?P<month>\d{1,2})\s*월\s*(?P<day>\d{1,2})\s*일\s*$"
+)
 
 
 class LineageResolutionStatus(StrEnum):
@@ -243,11 +247,25 @@ def _find_related_date_field(fields: Iterable[SemanticField]) -> SemanticField |
 def _parse_date(value: str | None) -> date | None:
     if value is None:
         return None
-    text = value.strip().replace(".", "-").replace("/", "-")
+
+    text = value.strip()
     if not text or text == "-":
         return None
+
+    korean_match = KOREAN_DATE_PATTERN.fullmatch(text)
+    if korean_match is not None:
+        try:
+            return date(
+                int(korean_match.group("year")),
+                int(korean_match.group("month")),
+                int(korean_match.group("day")),
+            )
+        except ValueError:
+            return None
+
+    normalised = text.replace(".", "-").replace("/", "-")
     try:
-        return date.fromisoformat(text)
+        return date.fromisoformat(normalised)
     except ValueError:
         return None
 

@@ -15,7 +15,10 @@ from disclosure_agent.parsing.xml_loader import load_dart_xml
         ('ENG=""Snow Corporation"', '"Snow Corporation'),
         ('ENG="Accrued Expenses""', 'Accrued Expenses"'),
         ('ENG="" CJ telenix co.,Ltd ""', '" CJ telenix co.,Ltd "'),
-        ('ENG="　"Proceeds from disposal of investments""', '　"Proceeds from disposal of investments"'),
+        (
+            'ENG="　"Proceeds from disposal of investments""',
+            '　"Proceeds from disposal of investments"',
+        ),
     ],
 )
 def test_malformed_eng_quotes_are_preserved_without_structural_recovery(
@@ -61,11 +64,11 @@ def test_dart_parser_221_keeps_table_and_tail_after_malformed_eng(tmp_path: Path
 
     document = DartParser().parse(path, source, filing_id="filing", title="test")
     tables = [block.table for block in document.blocks if block.table is not None]
-    emitted_text = " ".join(
-        cell.text_raw
-        for table in tables
-        for cell in table.cells
-    ) + " " + " ".join(block.text_raw or "" for block in document.blocks if block.table is None)
+    table_text = " ".join(cell.text_raw for table in tables for cell in table.cells)
+    block_text = " ".join(
+        block.text_raw or "" for block in document.blocks if block.table is None
+    )
+    emitted_text = f"{table_text} {block_text}"
 
     assert document.parse_summary.parser_version == "2.2.1"
     assert document.parse_summary.status.value == "success"

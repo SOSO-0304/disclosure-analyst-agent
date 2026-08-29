@@ -42,6 +42,7 @@ def main() -> None:
         "terminated roots                 "
         f"{state_counts[SupplyContractLifecycleStatus.TERMINATED]}"
     )
+    print(f"succession states                {len(projection.succession_states)}")
     print()
     print("termination linkage            count")
     print("-----------------------------  -----")
@@ -58,6 +59,23 @@ def main() -> None:
             f"lineage_complete={state.correction_lineage_complete} "
             f"terminations={','.join(state.termination_receipt_numbers)}"
         )
+
+    if projection.succession_states:
+        print()
+        print("=== succeeded contract states ===")
+        for state in projection.succession_states:
+            source_dates = ",".join(
+                value.isoformat() for value in state.source_contract_reference_dates
+            ) or "-"
+            source_roots = ",".join(state.matched_source_root_filing_ids) or "-"
+            print(
+                f"succession={state.succession_receipt_number} "
+                f"scope={state.predecessor_scope.value} "
+                f"status={state.status.value} "
+                f"source_dates={source_dates} "
+                f"source_roots={source_roots} "
+                f"end={state.contract_end_date or '-'}"
+            )
 
     unresolved = [
         link

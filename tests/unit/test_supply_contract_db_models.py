@@ -37,7 +37,7 @@ def test_evidence_keeps_canonical_table_provenance_columns() -> None:
         "raw_value",
         "value_locator",
         "label_locators",
-    } <= set(table.columns)
+    } <= set(table.columns.keys())
 
 
 def test_lifecycle_tables_keep_resolution_state() -> None:
@@ -51,16 +51,16 @@ def test_lifecycle_tables_keep_resolution_state() -> None:
         "correction_lineage_complete",
         "status",
         "termination_filing_ids",
-    } <= set(lifecycle.columns)
+    } <= set(lifecycle.columns.keys())
     assert {
         "matched_formation_filing_id",
         "root_filing_id",
         "status",
         "candidate_filing_ids",
-    } <= set(termination.columns)
+    } <= set(termination.columns.keys())
     assert {
         "predecessor_scope",
         "status",
         "source_contract_reference_dates",
         "matched_source_root_filing_ids",
-    } <= set(succession.columns)
+    } <= set(succession.columns.keys())

@@ -13,7 +13,12 @@ from disclosure_agent.storage.supply_contract_query_repository import (
     TerminatedContractRecord,
 )
 
-FORMATION_EVIDENCE_ATTRIBUTES = ("contract_name", "contract_date", "counterparty")
+ROOT_FORMATION_EVIDENCE_ATTRIBUTES = ("contract_date", "contract_name", "counterparty")
+LATEST_FORMATION_EVIDENCE_ATTRIBUTES = (
+    "contract_name",
+    "contract_amount",
+    "counterparty",
+)
 TERMINATION_EVIDENCE_ATTRIBUTES = ("termination_date", "termination_reason", "contract_name")
 
 
@@ -22,7 +27,8 @@ class TerminatedContractFinding:
     """One SQL-grounded contract termination finding plus cell-level evidence."""
 
     contract: TerminatedContractRecord
-    formation_evidence: tuple[EvidenceRecord, ...]
+    root_formation_evidence: tuple[EvidenceRecord, ...]
+    latest_formation_evidence: tuple[EvidenceRecord, ...]
     termination_evidence: tuple[EvidenceRecord, ...]
 
 
@@ -56,8 +62,11 @@ def find_terminated_contracts_formed_in_year(
     )
     findings: list[TerminatedContractFinding] = []
     for contract in contracts:
-        formation_event_id = (
+        root_formation_event_id = (
             f"{EventType.SUPPLY_CONTRACT.value}:{contract.root_filing_id}"
+        )
+        latest_formation_event_id = (
+            f"{EventType.SUPPLY_CONTRACT.value}:{contract.latest_formation_filing_id}"
         )
         termination_event_id = (
             f"{EventType.SUPPLY_CONTRACT_TERMINATION.value}:"
@@ -66,9 +75,13 @@ def find_terminated_contracts_formed_in_year(
         findings.append(
             TerminatedContractFinding(
                 contract=contract,
-                formation_evidence=repository.evidence_for_event(
-                    formation_event_id,
-                    attributes=FORMATION_EVIDENCE_ATTRIBUTES,
+                root_formation_evidence=repository.evidence_for_event(
+                    root_formation_event_id,
+                    attributes=ROOT_FORMATION_EVIDENCE_ATTRIBUTES,
+                ),
+                latest_formation_evidence=repository.evidence_for_event(
+                    latest_formation_event_id,
+                    attributes=LATEST_FORMATION_EVIDENCE_ATTRIBUTES,
                 ),
                 termination_evidence=repository.evidence_for_event(
                     termination_event_id,

@@ -48,7 +48,8 @@ def main() -> None:
 
     direct = counts[LineageResolutionStatus.RESOLVED]
     fingerprint = counts[LineageResolutionStatus.RESOLVED_BY_FINGERPRINT]
-    resolved = direct + fingerprint
+    correction_table = counts[LineageResolutionStatus.RESOLVED_BY_CORRECTION_TABLE]
+    resolved = direct + fingerprint + correction_table
     total = len(lineage.links)
     unique_roots = len(set(lineage.root_by_filing_id.values()))
 
@@ -57,6 +58,7 @@ def main() -> None:
     print(f"corrections                      {total}")
     print(f"resolved direct predecessors     {direct}/{total}")
     print(f"resolved by fingerprint          {fingerprint}/{total}")
+    print(f"resolved by correction table     {correction_table}/{total}")
     print(f"resolved total                   {resolved}/{total}")
     print(f"unique in-corpus roots           {unique_roots}")
     print()
@@ -81,6 +83,23 @@ def main() -> None:
                 f"related_date={link.related_filing_date} "
                 f"candidates={len(link.candidate_filing_ids)} "
                 f"score={link.fingerprint_score}/{link.fingerprint_compared} "
+                f"predecessor={link.predecessor_receipt_number}"
+            )
+
+    correction_table_links = [
+        link
+        for link in lineage.links
+        if link.status is LineageResolutionStatus.RESOLVED_BY_CORRECTION_TABLE
+    ]
+    if correction_table_links:
+        print()
+        print("=== correction-table resolution examples ===")
+        for link in correction_table_links:
+            print(
+                f"receipt={link.correction_receipt_number} "
+                f"related_date={link.related_filing_date} "
+                f"candidates={len(link.candidate_filing_ids)} "
+                f"score={link.correction_table_score}/{link.correction_table_compared} "
                 f"predecessor={link.predecessor_receipt_number}"
             )
 
@@ -138,6 +157,7 @@ def main() -> None:
         not in {
             LineageResolutionStatus.RESOLVED,
             LineageResolutionStatus.RESOLVED_BY_FINGERPRINT,
+            LineageResolutionStatus.RESOLVED_BY_CORRECTION_TABLE,
         }
     ]
     if unresolved:

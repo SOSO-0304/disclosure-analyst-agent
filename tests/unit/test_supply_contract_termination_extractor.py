@@ -143,7 +143,10 @@ def test_extract_legacy_termination_aliases() -> None:
 
 def test_termination_extractor_rejects_non_termination_subtype() -> None:
     try:
-        extract_supply_contract_termination(_package(subtype="단일판매공급계약체결"), reader=StubReader([]))
+        extract_supply_contract_termination(
+            _package(subtype="단일판매공급계약체결"),
+            reader=StubReader([]),
+        )
     except ValueError as exc:
         assert "document_subtype=단일판매공급계약해지" in str(exc)
     else:

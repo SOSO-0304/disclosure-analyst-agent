@@ -7,7 +7,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
@@ -35,14 +34,15 @@ def ingest_effective_source_layer(
     *,
     base_path: str | Path,
     overlay_path: str | Path,
+    validated_manifest: EffectiveCanonicalManifest,
     session: Session,
     expectations: EffectiveCanonicalExpectations,
     expected_company_count: int | None = None,
     progress: ProgressCallback | None = None,
 ) -> SourceLayerIngestionResult:
-    """Stream one effective view into staging, validate it, and promote by canonical ID."""
+    """Stage one prevalidated effective view, verify it again, then promote by canonical ID."""
 
-    load_run_id = uuid4().hex
+    load_run_id = validated_manifest.sha256[:32]
     started_at = datetime.now(UTC)
     reader = EffectiveCanonicalReader(base_path, overlay_path, expectations=expectations)
     repository = SourceLayerRepository(session)
@@ -72,6 +72,11 @@ def ingest_effective_source_layer(
             progress(number, dict(counts))
 
     manifest = reader.manifest
+    if manifest.to_json_bytes() != validated_manifest.to_json_bytes():
+        raise ValueError(
+            "Effective canonical inputs no longer match the prevalidated manifest; "
+            "rerun validate_effective_canonical.py before loading."
+        )
     if expected_company_count is not None and counts["companies"] != expected_company_count:
         raise ValueError(
             "Source company count mismatch: "

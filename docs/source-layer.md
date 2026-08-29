@@ -38,7 +38,9 @@ produces the same manifest bytes and hash.
 ## 2. Apply the additive source-layer migration
 
 The migration creates only the generic source layer and its isolated UNLOGGED staging
-schema. Existing Supply Contract domain tables remain in place.
+schema. Existing Supply Contract domain tables remain in place. In particular, the
+existing `companies` table stays the verified 34-company Supply Contract slice. The full
+70-company corpus master is stored separately in `source_companies`.
 
 When running Alembic from the host Mac, point `DATABASE_URL` at `localhost`:
 
@@ -51,6 +53,7 @@ New public tables:
 
 ```text
 load_runs
+source_companies
 source_filings
 source_documents
 source_sections
@@ -82,3 +85,7 @@ the accepted public source snapshot or typed Supply Contract tables.
 
 The load run ID is derived from the validated manifest hash, so repeating the same input
 updates the same source snapshot rather than creating duplicate canonical rows.
+
+After migration and again after a full source load, run
+`scripts/verify_supply_contract_db.py`. Its original exact counts, including
+`companies=34`, must remain unchanged.

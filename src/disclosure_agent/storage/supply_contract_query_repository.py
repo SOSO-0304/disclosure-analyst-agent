@@ -187,6 +187,7 @@ def _terminated_contracts_statement(
             SupplyContractTerminationLinkRow.status.in_(RESOLVED_TERMINATION_STATUSES),
             root_event.contract_date >= start,
             root_event.contract_date < end,
+            SupplyContractTerminationEventRow.termination_date >= root_event.contract_date,
         )
         .order_by(
             CompanyRow.listed_name,

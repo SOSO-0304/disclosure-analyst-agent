@@ -11,9 +11,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from disclosure_agent.storage.db_models import (
-    CompanyRow,
     LoadRunRow,
     SourceBlockRow,
+    SourceCompanyRow,
     SourceDocumentRow,
     SourceFilingRow,
     SourceSectionRow,
@@ -24,7 +24,7 @@ from disclosure_agent.storage.effective_canonical import EffectiveCanonicalManif
 STAGING_SCHEMA = "source_staging"
 INSERT_BATCH_SIZE = 500
 _STAGE_TABLES = (
-    "companies",
+    "source_companies",
     "source_filings",
     "source_documents",
     "source_sections",
@@ -70,7 +70,7 @@ class SourceLayerRepository:
         counts = {
             name: self._count_stage(table)
             for name, table in {
-                "companies": "companies",
+                "companies": "source_companies",
                 "filings": "source_filings",
                 "documents": "source_documents",
                 "sections": "source_sections",
@@ -108,7 +108,7 @@ class SourceLayerRepository:
         checks = {
             "filing_company_missing": """
                 SELECT count(*) FROM source_staging.source_filings f
-                LEFT JOIN source_staging.companies c USING (corp_code)
+                LEFT JOIN source_staging.source_companies c USING (corp_code)
                 WHERE c.corp_code IS NULL
             """,
             "document_filing_missing": """
@@ -185,6 +185,7 @@ class SourceLayerRepository:
                 failures[key] = abs(expected - actual)
 
         for table_name, id_column in (
+            ("source_companies", "corp_code"),
             ("source_filings", "filing_id"),
             ("source_documents", "document_id"),
             ("source_sections", "section_id"),
@@ -241,7 +242,7 @@ class SourceLayerRepository:
             )
         )
 
-        self._promote_table(CompanyRow, "companies", ("corp_code",))
+        self._promote_table(SourceCompanyRow, "source_companies", ("corp_code",))
         self._promote_table(SourceFilingRow, "source_filings", ("filing_id",))
         self._promote_table(SourceDocumentRow, "source_documents", ("document_id",))
         self._promote_table(SourceSectionRow, "source_sections", ("section_id",))
@@ -321,6 +322,13 @@ class SourceLayerRepository:
             WHERE NOT EXISTS (
                 SELECT 1 FROM source_staging.source_filings stage
                 WHERE stage.filing_id = final.filing_id
+            )
+            """,
+            """
+            DELETE FROM source_companies final
+            WHERE NOT EXISTS (
+                SELECT 1 FROM source_staging.source_companies stage
+                WHERE stage.corp_code = final.corp_code
             )
             """,
         )

@@ -70,7 +70,8 @@ def main() -> None:
         if number % args.progress_every == 0:
             print(
                 f"[source load {number}] documents={counts.get('documents', 0)} "
-                f"blocks={counts.get('blocks', 0)} tables={counts.get('tables', 0)}",
+                f"blocks={counts.get('blocks', 0)} tables={counts.get('tables', 0)} "
+                f"facts={counts.get('facts', 0)}",
                 flush=True,
             )
 
@@ -88,7 +89,15 @@ def main() -> None:
 
     print("\n=== source layer load ===")
     print(f"load run                       {result.load_run_id}")
-    for key in ("companies", "filings", "documents", "sections", "blocks", "tables"):
+    for key in (
+        "companies",
+        "filings",
+        "documents",
+        "sections",
+        "blocks",
+        "tables",
+        "facts",
+    ):
         print(f"{key:<30} {result.counts[key]}")
     print(f"manifest sha256                {result.manifest.sha256}")
 

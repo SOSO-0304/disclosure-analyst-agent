@@ -21,6 +21,36 @@ def test_supply_contract_vertical_slice_tables_are_declared() -> None:
     assert expected <= set(Base.metadata.tables)
 
 
+def test_generic_source_layer_is_additive() -> None:
+    expected = {
+        "load_runs",
+        "source_filings",
+        "source_documents",
+        "source_sections",
+        "source_blocks",
+        "source_tables",
+    }
+
+    assert expected <= set(Base.metadata.tables)
+    assert "supply_contract_events" in Base.metadata.tables
+
+
+def test_source_tables_keep_grid_without_cell_row_table() -> None:
+    table = Base.metadata.tables["source_tables"]
+
+    assert {
+        "table_id",
+        "block_id",
+        "document_id",
+        "filing_id",
+        "source_locator",
+        "normalized_text",
+        "grid",
+        "attributes_raw",
+    } <= set(table.columns.keys())
+    assert "source_table_cells" not in Base.metadata.tables
+
+
 def test_evidence_keeps_canonical_table_provenance_columns() -> None:
     table = Base.metadata.tables["event_evidence"]
 

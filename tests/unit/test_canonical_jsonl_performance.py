@@ -148,3 +148,24 @@ def test_streaming_writer_reads_legacy_and_compact_records(tmp_path) -> None:
 
     assert output.stat().st_size == first_bytes + second_bytes
     assert list(read_canonical(output)) == [package, package]
+
+
+def test_gzip_writer_is_deterministic_and_auto_detected(tmp_path) -> None:
+    package = _package()
+    first = tmp_path / "first.jsonl.gz"
+    second = tmp_path / "second.bin"
+
+    for output in (first, second):
+        with CanonicalJsonlWriter(
+            output,
+            profile=COMPACT_CANONICAL_PROFILE,
+            compression="gzip",
+        ) as writer:
+            logical_bytes = writer.write(package)
+            writer.write(package)
+
+        assert output.read_bytes().startswith(b"\x1f\x8b")
+        assert output.stat().st_size < logical_bytes * 2
+        assert list(read_canonical(output)) == [package, package]
+
+    assert first.read_bytes() == second.read_bytes()

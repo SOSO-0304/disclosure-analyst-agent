@@ -20,7 +20,7 @@ from disclosure_agent.storage.effective_canonical import (
     EffectiveCanonicalExpectations,
     EffectiveCanonicalReader,
 )
-from disclosure_agent.storage.jsonl import write_canonical
+from disclosure_agent.storage.jsonl import COMPACT_CANONICAL_PROFILE, write_canonical
 
 
 def _package(
@@ -115,6 +115,42 @@ def test_reader_replaces_in_base_order_and_builds_deterministic_manifest(
     list(second)
     assert second.manifest.to_json_bytes() == first.manifest.to_json_bytes()
     assert second.manifest.sha256 == first.manifest.sha256
+
+
+def test_reader_accepts_compressed_base_and_overlay_with_same_logical_hashes(
+    tmp_path: Path,
+) -> None:
+    base_plain = tmp_path / "base.jsonl"
+    overlay_plain = tmp_path / "overlay.jsonl"
+    base_gzip = tmp_path / "base.jsonl.gz"
+    overlay_gzip = tmp_path / "overlay.jsonl.gz"
+    base_packages = [
+        _package("a", "20240101000001", status=ParseStatus.PARTIAL, tables=2),
+        _package("b", "20240101000002", tables=3),
+    ]
+    overlay_packages = [_package("a", "20240101000001", tables=7, version="2.2.1")]
+
+    write_canonical(base_plain, base_packages, profile=COMPACT_CANONICAL_PROFILE)
+    write_canonical(overlay_plain, overlay_packages, profile=COMPACT_CANONICAL_PROFILE)
+    write_canonical(
+        base_gzip,
+        base_packages,
+        profile=COMPACT_CANONICAL_PROFILE,
+        compression="gzip",
+    )
+    write_canonical(
+        overlay_gzip,
+        overlay_packages,
+        profile=COMPACT_CANONICAL_PROFILE,
+        compression="gzip",
+    )
+
+    plain = EffectiveCanonicalReader(base_plain, overlay_plain)
+    compressed = EffectiveCanonicalReader(base_gzip, overlay_gzip)
+
+    assert list(compressed) == list(plain)
+    assert compressed.manifest.base_sha256 == plain.manifest.base_sha256
+    assert compressed.manifest.overlay_sha256 == plain.manifest.overlay_sha256
 
 
 def test_reader_rejects_overlay_only_filing(tmp_path: Path) -> None:

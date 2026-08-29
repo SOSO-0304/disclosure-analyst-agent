@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 import orjson
 from pydantic import TypeAdapter
@@ -28,6 +29,7 @@ COMPACT_CANONICAL_PROFILE = CanonicalSerializationProfile(
     sort_keys=False,
 )
 _FILING_PACKAGE_ADAPTER = TypeAdapter(FilingPackage)
+CanonicalCompression = Literal["none", "gzip"]
 
 
 def serialize_canonical(
@@ -67,14 +69,29 @@ class CanonicalJsonlWriter:
         path: str | Path,
         *,
         profile: CanonicalSerializationProfile = LEGACY_CANONICAL_PROFILE,
+        compression: CanonicalCompression = "none",
     ) -> None:
+        if compression not in {"none", "gzip"}:
+            raise ValueError(f"Unsupported canonical compression: {compression}")
         self.path = Path(path)
         self.profile = profile
+        self.compression = compression
+        self._raw_stream: BinaryIO | None = None
         self._stream: BinaryIO | None = None
 
     def __enter__(self) -> CanonicalJsonlWriter:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._stream = self.path.open("wb")
+        self._raw_stream = self.path.open("wb")
+        if self.compression == "gzip":
+            self._stream = gzip.GzipFile(
+                filename="",
+                mode="wb",
+                compresslevel=1,
+                fileobj=self._raw_stream,
+                mtime=0,
+            )
+        else:
+            self._stream = self._raw_stream
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
@@ -105,6 +122,9 @@ class CanonicalJsonlWriter:
         if self._stream is not None:
             self._stream.close()
             self._stream = None
+        if self._raw_stream is not None:
+            self._raw_stream.close()
+            self._raw_stream = None
 
 
 def append_canonical(path: str | Path, package: FilingPackage) -> None:
@@ -126,25 +146,38 @@ def write_canonical(
     packages: Iterable[FilingPackage],
     *,
     profile: CanonicalSerializationProfile = LEGACY_CANONICAL_PROFILE,
+    compression: CanonicalCompression = "none",
 ) -> None:
     """Replace a JSONL file with validated packages."""
 
-    with CanonicalJsonlWriter(path, profile=profile) as writer:
+    with CanonicalJsonlWriter(path, profile=profile, compression=compression) as writer:
         for package in packages:
             writer.write(package)
 
 
-def read_canonical(path: str | Path) -> Iterator[FilingPackage]:
-    """Validate every legacy or compact JSONL record while reading it."""
+def iter_canonical_lines(path: str | Path) -> Iterator[bytes]:
+    """Yield logical JSONL lines while auto-detecting gzip by its magic bytes."""
 
-    with Path(path).open("rb") as stream:
-        for line_number, line in enumerate(stream, 1):
-            if not line.strip():
-                continue
-            try:
-                yield FilingPackage.model_validate(orjson.loads(line))
-            except Exception as exc:
-                raise ValueError(f"Invalid canonical JSONL record at line {line_number}") from exc
+    with Path(path).open("rb") as raw_stream:
+        compressed = raw_stream.peek(2)[:2] == b"\x1f\x8b"
+        stream = gzip.GzipFile(fileobj=raw_stream, mode="rb") if compressed else raw_stream
+        try:
+            yield from stream
+        finally:
+            if stream is not raw_stream:
+                stream.close()
+
+
+def read_canonical(path: str | Path) -> Iterator[FilingPackage]:
+    """Validate every plain or gzip-compressed canonical JSONL record."""
+
+    for line_number, line in enumerate(iter_canonical_lines(path), 1):
+        if not line.strip():
+            continue
+        try:
+            yield FilingPackage.model_validate(orjson.loads(line))
+        except Exception as exc:
+            raise ValueError(f"Invalid canonical JSONL record at line {line_number}") from exc
 
 
 def read_effective_canonical(

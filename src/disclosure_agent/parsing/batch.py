@@ -54,14 +54,16 @@ def parse_corpus(
     *,
     compute_hashes: bool = True,
     compact_output: bool = False,
+    gzip_output: bool = False,
     profile_output_path: str | Path | None = None,
     max_packages: int | None = None,
 ) -> Counter[str]:
     """Parse manifest rows while preserving the prior output until completion.
 
     ``compact_output`` changes only the JSON representation: omitted ``None``
-    values are restored by Pydantic when the file is read. ``profile_output_path``
-    records package-level stage timings and content counts for bottleneck analysis.
+    values are restored by Pydantic when the file is read. ``gzip_output``
+    compresses the stream as it is written. ``profile_output_path`` records
+    package-level stage timings and content counts for bottleneck analysis.
     """
 
     if max_packages is not None and max_packages < 1:
@@ -103,7 +105,12 @@ def parse_corpus(
     profile_stream = temporary_profile.open("wb") if temporary_profile is not None else None
 
     try:
-        with CanonicalJsonlWriter(temporary_output, profile=storage_profile) as writer:
+        compression = "gzip" if gzip_output else "none"
+        with CanonicalJsonlWriter(
+            temporary_output,
+            profile=storage_profile,
+            compression=compression,
+        ) as writer:
             for number, entry in enumerate(entries, 1):
                 package_started = perf_counter()
                 inventory_started = package_started
@@ -193,6 +200,8 @@ def parse_corpus(
         failure_path.unlink(missing_ok=True)
     if temporary_profile is not None and profile_path is not None:
         temporary_profile.replace(profile_path)
+    if gzip_output:
+        stats["compressed_output_bytes"] = output.stat().st_size
     return stats
 
 
@@ -219,6 +228,11 @@ def main() -> None:
         help="Omit nulls and bypass recursive JSON key sorting without changing models.",
     )
     argument_parser.add_argument(
+        "--gzip-output",
+        action="store_true",
+        help="Stream the canonical JSONL through deterministic gzip level 1 compression.",
+    )
+    argument_parser.add_argument(
         "--profile-output",
         type=Path,
         help="Write one JSONL timing/count record per successfully parsed package.",
@@ -234,6 +248,7 @@ def main() -> None:
         arguments.output,
         compute_hashes=not arguments.skip_hashes,
         compact_output=arguments.compact_output,
+        gzip_output=arguments.gzip_output,
         profile_output_path=arguments.profile_output,
         max_packages=arguments.max_packages,
     )

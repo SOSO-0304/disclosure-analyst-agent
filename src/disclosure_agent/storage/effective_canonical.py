@@ -12,6 +12,7 @@ from typing import Any
 import orjson
 
 from disclosure_agent.domain.models import FilingPackage, ParseStatus
+from disclosure_agent.storage.jsonl import iter_canonical_lines
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,15 +119,14 @@ class EffectiveCanonicalReader:
     def _load_overlay(self) -> tuple[dict[str, FilingPackage], str]:
         overlay: dict[str, FilingPackage] = {}
         digest = hashlib.sha256()
-        with self.overlay_path.open("rb") as stream:
-            for line_number, line in enumerate(stream, 1):
-                digest.update(line)
-                if not line.strip():
-                    continue
-                package = _validate_line(line, self.overlay_path, line_number)
-                if package.filing_id in overlay:
-                    raise ValueError(f"Duplicate overlay filing_id: {package.filing_id}")
-                overlay[package.filing_id] = package
+        for line_number, line in enumerate(iter_canonical_lines(self.overlay_path), 1):
+            digest.update(line)
+            if not line.strip():
+                continue
+            package = _validate_line(line, self.overlay_path, line_number)
+            if package.filing_id in overlay:
+                raise ValueError(f"Duplicate overlay filing_id: {package.filing_id}")
+            overlay[package.filing_id] = package
         if not overlay:
             raise ValueError("Overlay JSONL is empty")
         return overlay, digest.hexdigest()
@@ -137,34 +137,33 @@ class EffectiveCanonicalReader:
         seen_overlay: set[str] = set()
         counts: Counter[str] = Counter()
 
-        with self.base_path.open("rb") as stream:
-            for line_number, line in enumerate(stream, 1):
-                base_digest.update(line)
-                if not line.strip():
-                    continue
-                base = _validate_line(line, self.base_path, line_number)
-                counts["base_packages"] += 1
-                if base.filing_id in seen_base:
-                    raise ValueError(f"Duplicate base filing_id: {base.filing_id}")
-                seen_base.add(base.filing_id)
+        for line_number, line in enumerate(iter_canonical_lines(self.base_path), 1):
+            base_digest.update(line)
+            if not line.strip():
+                continue
+            base = _validate_line(line, self.base_path, line_number)
+            counts["base_packages"] += 1
+            if base.filing_id in seen_base:
+                raise ValueError(f"Duplicate base filing_id: {base.filing_id}")
+            seen_base.add(base.filing_id)
 
-                replacement = self._overlay.get(base.filing_id)
-                if replacement is None:
-                    effective = base
-                else:
-                    _validate_replacement_identity(base, replacement)
-                    seen_overlay.add(base.filing_id)
-                    counts["replaced_packages"] += 1
-                    counts["replacement_identity_checks"] += 1
-                    effective = replacement
+            replacement = self._overlay.get(base.filing_id)
+            if replacement is None:
+                effective = base
+            else:
+                _validate_replacement_identity(base, replacement)
+                seen_overlay.add(base.filing_id)
+                counts["replaced_packages"] += 1
+                counts["replacement_identity_checks"] += 1
+                effective = replacement
 
-                counts["effective_packages"] += 1
-                for document in effective.documents:
-                    counts["effective_documents"] += 1
-                    status = document.parse_summary.status
-                    counts[f"status:{status.value}"] += 1
-                    counts["effective_tables"] += document.parse_summary.emitted_table_count
-                yield effective
+            counts["effective_packages"] += 1
+            for document in effective.documents:
+                counts["effective_documents"] += 1
+                status = document.parse_summary.status
+                counts[f"status:{status.value}"] += 1
+                counts["effective_tables"] += document.parse_summary.emitted_table_count
+            yield effective
 
         unknown = sorted(set(self._overlay) - seen_overlay)
         if unknown:

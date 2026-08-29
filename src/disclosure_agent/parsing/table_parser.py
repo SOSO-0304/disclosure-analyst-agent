@@ -47,14 +47,6 @@ def _cell_text(element: etree._Element) -> str:
     return "".join(parts)
 
 
-def _attribute(element: etree._Element, name: str) -> str | None:
-    wanted = name.lower()
-    for key, value in element.attrib.items():
-        if key.lower() == wanted:
-            return value
-    return None
-
-
 def _span(value: str | None) -> int:
     try:
         return max(1, int(value or 1))
@@ -71,6 +63,15 @@ def _xpath(element: etree._Element) -> str | None:
 
 def _attributes(element: etree._Element) -> dict[str, Any]:
     return {str(key): value for key, value in element.attrib.items()}
+
+
+def _attribute_lookup(attributes: dict[str, Any]) -> dict[str, Any]:
+    """Build one case-insensitive lookup while preserving the first raw value."""
+
+    lookup: dict[str, Any] = {}
+    for key, value in attributes.items():
+        lookup.setdefault(key.lower(), value)
+    return lookup
 
 
 def parse_table(
@@ -98,9 +99,14 @@ def parse_table(
 
     for row_index, row in enumerate(row_elements):
         column_index = 0
-        for cell in (child for child in row if _tag(child) in {"TH", "TD", "TE", "TU"}):
-            row_span = _span(_attribute(cell, "rowspan"))
-            column_span = _span(_attribute(cell, "colspan"))
+        for cell in row:
+            cell_tag = _tag(cell)
+            if cell_tag not in {"TH", "TD", "TE", "TU"}:
+                continue
+            attributes_raw = _attributes(cell)
+            attributes = _attribute_lookup(attributes_raw)
+            row_span = _span(attributes.get("rowspan"))
+            column_span = _span(attributes.get("colspan"))
             # The whole colspan must fit around active rowspans, not only its origin.
             while any(
                 (row_index, column) in occupied
@@ -109,8 +115,8 @@ def parse_table(
                 column_index += 1
             raw_text = _cell_text(cell)
             normalized_text = normalize_text(raw_text) or ""
-            negated = parse_bool_attribute(_attribute(cell, "anegated"))
-            is_header = str(cell.tag).lower() in {"th", "te"}
+            negated = parse_bool_attribute(attributes.get("anegated"))
+            is_header = cell_tag in {"TH", "TE"}
             if is_header:
                 header_rows.add(row_index)
 
@@ -124,13 +130,13 @@ def parse_table(
                     text_raw=raw_text,
                     text_normalized=normalized_text,
                     numeric_value=parse_decimal(raw_text, negated=negated),
-                    unit_raw=_attribute(cell, "aunitvalue") or _attribute(cell, "aunit"),
-                    currency=_attribute(cell, "acurrency"),
-                    concept_code=_attribute(cell, "acode"),
-                    context_ref=_attribute(cell, "acontext"),
-                    decimals_raw=_attribute(cell, "adecimal"),
+                    unit_raw=attributes.get("aunitvalue") or attributes.get("aunit"),
+                    currency=attributes.get("acurrency"),
+                    concept_code=attributes.get("acode"),
+                    context_ref=attributes.get("acontext"),
+                    decimals_raw=attributes.get("adecimal"),
                     is_negated=negated,
-                    attributes_raw=_attributes(cell),
+                    attributes_raw=attributes_raw,
                     source_locator=SourceLocator(
                         source_file_id=source_file_id,
                         xpath=_xpath(cell),

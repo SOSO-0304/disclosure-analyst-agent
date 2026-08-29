@@ -19,6 +19,7 @@ _ENTITY = re.compile(rb"&(?:#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_][A-Za-z0-9_.:-]*);")
 _PREDEFINED_ENTITIES = {b"amp", b"lt", b"gt", b"apos", b"quot"}
 _ENG_ASSIGNMENT = re.compile(rb"\bENG\s*=\s*([\"'])", re.IGNORECASE)
 _NEXT_ATTRIBUTE = re.compile(rb"\s+" + _NAME_PART + rb"(?::" + _NAME_PART + rb")?\s*=")
+_TAG_CONTROL = re.compile(rb"[<>\"']")
 _MAX_EXAMPLES = 5
 # Reviewed labels observed in the corpus. Unknown extension tags are not guessed.
 _LITERAL_LABELS = {
@@ -206,29 +207,29 @@ def _is_known_dart_tag(token: bytes) -> bool:
 
 
 def _find_tag_end(raw: bytes, start: int) -> int | None:
-    quote: int | None = None
-    for position in range(start + 1, len(raw)):
+    position = start + 1
+    while match := _TAG_CONTROL.search(raw, position):
+        position = match.start()
         current = raw[position]
-        if quote is not None:
-            if current == quote:
-                quote = None
-            continue
-        if current in {ord('"'), ord("'")}:
-            # Apostrophes in <신설 '23. 3.16.> are prose, not attributes.
-            previous = position - 1
-            while previous > start and raw[previous : previous + 1].isspace():
-                previous -= 1
-            if raw[previous : previous + 1] == b"=":
-                quote = current
-        elif current == ord(">"):
+        if current == 62:  # >
             return position
-        elif current == ord("<"):
+        if current == 60:  # <
             # A second opener means the first one was literal text such as
             # ``value < 10`` immediately before a real closing tag.
             return None
-        elif current in {ord("\n"), ord("\r")}:
-            # DART tags may span lines, so a newline alone does not terminate a tag.
-            continue
+
+        # Apostrophes in <신설 '23. 3.16.> are prose, not attributes. Quotes
+        # only delimit an attribute when the previous non-space byte is '='.
+        previous = position - 1
+        while previous > start and raw[previous] in b" \t\n\r\v\f":
+            previous -= 1
+        if raw[previous] == 61:  # =
+            closing_quote = raw.find(bytes((current,)), position + 1)
+            if closing_quote < 0:
+                return None
+            position = closing_quote + 1
+        else:
+            position += 1
     return None
 
 
@@ -241,13 +242,13 @@ def _find_doctype_end(raw: bytes, start: int) -> int | None:
             if current == quote:
                 quote = None
             continue
-        if current in {ord('"'), ord("'")}:
+        if current in {34, 39}:
             quote = current
-        elif current == ord("["):
+        elif current == 91:
             subset_depth += 1
-        elif current == ord("]") and subset_depth:
+        elif current == 93 and subset_depth:
             subset_depth -= 1
-        elif current == ord(">") and subset_depth == 0:
+        elif current == 62 and subset_depth == 0:
             return position
     return None
 
@@ -258,6 +259,9 @@ def _repair_entities(
     base_offset: int,
     collector: _IssueCollector,
 ) -> bytes:
+    if b"&" not in segment:
+        return segment
+
     output = bytearray()
     position = 0
     while position < len(segment):
@@ -387,7 +391,7 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
             position = next_special
             continue
 
-        if raw[position] == ord("&"):
+        if raw[position] == 38:
             next_markup = raw.find(b"<", position)
             segment_end = len(raw) if next_markup < 0 else next_markup
             output.extend(
@@ -400,7 +404,7 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
             position = segment_end
             continue
 
-        if raw[position] != ord("<"):
+        if raw[position] != 60:
             output.append(raw[position])
             position += 1
             continue
@@ -446,7 +450,8 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
             continue
 
         token = raw[position + 1 : tag_end]
-        if _is_known_dart_tag(token):
+        known_dart_tag = _is_known_dart_tag(token)
+        if known_dart_tag:
             token = _repair_eng_attribute_quotes(
                 token,
                 base_offset=position + 1,
@@ -454,8 +459,11 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
             )
             # Repair only an extra terminal quote after a complete non-ENG attribute.
             # Do not reinterpret arbitrary malformed structural tags as prose.
-            fixed = re.sub(rb"(=\s*\"[^\"<>]*\")\"(\s*/?\s*)$", rb"\1\2", token)
-            fixed = re.sub(rb"(=\s*'[^'<>]*')'(\s*/?\s*)$", rb"\1\2", fixed)
+            fixed = token
+            if b'""' in fixed:
+                fixed = re.sub(rb"(=\s*\"[^\"<>]*\")\"(\s*/?\s*)$", rb"\1\2", fixed)
+            if b"''" in fixed:
+                fixed = re.sub(rb"(=\s*'[^'<>]*')'(\s*/?\s*)$", rb"\1\2", fixed)
             if fixed != token:
                 collector.record(
                     "duplicate_attribute_quote_repaired",
@@ -467,8 +475,8 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
         literal_label = token.strip() in unpaired_labels
         if token.lstrip().startswith(b"!"):
             output.extend(raw[position : tag_end + 1])
-        elif not literal_label and (_is_valid_tag(token) or _is_known_dart_tag(token)):
-            output.append(ord("<"))
+        elif not literal_label and (known_dart_tag or _is_valid_tag(token)):
+            output.append(60)
             output.extend(
                 _repair_entities(
                     token,
@@ -476,7 +484,7 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
                     collector=collector,
                 )
             )
-            output.append(ord(">"))
+            output.append(62)
         else:
             output.extend(b"&lt;")
             output.extend(

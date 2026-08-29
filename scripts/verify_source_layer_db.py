@@ -16,6 +16,7 @@ from disclosure_agent.storage.db_models import (
     SourceSectionRow,
     SourceTableRow,
 )
+from disclosure_agent.storage.generic_fact_models import GenericFactRow
 
 EXPECTED_FIXED = {
     "companies": 70,
@@ -31,6 +32,7 @@ MODELS = {
     "sections": SourceSectionRow,
     "blocks": SourceBlockRow,
     "tables": SourceTableRow,
+    "facts": GenericFactRow,
 }
 
 
@@ -65,6 +67,9 @@ def main() -> None:
         value = actual[name]
         if value != expected:
             failures.append(f"{name}: actual={value}, accepted={expected}")
+
+    if actual["facts"] <= 0:
+        failures.append("facts: generic fact extraction produced no rows")
 
     manifest = run.manifest or {}
     if manifest.get("effective_packages") != 4204:

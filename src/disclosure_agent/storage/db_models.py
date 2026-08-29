@@ -1,8 +1,8 @@
-"""SQLAlchemy models for canonical disclosures and Supply Contract domain data."""
+"""SQLAlchemy models for canonical source data and typed disclosure domains."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -18,7 +19,10 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+JSON_DOCUMENT = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Base(DeclarativeBase):
@@ -283,3 +287,167 @@ class EventEvidenceRow(Base):
     raw_value: Mapped[str] = mapped_column(Text, nullable=False)
     value_locator: Mapped[dict[str, object] | None] = mapped_column(JSON)
     label_locators: Mapped[list[dict[str, object] | None]] = mapped_column(JSON, nullable=False)
+
+
+class LoadRunRow(Base):
+    """One source-layer ingestion run and its accepted effective-view manifest."""
+
+    __tablename__ = "load_runs"
+    __table_args__ = (
+        Index("ix_load_runs_status", "status"),
+        UniqueConstraint(
+            "base_sha256",
+            "overlay_sha256",
+            name="uq_load_runs_effective_inputs",
+        ),
+    )
+
+    load_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    base_sha256: Mapped[str | None] = mapped_column(String(64))
+    overlay_sha256: Mapped[str | None] = mapped_column(String(64))
+    manifest_sha256: Mapped[str | None] = mapped_column(String(64))
+    manifest: Mapped[dict[str, object] | None] = mapped_column(JSON_DOCUMENT)
+    counts: Mapped[dict[str, int]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SourceFilingRow(Base):
+    """Effective canonical filing metadata, separate from typed domain projections."""
+
+    __tablename__ = "source_filings"
+    __table_args__ = (
+        UniqueConstraint("receipt_number", name="uq_source_filings_receipt_number"),
+        Index("ix_source_filings_corp_date", "corp_code", "receipt_date"),
+        Index("ix_source_filings_group_subtype", "document_group", "document_subtype"),
+    )
+
+    filing_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    load_run_id: Mapped[str] = mapped_column(
+        ForeignKey("load_runs.load_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    corp_code: Mapped[str] = mapped_column(
+        ForeignKey("companies.corp_code", ondelete="RESTRICT"), nullable=False
+    )
+    receipt_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    document_group: Mapped[str] = mapped_column(String(32), nullable=False)
+    document_subtype: Mapped[str] = mapped_column(Text, nullable=False)
+    report_name: Mapped[str] = mapped_column(Text, nullable=False)
+    receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
+    filer_name: Mapped[str] = mapped_column(Text, nullable=False)
+    is_correction: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
+class SourceDocumentRow(Base):
+    """One semantic document in an effective canonical filing."""
+
+    __tablename__ = "source_documents"
+    __table_args__ = (Index("ix_source_documents_filing", "filing_id"),)
+
+    document_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    filing_id: Mapped[str] = mapped_column(
+        ForeignKey("source_filings.filing_id", ondelete="CASCADE"), nullable=False
+    )
+    load_run_id: Mapped[str] = mapped_column(
+        ForeignKey("load_runs.load_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    document_role: Mapped[str] = mapped_column(String(64), nullable=False)
+    title_raw: Mapped[str | None] = mapped_column(Text)
+    title_normalized: Mapped[str | None] = mapped_column(Text)
+    primary_source_file_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    source_file_ids: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    parse_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    parser_name: Mapped[str | None] = mapped_column(String(64))
+    parser_version: Mapped[str | None] = mapped_column(String(32))
+    recovered: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    emitted_section_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    emitted_block_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    emitted_table_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class SourceSectionRow(Base):
+    """Canonical section hierarchy used for structured and semantic retrieval."""
+
+    __tablename__ = "source_sections"
+    __table_args__ = (
+        Index("ix_source_sections_document_order", "document_id", "section_order"),
+        Index("ix_source_sections_parent", "parent_section_id"),
+    )
+
+    section_id: Mapped[str] = mapped_column(String(320), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.document_id", ondelete="CASCADE"), nullable=False
+    )
+    filing_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    load_run_id: Mapped[str] = mapped_column(
+        ForeignKey("load_runs.load_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    parent_section_id: Mapped[str | None] = mapped_column(String(320))
+    section_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    section_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    title_raw: Mapped[str | None] = mapped_column(Text)
+    title_normalized: Mapped[str | None] = mapped_column(Text)
+    source_locator: Mapped[dict[str, object] | None] = mapped_column(JSON_DOCUMENT)
+    attributes_raw: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)
+
+
+class SourceBlockRow(Base):
+    """Ordered text/table placeholder block without exploding table cells into rows."""
+
+    __tablename__ = "source_blocks"
+    __table_args__ = (
+        Index("ix_source_blocks_document_order", "document_id", "block_order"),
+        Index("ix_source_blocks_section", "section_id"),
+    )
+
+    block_id: Mapped[str] = mapped_column(String(320), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.document_id", ondelete="CASCADE"), nullable=False
+    )
+    filing_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    load_run_id: Mapped[str] = mapped_column(
+        ForeignKey("load_runs.load_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    section_id: Mapped[str | None] = mapped_column(String(320))
+    block_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    block_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    text_raw: Mapped[str | None] = mapped_column(Text)
+    text_normalized: Mapped[str | None] = mapped_column(Text)
+    heading_level: Mapped[int | None] = mapped_column(Integer)
+    table_id: Mapped[str | None] = mapped_column(String(384))
+    source_locator: Mapped[dict[str, object] | None] = mapped_column(JSON_DOCUMENT)
+    attributes_raw: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)
+
+
+class SourceTableRow(Base):
+    """Table metadata plus a JSONB grid; individual cells remain canonical JSON facts."""
+
+    __tablename__ = "source_tables"
+    __table_args__ = (
+        UniqueConstraint("block_id", name="uq_source_tables_block_id"),
+        Index("ix_source_tables_document", "document_id"),
+        Index("ix_source_tables_parent", "parent_table_id"),
+    )
+
+    table_id: Mapped[str] = mapped_column(String(384), primary_key=True)
+    block_id: Mapped[str] = mapped_column(
+        ForeignKey("source_blocks.block_id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    filing_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    load_run_id: Mapped[str] = mapped_column(
+        ForeignKey("load_runs.load_run_id", ondelete="RESTRICT"), nullable=False
+    )
+    caption_raw: Mapped[str | None] = mapped_column(Text)
+    caption_normalized: Mapped[str | None] = mapped_column(Text)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    column_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    header_row_indices: Mapped[list[int]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    parent_table_id: Mapped[str | None] = mapped_column(String(384))
+    parent_cell_locator: Mapped[dict[str, object] | None] = mapped_column(JSON_DOCUMENT)
+    source_locator: Mapped[dict[str, object] | None] = mapped_column(JSON_DOCUMENT)
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    grid: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    attributes_raw: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)

@@ -10,10 +10,10 @@ text similarity.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-from typing import Iterable
 
 from disclosure_agent.domain.models import FilingPackage
 from disclosure_agent.extractors.exchange_fields import ExchangeFieldReader, SemanticField

@@ -21,6 +21,10 @@ from disclosure_agent.extractors.supply_contract_lineage import (
     SupplyContractLineage,
     resolve_supply_contract_lineage,
 )
+from disclosure_agent.extractors.supply_contract_succession import (
+    extract_supply_contract_succession,
+    is_supply_contract_succession,
+)
 from disclosure_agent.extractors.supply_contract_termination_lineage import (
     FORMATION_SUBTYPE,
     TERMINATION_SUBTYPE,
@@ -35,6 +39,20 @@ class SupplyContractLifecycleStatus(StrEnum):
 
     ACTIVE = "active"
     TERMINATED = "terminated"
+
+
+class SupplyContractSuccessionPredecessorScope(StrEnum):
+    """Whether the source contract for a succession event exists in the corpus."""
+
+    IN_CORPUS = "in_corpus"
+    EXTERNAL = "external"
+
+
+class SupplyContractSuccessionStatus(StrEnum):
+    """Effective state of a succeeded contract represented by a special filing."""
+
+    SUCCEEDED = "succeeded"
+    SUCCEEDED_ENDED = "succeeded_ended"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,10 +75,27 @@ class SupplyContractLifecycleState:
 
 
 @dataclass(frozen=True, slots=True)
+class SupplyContractSuccessionLifecycleState:
+    """Lifecycle state for a contract brought in through succession."""
+
+    succession_filing_id: str
+    succession_receipt_number: str
+    corp_code: str
+    company_name: str
+    source_contract_reference_dates: tuple[date, ...]
+    matched_source_root_filing_ids: tuple[str, ...]
+    predecessor_scope: SupplyContractSuccessionPredecessorScope
+    status: SupplyContractSuccessionStatus
+    contract_end_date: date | None
+    decision_date: date | None
+
+
+@dataclass(frozen=True, slots=True)
 class SupplyContractLifecycleProjection:
     """Lifecycle states plus the underlying conservative lineage results."""
 
     states: tuple[SupplyContractLifecycleState, ...]
+    succession_states: tuple[SupplyContractSuccessionLifecycleState, ...]
     correction_lineage: SupplyContractLineage
     termination_lineage: SupplyContractTerminationLineage
 
@@ -83,6 +118,9 @@ def project_supply_contract_lifecycle(
         package
         for package in package_list
         if package.filing.document_subtype == TERMINATION_SUBTYPE
+    ]
+    successions = [
+        package for package in package_list if is_supply_contract_succession(package)
     ]
 
     correction_lineage = resolve_supply_contract_lineage(formations, reader=field_reader)
@@ -171,8 +209,75 @@ def project_supply_contract_lifecycle(
         )
 
     states.sort(key=lambda state: (state.corp_code, state.root_receipt_number))
+    succession_states = _project_succession_states(
+        successions,
+        formations=formations,
+        correction_lineage=correction_lineage,
+        reader=field_reader,
+    )
     return SupplyContractLifecycleProjection(
         states=tuple(states),
+        succession_states=succession_states,
         correction_lineage=correction_lineage,
         termination_lineage=termination_lineage,
     )
+
+
+def _project_succession_states(
+    successions: list[FilingPackage],
+    *,
+    formations: list[FilingPackage],
+    correction_lineage: SupplyContractLineage,
+    reader: ExchangeFieldReader,
+) -> tuple[SupplyContractSuccessionLifecycleState, ...]:
+    formation_by_company_date: dict[tuple[str, date], list[FilingPackage]] = defaultdict(list)
+    for package in formations:
+        formation_by_company_date[(package.company.corp_code, package.filing.receipt_date)].append(
+            package
+        )
+
+    states: list[SupplyContractSuccessionLifecycleState] = []
+    for package in successions:
+        extraction = extract_supply_contract_succession(package, reader=reader)
+        event = extraction.event
+        roots: list[str] = []
+        for reference_date in event.source_contract_reference_dates:
+            candidates = formation_by_company_date.get(
+                (package.company.corp_code, reference_date),
+                [],
+            )
+            for candidate in candidates:
+                root_id = correction_lineage.root_by_filing_id.get(candidate.filing_id)
+                if root_id is not None and root_id not in roots:
+                    roots.append(root_id)
+
+        predecessor_scope = (
+            SupplyContractSuccessionPredecessorScope.IN_CORPUS
+            if roots
+            else SupplyContractSuccessionPredecessorScope.EXTERNAL
+        )
+        explicitly_ended = bool(
+            event.correction_reason and "계약기간 종료" in event.correction_reason
+        )
+        status = (
+            SupplyContractSuccessionStatus.SUCCEEDED_ENDED
+            if explicitly_ended
+            else SupplyContractSuccessionStatus.SUCCEEDED
+        )
+        states.append(
+            SupplyContractSuccessionLifecycleState(
+                succession_filing_id=package.filing_id,
+                succession_receipt_number=package.filing.receipt_number,
+                corp_code=package.company.corp_code,
+                company_name=package.company.listed_name,
+                source_contract_reference_dates=event.source_contract_reference_dates,
+                matched_source_root_filing_ids=tuple(roots),
+                predecessor_scope=predecessor_scope,
+                status=status,
+                contract_end_date=event.contract_end_date,
+                decision_date=event.decision_date,
+            )
+        )
+
+    states.sort(key=lambda state: (state.corp_code, state.succession_receipt_number))
+    return tuple(states)

@@ -24,6 +24,7 @@ def test_supply_contract_vertical_slice_tables_are_declared() -> None:
 def test_generic_source_layer_is_additive() -> None:
     expected = {
         "load_runs",
+        "source_companies",
         "source_filings",
         "source_documents",
         "source_sections",
@@ -33,6 +34,14 @@ def test_generic_source_layer_is_additive() -> None:
 
     assert expected <= set(Base.metadata.tables)
     assert "supply_contract_events" in Base.metadata.tables
+    assert "companies" in Base.metadata.tables
+
+
+def test_source_filing_uses_isolated_company_master() -> None:
+    filing = Base.metadata.tables["source_filings"]
+    targets = {foreign_key.target_fullname for foreign_key in filing.c.corp_code.foreign_keys}
+
+    assert targets == {"source_companies.corp_code"}
 
 
 def test_source_tables_keep_grid_without_cell_row_table() -> None:

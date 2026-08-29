@@ -53,7 +53,7 @@ def ingest_effective_source_layer(
     for number, package in enumerate(reader, 1):
         rows = project_source_package(package, load_run_id=load_run_id)
         if package.company.corp_code not in seen_companies:
-            repository.stage_rows("companies", [rows.company])
+            repository.stage_rows("source_companies", [rows.company])
             seen_companies.add(package.company.corp_code)
             counts["companies"] += 1
 

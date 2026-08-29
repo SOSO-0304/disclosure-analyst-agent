@@ -60,6 +60,32 @@ def main() -> None:
                 f"predecessor={link.predecessor_receipt_number}"
             )
 
+    ambiguous = [
+        link
+        for link in lineage.links
+        if link.status is LineageResolutionStatus.AMBIGUOUS
+    ]
+    if ambiguous:
+        print()
+        print("=== ambiguous details ===")
+        for link in ambiguous:
+            print(
+                f"receipt={link.correction_receipt_number} "
+                f"related_date={link.related_filing_date} "
+                f"candidates={','.join(link.candidate_filing_ids)}"
+            )
+
+    missing_related_date = [
+        link
+        for link in lineage.links
+        if link.status is LineageResolutionStatus.MISSING_RELATED_DATE
+    ]
+    if missing_related_date:
+        print()
+        print("=== missing related date receipts ===")
+        for link in missing_related_date:
+            print(link.correction_receipt_number)
+
     unresolved = [
         link
         for link in lineage.links

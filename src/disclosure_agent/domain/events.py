@@ -14,6 +14,7 @@ class EventType(StrEnum):
 
     SUPPLY_CONTRACT = "supply_contract"
     SUPPLY_CONTRACT_TERMINATION = "supply_contract_termination"
+    SUPPLY_CONTRACT_SUCCESSION = "supply_contract_succession"
 
 
 class DisclosureEvent(BaseModel):
@@ -64,3 +65,24 @@ class SupplyContractTerminationEvent(DisclosureEvent):
     termination_date: date | None = None
     notes: str | None = None
     related_disclosures: str | None = None
+
+
+class SupplyContractSuccessionEvent(DisclosureEvent):
+    """Typed representation of a supply-contract succession disclosure."""
+
+    event_type: EventType = EventType.SUPPLY_CONTRACT_SUCCESSION
+    title: str | None = None
+    contract_type: str | None = None
+    succession_amount_krw: int | None = None
+    succession_amount_usd: int | None = None
+    disclosed_exchange_rate: Decimal | None = None
+    fulfilled_amount_usd: int | None = None
+    fulfillment_ratio: Decimal | None = None
+    counterparty: str | None = None
+    contract_start_date: date | None = None
+    contract_end_date: date | None = None
+    decision_date: date | None = None
+    correction_reason: str | None = None
+    notes: str | None = None
+    related_disclosures: str | None = None
+    source_contract_reference_dates: tuple[date, ...] = ()

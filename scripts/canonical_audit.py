@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import codecs
+import gzip
 import hashlib
 import json
 import re
@@ -597,13 +598,19 @@ class Sources:
 
 
 def json_rows(path):
-    with path.open("r", encoding="utf-8-sig") as stream:
-        for number, line in enumerate(stream, 1):
-            if line.strip():
-                try:
-                    yield number, json.loads(line)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(f"Invalid JSON at line {number}: {exc}") from exc
+    with path.open("rb") as raw_stream:
+        compressed = raw_stream.peek(2)[:2] == b"\x1f\x8b"
+        stream = gzip.GzipFile(fileobj=raw_stream, mode="rb") if compressed else raw_stream
+        try:
+            for number, line in enumerate(stream, 1):
+                if line.strip():
+                    try:
+                        yield number, json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(f"Invalid JSON at line {number}: {exc}") from exc
+        finally:
+            if stream is not raw_stream:
+                stream.close()
 
 
 def short_issues(issues):

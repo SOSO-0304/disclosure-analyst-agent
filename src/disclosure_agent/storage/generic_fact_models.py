@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from disclosure_agent.storage.db_models import Base, JSON_DOCUMENT
+from disclosure_agent.storage.db_models import JSON_DOCUMENT, Base
 
 
 class GenericFactRow(Base):

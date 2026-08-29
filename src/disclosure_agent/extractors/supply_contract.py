@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Iterable
 
 from disclosure_agent.domain.events import SupplyContractEvent
 from disclosure_agent.domain.models import FilingPackage

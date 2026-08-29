@@ -19,7 +19,10 @@ def main() -> None:
     parser.add_argument(
         "--expected-packages",
         type=int,
-        help="Fail before reparsing if the immutable base snapshot has a different candidate count.",
+        help=(
+            "Fail before reparsing if the immutable base snapshot has a different "
+            "candidate count."
+        ),
     )
     parser.add_argument(
         "--with-hashes",

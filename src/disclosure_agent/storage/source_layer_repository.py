@@ -23,7 +23,14 @@ from disclosure_agent.storage.effective_canonical import EffectiveCanonicalManif
 
 STAGING_SCHEMA = "source_staging"
 INSERT_BATCH_SIZE = 500
-_STAGE_TABLES = ("companies", "source_filings", "source_documents", "source_sections", "source_blocks", "source_tables")
+_STAGE_TABLES = (
+    "companies",
+    "source_filings",
+    "source_documents",
+    "source_sections",
+    "source_blocks",
+    "source_tables",
+)
 
 
 class SourceLayerRepository:
@@ -77,14 +84,20 @@ class SourceLayerRepository:
             if key in expected_counts and expected_counts[key] != actual
         }
         if counts["filings"] != manifest.effective_packages:
-            mismatches["filings_vs_manifest"] = (manifest.effective_packages, counts["filings"])
+            mismatches["filings_vs_manifest"] = (
+                manifest.effective_packages,
+                counts["filings"],
+            )
         if counts["documents"] != manifest.effective_documents:
             mismatches["documents_vs_manifest"] = (
                 manifest.effective_documents,
                 counts["documents"],
             )
         if counts["tables"] != manifest.effective_tables:
-            mismatches["tables_vs_manifest"] = (manifest.effective_tables, counts["tables"])
+            mismatches["tables_vs_manifest"] = (
+                manifest.effective_tables,
+                counts["tables"],
+            )
         if mismatches:
             details = ", ".join(
                 f"{key}: expected={expected}, actual={actual}"
@@ -260,7 +273,8 @@ class SourceLayerRepository:
         final = model.__table__
         staging = self._stage_table(staging_name)
         columns = [column.name for column in final.columns]
-        statement = insert(final).from_select(columns, select(*(staging.c[name] for name in columns)))
+        selected = select(*(staging.c[name] for name in columns))
+        statement = insert(final).from_select(columns, selected)
         excluded = set(conflict_columns)
         update_values = {
             name: getattr(statement.excluded, name) for name in columns if name not in excluded

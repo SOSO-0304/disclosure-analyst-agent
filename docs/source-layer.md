@@ -10,6 +10,14 @@ The official merge key is `filing_id`. The reader streams the large base exactly
 keeps the overlay in memory, rejects duplicate/unknown overlay IDs, and verifies that
 replacement packages preserve the original document/source identity sets.
 
+macOS/Linux:
+
+```bash
+python scripts/validate_effective_canonical.py \
+  --base data/processed/canonical-v22-smoke.jsonl \
+  --overlay data/processed/canonical-dart-221-overlay.jsonl
+```
+
 PowerShell:
 
 ```powershell
@@ -48,6 +56,13 @@ staging tables. Existing Supply Contract domain tables remain in place. In parti
 the existing `companies` table stays the verified 34-company Supply Contract slice. The
 full 70-company corpus master is stored separately in `source_companies`.
 
+macOS/Linux:
+
+```bash
+DATABASE_URL='postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure' \
+  python -m alembic upgrade head
+```
+
 PowerShell:
 
 ```powershell
@@ -82,6 +97,18 @@ those interpretations.
 
 ## 3. Load source rows and generic facts in one canonical pass
 
+macOS/Linux:
+
+```bash
+python scripts/load_source_layer.py \
+  --base data/processed/canonical-v22-smoke.jsonl \
+  --overlay data/processed/canonical-dart-221-overlay.jsonl \
+  --manifest data/processed/effective-canonical.manifest.json \
+  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure
+```
+
+PowerShell:
+
 ```powershell
 python scripts\load_source_layer.py `
   --base data\processed\canonical-v22-smoke.jsonl `
@@ -102,6 +129,39 @@ updates the same source snapshot rather than creating duplicate canonical rows. 
 exact `generic_facts` count is intentionally data-derived rather than hard-coded; the
 staged count must equal the extractor-emitted count for that run.
 
-After migration and again after a full source load, run
-`scripts/verify_supply_contract_db.py`. Its original exact counts, including
-`companies=34`, must remain unchanged.
+## 4. Verify and profile before adding typed events
+
+Verify the promoted source snapshot and the existing Supply Contract slice separately:
+
+```bash
+python scripts/verify_source_layer_db.py \
+  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure
+
+python scripts/verify_supply_contract_db.py \
+  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure
+```
+
+`verify_source_layer_db.py` requires the runtime `generic_facts` count to match the
+recorded load-run count and rejects an empty fact layer. The fact count is not otherwise
+hard-coded because it is an extractor output rather than a corpus invariant.
+
+Before designing new typed extractors, inspect the actual generic-fact distribution:
+
+```bash
+python scripts/profile_generic_facts.py \
+  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure \
+  --top 30 \
+  --contains 매출 \
+  --contains 시설투자 \
+  --contains 자금조달 \
+  --contains 계약
+```
+
+The profiler reports total/numeric/concept-coded facts, fact-kind distribution,
+document-group distribution, top concept codes and labels, plus evidence-locatable
+samples for requested substrings. Use this output to decide which high-value domains
+need typed event extractors and which questions can be answered directly from generic
+facts.
+
+After migration and again after a full source load, `scripts/verify_supply_contract_db.py`
+must retain its original exact counts, including `companies=34`.

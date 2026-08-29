@@ -313,6 +313,19 @@ class LoadRunRow(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class SourceCompanyRow(Base):
+    """Full 70-company source master isolated from the typed contract company slice."""
+
+    __tablename__ = "source_companies"
+
+    corp_code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    stock_code: Mapped[str | None] = mapped_column(String(16))
+    corp_name: Mapped[str] = mapped_column(Text, nullable=False)
+    listed_name: Mapped[str] = mapped_column(Text, nullable=False)
+    industry: Mapped[str | None] = mapped_column(Text)
+    sector: Mapped[str | None] = mapped_column(Text)
+
+
 class SourceFilingRow(Base):
     """Effective canonical filing metadata, separate from typed domain projections."""
 
@@ -328,11 +341,11 @@ class SourceFilingRow(Base):
         ForeignKey("load_runs.load_run_id", ondelete="RESTRICT"), nullable=False
     )
     corp_code: Mapped[str] = mapped_column(
-        ForeignKey("companies.corp_code", ondelete="RESTRICT"), nullable=False
+        ForeignKey("source_companies.corp_code", ondelete="RESTRICT"), nullable=False
     )
     receipt_number: Mapped[str] = mapped_column(String(32), nullable=False)
     document_group: Mapped[str] = mapped_column(String(32), nullable=False)
-    document_subtype: Mapped[str] = mapped_column(Text, nullable=False)
+    document_subtype: Mapped[str | None] = mapped_column(Text)
     report_name: Mapped[str] = mapped_column(Text, nullable=False)
     receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
     filer_name: Mapped[str] = mapped_column(Text, nullable=False)

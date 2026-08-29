@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
+from disclosure_agent.extractors.exchange_fields import ExchangeFieldReader
+from disclosure_agent.extractors.supply_contract import extract_supply_contract
 from disclosure_agent.extractors.supply_contract_lineage import (
+    MATCH_FIELDS,
+    RELATED_FILING_DATE_PATH,
     LineageResolutionStatus,
     resolve_supply_contract_lineage,
 )
@@ -14,12 +18,32 @@ from disclosure_agent.storage.jsonl import read_canonical
 SUBSET = Path("data/processed/subsets/supply-contract-v22.jsonl")
 
 
+def _normalise(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = "".join(str(value).split()).lower()
+    return text or None
+
+
+def _related_date_raw(package, reader: ExchangeFieldReader) -> str | None:
+    for field in reader.read_package(package):
+        if field.path_key == RELATED_FILING_DATE_PATH:
+            return field.value
+    return None
+
+
 def main() -> None:
     if not SUBSET.is_file():
         raise SystemExit(f"Subset not found: {SUBSET}")
 
     packages = list(read_canonical(SUBSET))
-    lineage = resolve_supply_contract_lineage(packages)
+    by_filing_id = {package.filing_id: package for package in packages}
+    reader = ExchangeFieldReader()
+    events = {
+        package.filing_id: extract_supply_contract(package, reader=reader).event
+        for package in packages
+    }
+    lineage = resolve_supply_contract_lineage(packages, reader=reader)
     counts = Counter(link.status for link in lineage.links)
 
     direct = counts[LineageResolutionStatus.RESOLVED]
@@ -69,11 +93,30 @@ def main() -> None:
         print()
         print("=== ambiguous details ===")
         for link in ambiguous:
+            correction = by_filing_id[link.correction_filing_id]
+            correction_event = events[correction.filing_id]
             print(
                 f"receipt={link.correction_receipt_number} "
-                f"related_date={link.related_filing_date} "
-                f"candidates={','.join(link.candidate_filing_ids)}"
+                f"related_date={link.related_filing_date}"
             )
+            for candidate_id in link.candidate_filing_ids:
+                candidate = by_filing_id[candidate_id]
+                candidate_event = events[candidate_id]
+                matches = []
+                differences = []
+                for field_name in MATCH_FIELDS:
+                    current = _normalise(getattr(correction_event, field_name, None))
+                    previous = _normalise(getattr(candidate_event, field_name, None))
+                    if current is None or previous is None:
+                        continue
+                    target = matches if current == previous else differences
+                    target.append(field_name)
+                print(
+                    "  "
+                    f"candidate={candidate.filing.receipt_number} "
+                    f"matches={','.join(matches) or '-'} "
+                    f"differs={','.join(differences) or '-'}"
+                )
 
     missing_related_date = [
         link
@@ -82,9 +125,11 @@ def main() -> None:
     ]
     if missing_related_date:
         print()
-        print("=== missing related date receipts ===")
+        print("=== missing related date raw values ===")
         for link in missing_related_date:
-            print(link.correction_receipt_number)
+            package = by_filing_id[link.correction_filing_id]
+            raw = _related_date_raw(package, reader)
+            print(f"{link.correction_receipt_number}  {raw!r}")
 
     unresolved = [
         link

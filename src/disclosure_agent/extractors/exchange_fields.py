@@ -167,11 +167,7 @@ def _field(
     labels: list[TableCell],
     value_cell: TableCell,
 ) -> SemanticField:
-    path = tuple(
-        text
-        for cell in labels
-        if (text := cell.text_normalized.strip())
-    )
+    path = tuple(text for cell in labels if (text := cell.text_normalized.strip()))
     return SemanticField(
         filing_id=filing_id,
         document_id=document_id,
@@ -182,7 +178,11 @@ def _field(
         row_index=row_index,
         value_column_index=value_cell.column_index,
         value_locator=value_cell.source_locator,
-        label_locators=tuple(cell.source_locator for cell in labels if cell.text_normalized.strip()),
+        label_locators=tuple(
+            cell.source_locator
+            for cell in labels
+            if cell.text_normalized.strip()
+        ),
     )
 
 
@@ -219,8 +219,4 @@ def _looks_like_label(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    return (
-        stripped[0].isdigit()
-        or stripped.startswith("-")
-        or stripped.startswith("※")
-    )
+    return stripped[0].isdigit() or stripped.startswith("-") or stripped.startswith("※")

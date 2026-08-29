@@ -48,8 +48,15 @@ def main() -> None:
         )
         print(f"termination_reason       {contract.termination_reason or '-'}")
         print(f"termination_receipt      {contract.termination_receipt_number}")
-        print("formation evidence")
-        for evidence in finding.formation_evidence:
+        print("root formation evidence")
+        for evidence in finding.root_formation_evidence:
+            print(
+                f"  {evidence.attribute}: {evidence.value_text} "
+                f"[table={evidence.table_id} row={evidence.row_index} "
+                f"col={evidence.value_column_index}]"
+            )
+        print("latest formation evidence")
+        for evidence in finding.latest_formation_evidence:
             print(
                 f"  {evidence.attribute}: {evidence.value_text} "
                 f"[table={evidence.table_id} row={evidence.row_index} "

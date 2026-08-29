@@ -17,6 +17,8 @@ _NAME_PART = rb"[A-Za-z_][A-Za-z0-9_.-]*"
 _QNAME = re.compile(_NAME_PART + rb"(?::" + _NAME_PART + rb")?")
 _ENTITY = re.compile(rb"&(?:#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_][A-Za-z0-9_.:-]*);")
 _PREDEFINED_ENTITIES = {b"amp", b"lt", b"gt", b"apos", b"quot"}
+_ENG_ASSIGNMENT = re.compile(rb"\bENG\s*=\s*([\"'])", re.IGNORECASE)
+_NEXT_ATTRIBUTE = re.compile(rb"\s+" + _NAME_PART + rb"(?::" + _NAME_PART + rb")?\s*=")
 _MAX_EXAMPLES = 5
 # Reviewed labels observed in the corpus. Unknown extension tags are not guessed.
 _LITERAL_LABELS = {
@@ -306,6 +308,60 @@ def _repair_entities(
     return bytes(output)
 
 
+def _repair_eng_attribute_quotes(
+    token: bytes,
+    *,
+    base_offset: int,
+    collector: _IssueCollector,
+) -> bytes:
+    """Preserve stray raw quotes inside malformed DART ``ENG`` attributes.
+
+    Several real filings contain values such as ``ENG=""Snow Corporation"`` or
+    ``ENG="Accrued Expenses""``.  libxml recovery can then truncate the enclosing
+    table.  For the reviewed ENG attribute only, use the outermost quote as the
+    XML delimiter and encode any interior raw quote as an XML entity.  The source
+    bytes remain untouched and the malformed quote itself is not discarded.
+    """
+
+    assignment = _ENG_ASSIGNMENT.search(token)
+    if assignment is None:
+        return token
+
+    quote = assignment.group(1)
+    value_start = assignment.end()
+    boundary = len(token)
+    for candidate in _NEXT_ATTRIBUTE.finditer(token, value_start):
+        before = token[value_start : candidate.start()].rstrip()
+        if before.endswith(quote):
+            boundary = candidate.start()
+            break
+
+    segment = token[value_start:boundary]
+    closing_quote = segment.rfind(quote)
+    if closing_quote < 0:
+        return token
+    value = segment[:closing_quote]
+    if quote not in value:
+        return token
+
+    entity = b"&quot;" if quote == b'"' else b"&apos;"
+    repaired_value = value.replace(quote, entity)
+    repaired = (
+        token[:value_start]
+        + repaired_value
+        + quote
+        + segment[closing_quote + 1 :]
+        + token[boundary:]
+    )
+    collector.record(
+        "malformed_eng_attribute_quote_preserved",
+        "Raw quote characters inside a malformed ENG attribute were encoded in the parse buffer.",
+        base_offset + assignment.start(),
+        token[assignment.start() : boundary],
+    )
+    return repaired
+
+
 def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
     """Create a conservative parse buffer without mutating the source bytes."""
 
@@ -388,7 +444,12 @@ def repair_dart_xml(raw: bytes, source_file_id: str) -> XmlRepairResult:
 
         token = raw[position + 1 : tag_end]
         if _is_known_dart_tag(token):
-            # Repair only an extra terminal quote after a complete attribute.
+            token = _repair_eng_attribute_quotes(
+                token,
+                base_offset=position + 1,
+                collector=collector,
+            )
+            # Repair only an extra terminal quote after a complete non-ENG attribute.
             # Do not reinterpret arbitrary malformed structural tags as prose.
             fixed = re.sub(rb"(=\s*\"[^\"<>]*\")\"(\s*/?\s*)$", rb"\1\2", token)
             fixed = re.sub(rb"(=\s*'[^'<>]*')'(\s*/?\s*)$", rb"\1\2", fixed)

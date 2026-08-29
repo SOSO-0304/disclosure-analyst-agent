@@ -41,9 +41,12 @@ def main() -> None:
             TerminationLineageStatus.RESOLVED_BY_FINGERPRINT,
         )
     )
+    formation_total = sum(
+        package.filing.document_subtype == FORMATION_SUBTYPE for package in relevant
+    )
 
     print("=== supply contract termination lineage ===")
-    print(f"formation packages              {sum(p.filing.document_subtype == FORMATION_SUBTYPE for p in relevant)}")
+    print(f"formation packages              {formation_total}")
     print(f"termination packages            {total}")
     print(f"resolved total                  {resolved}/{total}")
     print()

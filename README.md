@@ -67,6 +67,32 @@ Schema version은 `2.2.0`입니다. 새 중첩 표 관계 필드는 기본값이
 - 표 ID와 block ID가 달라질 수 있으므로 새/이전 JSONL의 ID를 섞어 검색 인덱스를 만들지 않습니다.
 - 구조 복구가 남으면 `partial`을 유지합니다. `success`만으로 무손실을 인증하지 않습니다.
 
+### DART parser 2.2.1 overlay
+
+전체 v2.2 JSONL은 immutable base snapshot으로 유지합니다. v2.2 audit에서
+`DartParser + partial + markup_recovery`로 확인된 package만 원본에서 다시 파싱하여
+별도 overlay JSONL에 기록합니다. Schema version은 계속 `2.2.0`이고 Dart parser version만
+`2.2.1`입니다.
+
+2.2.1은 `ENG=""Snow Corporation"`, `ENG="Accrued Expenses""`처럼 실제 corpus에서 확인된
+깨진 `ENG` attribute quote를 구조 복구 전에 좁게 처리합니다. raw source는 수정하지 않으며,
+attribute 안의 stray quote 자체도 삭제하지 않고 parse buffer에서 XML entity로 보존합니다.
+
+```bash
+python scripts/reparse_dart_overlay.py \
+  --data-root data \
+  --base data/processed/canonical-v22-smoke.jsonl \
+  --output data/processed/canonical-dart-221-overlay.jsonl
+
+python scripts/profile_dart_overlay.py \
+  --base data/processed/canonical-v22-smoke.jsonl \
+  --overlay data/processed/canonical-dart-221-overlay.jsonl
+```
+
+후속 consumer는 `read_effective_canonical(base, overlay)`를 사용합니다. `filing_id`가 merge key이며
+동일 receipt number와 corp code를 다시 확인한 뒤 overlay package를 선택합니다. base JSONL은
+절대 덮어쓰지 않습니다.
+
 ## Corpus 구조
 
 ```text

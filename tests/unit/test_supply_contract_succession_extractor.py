@@ -121,8 +121,7 @@ def test_extract_supply_contract_succession_fields_and_source_references() -> No
         _field("4. 기타 투자판단과 관련한 중요사항", notes),
         _field(
             "※ 관련공시",
-            "2024-02-22 투자판단 관련 주요경영사항 "
-            "2024-04-30 투자판단 관련 주요경영사항",
+            "2024-02-22 투자판단 관련 주요경영사항 2024-04-30 투자판단 관련 주요경영사항",
         ),
     ]
 
@@ -135,9 +134,7 @@ def test_extract_supply_contract_succession_fields_and_source_references() -> No
     assert event.disclosed_exchange_rate == Decimal("985.30")
     assert event.fulfilled_amount_usd == 92_726_451
     assert event.fulfillment_ratio == Decimal("95.92")
-    assert event.counterparty == (
-        "VIETNAM SUNERGY CELL COMPANY LIMITED, VSUN CHINA CO.,LTD."
-    )
+    assert event.counterparty == ("VIETNAM SUNERGY CELL COMPANY LIMITED, VSUN CHINA CO.,LTD.")
     assert event.contract_start_date == date(2024, 2, 22)
     assert event.contract_end_date == date(2024, 12, 24)
     assert event.decision_date == date(2024, 12, 24)

@@ -110,18 +110,14 @@ def project_supply_contract_lifecycle(
     package_list = list(packages)
     field_reader = reader or ExchangeFieldReader()
     formations = [
-        package
-        for package in package_list
-        if package.filing.document_subtype == FORMATION_SUBTYPE
+        package for package in package_list if package.filing.document_subtype == FORMATION_SUBTYPE
     ]
     terminations = [
         package
         for package in package_list
         if package.filing.document_subtype == TERMINATION_SUBTYPE
     ]
-    successions = [
-        package for package in package_list if is_supply_contract_succession(package)
-    ]
+    successions = [package for package in package_list if is_supply_contract_succession(package)]
 
     correction_lineage = resolve_supply_contract_lineage(formations, reader=field_reader)
     termination_lineage = resolve_supply_contract_termination_lineage(
@@ -194,16 +190,12 @@ def project_supply_contract_lifecycle(
                 correction_count=len(corrections),
                 correction_lineage_complete=lineage_complete,
                 status=status,
-                termination_filing_ids=tuple(
-                    package.filing_id for package in linked_terminations
-                ),
+                termination_filing_ids=tuple(package.filing_id for package in linked_terminations),
                 termination_receipt_numbers=tuple(
                     package.filing.receipt_number for package in linked_terminations
                 ),
                 latest_termination_date=(
-                    linked_terminations[-1].filing.receipt_date
-                    if linked_terminations
-                    else None
+                    linked_terminations[-1].filing.receipt_date if linked_terminations else None
                 ),
             )
         )

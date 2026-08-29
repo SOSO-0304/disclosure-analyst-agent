@@ -265,11 +265,7 @@ def _resolve_by_fingerprint(
     if best_score < MIN_FINGERPRINT_MATCHES:
         return None
 
-    best_peers = [
-        item
-        for item in ranked
-        if item[0] == best_score and item[1] == best_compared
-    ]
+    best_peers = [item for item in ranked if item[0] == best_score and item[1] == best_compared]
     if len(best_peers) != 1:
         return None
     return best_candidate, best_score, best_compared
@@ -306,11 +302,7 @@ def _resolve_by_correction_table(
     if best_score < 1:
         return None
 
-    best_peers = [
-        item
-        for item in ranked
-        if item[0] == best_score and item[1] == best_compared
-    ]
+    best_peers = [item for item in ranked if item[0] == best_score and item[1] == best_compared]
     if len(best_peers) != 1:
         return None
     return best_candidate, best_score, best_compared

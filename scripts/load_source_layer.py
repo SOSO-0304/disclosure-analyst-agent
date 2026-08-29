@@ -62,9 +62,7 @@ def main() -> None:
 
     validated_manifest = _read_manifest(args.manifest)
     expectations = (
-        EffectiveCanonicalExpectations()
-        if args.no_strict_corpus_counts
-        else ACCEPTED_EXPECTATIONS
+        EffectiveCanonicalExpectations() if args.no_strict_corpus_counts else ACCEPTED_EXPECTATIONS
     )
     expected_companies = None if args.no_strict_corpus_counts else 70
 

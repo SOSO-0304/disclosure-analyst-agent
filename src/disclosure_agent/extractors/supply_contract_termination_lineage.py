@@ -81,9 +81,7 @@ def resolve_supply_contract_termination_lineage(
     package_list = list(packages)
     field_reader = reader or ExchangeFieldReader()
     formations = [
-        package
-        for package in package_list
-        if package.filing.document_subtype == FORMATION_SUBTYPE
+        package for package in package_list if package.filing.document_subtype == FORMATION_SUBTYPE
     ]
     terminations = [
         package
@@ -199,8 +197,8 @@ def _extract_formation_dates(
     if related_disclosures:
         matches = list(RELATED_DISCLOSURE_DATE_PATTERN.finditer(related_disclosures))
         for index, match in enumerate(matches):
-            segment_end = matches[index + 1].start() if index + 1 < len(matches) else len(
-                related_disclosures
+            segment_end = (
+                matches[index + 1].start() if index + 1 < len(matches) else len(related_disclosures)
             )
             segment = related_disclosures[match.start() : segment_end]
             if FORMATION_TEXT_PATTERN.search(segment):

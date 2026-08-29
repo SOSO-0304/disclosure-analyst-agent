@@ -42,9 +42,7 @@ SUCCESSION_REPORT_TOKEN = "단일판매 공급계약 잔여금액 승계"
 DEFAULT_CANONICAL = Path("data/processed/canonical-v22-smoke.jsonl")
 DEFAULT_INVENTORY = Path("data/manifest.jsonl")
 DEFAULT_OUTPUT = Path("data/processed/subsets/supply-contract-lifecycle-v22.jsonl")
-DEFAULT_MANIFEST = Path(
-    "data/processed/subsets/supply-contract-lifecycle-v22.manifest.json"
-)
+DEFAULT_MANIFEST = Path("data/processed/subsets/supply-contract-lifecycle-v22.manifest.json")
 
 
 def _sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
@@ -114,9 +112,7 @@ def _load_inventory(path: Path) -> tuple[dict[str, str], str]:
             if entry.doc_id in expected:
                 raise SubsetBuildError(f"Duplicate lifecycle doc_id: {entry.doc_id}")
             if entry.rcept_no in receipt_numbers:
-                raise SubsetBuildError(
-                    f"Duplicate lifecycle receipt number: {entry.rcept_no}"
-                )
+                raise SubsetBuildError(f"Duplicate lifecycle receipt number: {entry.rcept_no}")
             expected[entry.doc_id] = kind
             receipt_numbers.add(entry.rcept_no)
 
@@ -141,9 +137,7 @@ def _verify_selected(
         if missing:
             parts.append(f"missing={len(missing)} examples={sorted(missing)[:5]}")
         if unexpected:
-            parts.append(
-                f"unexpected={len(unexpected)} examples={sorted(unexpected)[:5]}"
-            )
+            parts.append(f"unexpected={len(unexpected)} examples={sorted(unexpected)[:5]}")
         if mismatched:
             parts.append(f"kind_mismatch={len(mismatched)} examples={mismatched[:5]}")
         raise SubsetBuildError(
@@ -158,11 +152,7 @@ def _finalize_parser_versions(versions: dict[str, set[str]]) -> dict[str, str]:
             f"{name}={sorted(values)}" for name, values in sorted(conflicts.items())
         )
         raise SubsetBuildError(f"Multiple parser versions in lifecycle subset: {rendered}")
-    return {
-        name: next(iter(values))
-        for name, values in sorted(versions.items())
-        if values
-    }
+    return {name: next(iter(values)) for name, values in sorted(versions.items()) if values}
 
 
 def build_supply_contract_lifecycle_subset(

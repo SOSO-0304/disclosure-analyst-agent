@@ -20,8 +20,7 @@ def main() -> None:
         "--expected-packages",
         type=int,
         help=(
-            "Fail before reparsing if the immutable base snapshot has a different "
-            "candidate count."
+            "Fail before reparsing if the immutable base snapshot has a different candidate count."
         ),
     )
     parser.add_argument(

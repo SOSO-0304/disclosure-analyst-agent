@@ -62,15 +62,12 @@ def find_terminated_contracts_formed_in_year(
     )
     findings: list[TerminatedContractFinding] = []
     for contract in contracts:
-        root_formation_event_id = (
-            f"{EventType.SUPPLY_CONTRACT.value}:{contract.root_filing_id}"
-        )
+        root_formation_event_id = f"{EventType.SUPPLY_CONTRACT.value}:{contract.root_filing_id}"
         latest_formation_event_id = (
             f"{EventType.SUPPLY_CONTRACT.value}:{contract.latest_formation_filing_id}"
         )
         termination_event_id = (
-            f"{EventType.SUPPLY_CONTRACT_TERMINATION.value}:"
-            f"{contract.termination_filing_id}"
+            f"{EventType.SUPPLY_CONTRACT_TERMINATION.value}:{contract.termination_filing_id}"
         )
         findings.append(
             TerminatedContractFinding(

@@ -40,8 +40,7 @@ def test_malformed_eng_quotes_are_preserved_without_structural_recovery(
     assert loaded.root.xpath("//*[local-name()='TH']")[0].get("ENG") == expected_eng
     assert "after S&P" in "".join(loaded.root.itertext())
     assert any(
-        issue.issue_code == "malformed_eng_attribute_quote_preserved"
-        for issue in loaded.issues
+        issue.issue_code == "malformed_eng_attribute_quote_preserved" for issue in loaded.issues
     )
     assert path.read_bytes() == raw
 
@@ -65,9 +64,7 @@ def test_dart_parser_221_keeps_table_and_tail_after_malformed_eng(tmp_path: Path
     document = DartParser().parse(path, source, filing_id="filing", title="test")
     tables = [block.table for block in document.blocks if block.table is not None]
     table_text = " ".join(cell.text_raw for table in tables for cell in table.cells)
-    block_text = " ".join(
-        block.text_raw or "" for block in document.blocks if block.table is None
-    )
+    block_text = " ".join(block.text_raw or "" for block in document.blocks if block.table is None)
     emitted_text = f"{table_text} {block_text}"
 
     assert document.parse_summary.parser_version == "2.2.1"

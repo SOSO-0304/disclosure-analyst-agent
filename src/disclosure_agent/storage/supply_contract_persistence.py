@@ -72,14 +72,10 @@ def build_supply_contract_persistence_bundle(
     field_reader = reader or ExchangeFieldReader()
     projection = project_supply_contract_lifecycle(packages, reader=field_reader)
     formations = [
-        package
-        for package in packages
-        if package.filing.document_subtype == FORMATION_SUBTYPE
+        package for package in packages if package.filing.document_subtype == FORMATION_SUBTYPE
     ]
     terminations = [
-        package
-        for package in packages
-        if package.filing.document_subtype == TERMINATION_SUBTYPE
+        package for package in packages if package.filing.document_subtype == TERMINATION_SUBTYPE
     ]
     successions = [package for package in packages if is_supply_contract_succession(package)]
 
@@ -355,9 +351,7 @@ def _evidence_rows(
                 "value_text": field.value,
                 "raw_value": field.raw_value,
                 "value_locator": _locator_json(field.value_locator),
-                "label_locators": [
-                    _locator_json(locator) for locator in field.label_locators
-                ],
+                "label_locators": [_locator_json(locator) for locator in field.label_locators],
             }
         )
     return rows

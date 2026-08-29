@@ -42,9 +42,7 @@ def main() -> None:
     engine = get_engine(args.database_url)
     failures: list[str] = []
     with session_scope(engine) as session:
-        runs = session.scalars(
-            select(LoadRunRow).where(LoadRunRow.status == "completed")
-        ).all()
+        runs = session.scalars(select(LoadRunRow).where(LoadRunRow.status == "completed")).all()
         if len(runs) != 1:
             raise SystemExit(f"Expected one deterministic completed load run, found {len(runs)}")
         run = runs[0]

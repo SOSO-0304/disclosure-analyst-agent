@@ -59,9 +59,7 @@ def main() -> None:
     for field_name in FIELDS:
         count = values[field_name]
         coverage = count / len(packages) * 100
-        print(
-            f"{field_name:<24}  {count:>8}  {evidence[field_name]:>9}  {coverage:>7.2f}%"
-        )
+        print(f"{field_name:<24}  {count:>8}  {evidence[field_name]:>9}  {coverage:>7.2f}%")
 
 
 if __name__ == "__main__":

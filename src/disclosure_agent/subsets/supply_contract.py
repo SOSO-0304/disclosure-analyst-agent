@@ -100,8 +100,7 @@ def _load_inventory_ids(path: Path) -> tuple[set[str], str]:
                     )
                 if entry.rcept_no in receipt_numbers:
                     raise SubsetBuildError(
-                        "Duplicate Supply Contract receipt number in inventory: "
-                        f"{entry.rcept_no}"
+                        f"Duplicate Supply Contract receipt number in inventory: {entry.rcept_no}"
                     )
                 expected.add(entry.doc_id)
                 receipt_numbers.add(entry.rcept_no)
@@ -119,11 +118,7 @@ def _finalize_parser_versions(versions: dict[str, set[str]]) -> dict[str, str]:
         )
         raise SubsetBuildError(f"Multiple parser versions in selected subset: {rendered}")
 
-    return {
-        name: next(iter(values))
-        for name, values in sorted(versions.items())
-        if values
-    }
+    return {name: next(iter(values)) for name, values in sorted(versions.items()) if values}
 
 
 def _verify_selected_ids(selected_ids: list[str], expected_ids: set[str]) -> None:

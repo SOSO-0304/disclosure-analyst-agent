@@ -24,9 +24,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "related_disclosures": ("※ 관련공시",),
 }
 
-KOREAN_DATE_PATTERN = re.compile(
-    r"(?P<year>\d{4})년\s*(?P<month>\d{1,2})월\s*(?P<day>\d{1,2})일"
-)
+KOREAN_DATE_PATTERN = re.compile(r"(?P<year>\d{4})년\s*(?P<month>\d{1,2})월\s*(?P<day>\d{1,2})일")
 SOURCE_REFERENCE_MARKER = re.compile(r"※\s*관련공시\(OCI\s*홀딩스㈜\)(?P<tail>.*)$")
 
 
@@ -121,12 +119,8 @@ def _parse_details(details: str | None) -> dict[str, str]:
 
     parsed: dict[str, str] = {}
     patterns = {
-        "contract_type": (
-            r"1\)\s*판매[ㆍ·]?공급계약\s*구분\s*:\s*(?P<value>.+?)\s+2\)"
-        ),
-        "counterparty": (
-            r"3\)\s*계약상대\s*:\s*(?P<value>.+?)\s+4\)\s*계약기간"
-        ),
+        "contract_type": (r"1\)\s*판매[ㆍ·]?공급계약\s*구분\s*:\s*(?P<value>.+?)\s+2\)"),
+        "counterparty": (r"3\)\s*계약상대\s*:\s*(?P<value>.+?)\s+4\)\s*계약기간"),
     }
     for key, pattern in patterns.items():
         match = re.search(pattern, details)

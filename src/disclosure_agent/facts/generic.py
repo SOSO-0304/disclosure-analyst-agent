@@ -176,9 +176,7 @@ def _visible_row_cells(table: TableData, row_index: int) -> tuple[TableCell, ...
     """Return anchor cells whose row spans cover the requested logical row."""
 
     cells = [
-        cell
-        for cell in table.cells
-        if cell.row_index <= row_index < cell.row_index + cell.row_span
+        cell for cell in table.cells if cell.row_index <= row_index < cell.row_index + cell.row_span
     ]
     return tuple(sorted(cells, key=lambda item: item.column_index))
 

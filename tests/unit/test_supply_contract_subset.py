@@ -169,12 +169,10 @@ def test_build_subset_uses_exact_subtype_and_writes_manifest(tmp_path: Path):
     assert metadata["filing_ids"] == ["exchange_a", "exchange_c"]
     assert metadata["parser_versions"] == {"ExchangeParser": "2.2.0"}
     assert metadata["source_file_hash_coverage"] == {"present": 1, "total": 2}
-    assert metadata["source_canonical"]["sha256"] == hashlib.sha256(
-        canonical.read_bytes()
-    ).hexdigest()
-    assert metadata["subset"]["sha256"] == hashlib.sha256(
-        output.read_bytes()
-    ).hexdigest()
+    assert (
+        metadata["source_canonical"]["sha256"] == hashlib.sha256(canonical.read_bytes()).hexdigest()
+    )
+    assert metadata["subset"]["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
     assert manifest.is_file()
 
 

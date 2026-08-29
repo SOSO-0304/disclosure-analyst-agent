@@ -118,9 +118,7 @@ class GenericFactRepository:
             statement.on_conflict_do_update(
                 index_elements=["fact_id"],
                 set_={
-                    name: getattr(statement.excluded, name)
-                    for name in columns
-                    if name != "fact_id"
+                    name: getattr(statement.excluded, name) for name in columns if name != "fact_id"
                 },
             )
         )

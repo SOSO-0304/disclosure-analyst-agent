@@ -355,10 +355,7 @@ def _repair_eng_attribute_quotes(
     )
     collector.record(
         "malformed_eng_attribute_quote_preserved",
-        (
-            "Raw quote characters inside a malformed ENG attribute were encoded "
-            "in the parse buffer."
-        ),
+        ("Raw quote characters inside a malformed ENG attribute were encoded in the parse buffer."),
         base_offset + assignment.start(),
         token[assignment.start() : boundary],
     )

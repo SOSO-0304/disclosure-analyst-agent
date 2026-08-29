@@ -39,8 +39,7 @@ def main() -> None:
     print(f"correction lineage complete      {complete}/{len(projection.states)}")
     print(f"active roots                     {state_counts[SupplyContractLifecycleStatus.ACTIVE]}")
     print(
-        "terminated roots                 "
-        f"{state_counts[SupplyContractLifecycleStatus.TERMINATED]}"
+        f"terminated roots                 {state_counts[SupplyContractLifecycleStatus.TERMINATED]}"
     )
     print(f"succession states                {len(projection.succession_states)}")
     print()
@@ -64,9 +63,10 @@ def main() -> None:
         print()
         print("=== succeeded contract states ===")
         for state in projection.succession_states:
-            source_dates = ",".join(
-                value.isoformat() for value in state.source_contract_reference_dates
-            ) or "-"
+            source_dates = (
+                ",".join(value.isoformat() for value in state.source_contract_reference_dates)
+                or "-"
+            )
             source_roots = ",".join(state.matched_source_root_filing_ids) or "-"
             print(
                 f"succession={state.succession_receipt_number} "

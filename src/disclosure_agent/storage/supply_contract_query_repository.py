@@ -138,9 +138,7 @@ def _terminated_contracts_statement(
             SupplyContractLifecycleRow.correction_lineage_complete.label(
                 "correction_lineage_complete"
             ),
-            SupplyContractTerminationLinkRow.termination_filing_id.label(
-                "termination_filing_id"
-            ),
+            SupplyContractTerminationLinkRow.termination_filing_id.label("termination_filing_id"),
             termination_disclosure.receipt_number.label("termination_receipt_number"),
             SupplyContractTerminationEventRow.termination_date.label("termination_date"),
             SupplyContractTerminationEventRow.termination_reason.label("termination_reason"),
@@ -159,13 +157,11 @@ def _terminated_contracts_statement(
         )
         .join(
             latest_event,
-            latest_event.filing_id
-            == SupplyContractLifecycleRow.latest_formation_filing_id,
+            latest_event.filing_id == SupplyContractLifecycleRow.latest_formation_filing_id,
         )
         .join(
             latest_disclosure,
-            latest_disclosure.filing_id
-            == SupplyContractLifecycleRow.latest_formation_filing_id,
+            latest_disclosure.filing_id == SupplyContractLifecycleRow.latest_formation_filing_id,
         )
         .join(
             SupplyContractTerminationLinkRow,

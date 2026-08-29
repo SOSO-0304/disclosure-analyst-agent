@@ -46,8 +46,7 @@ def main() -> None:
         bool(row["is_latest_for_root"]) for row in bundle.supply_contract_events
     )
     external_successions = sum(
-        row["predecessor_scope"] == "external"
-        for row in bundle.succession_lifecycle_states
+        row["predecessor_scope"] == "external" for row in bundle.succession_lifecycle_states
     )
 
     print()

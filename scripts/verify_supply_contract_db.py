@@ -62,21 +62,30 @@ def main() -> None:
             name: session.scalar(select(func.count()).select_from(model)) or 0
             for name, model in TABLE_MODELS.items()
         }
-        latest_contract_rows = session.scalar(
-            select(func.count())
-            .select_from(SupplyContractEventRow)
-            .where(SupplyContractEventRow.is_latest_for_root.is_(True))
-        ) or 0
-        terminated_roots = session.scalar(
-            select(func.count())
-            .select_from(SupplyContractLifecycleRow)
-            .where(SupplyContractLifecycleRow.status == "terminated")
-        ) or 0
-        external_successions = session.scalar(
-            select(func.count())
-            .select_from(SupplyContractSuccessionLifecycleRow)
-            .where(SupplyContractSuccessionLifecycleRow.predecessor_scope == "external")
-        ) or 0
+        latest_contract_rows = (
+            session.scalar(
+                select(func.count())
+                .select_from(SupplyContractEventRow)
+                .where(SupplyContractEventRow.is_latest_for_root.is_(True))
+            )
+            or 0
+        )
+        terminated_roots = (
+            session.scalar(
+                select(func.count())
+                .select_from(SupplyContractLifecycleRow)
+                .where(SupplyContractLifecycleRow.status == "terminated")
+            )
+            or 0
+        )
+        external_successions = (
+            session.scalar(
+                select(func.count())
+                .select_from(SupplyContractSuccessionLifecycleRow)
+                .where(SupplyContractSuccessionLifecycleRow.predecessor_scope == "external")
+            )
+            or 0
+        )
 
     print("=== supply contract database verification ===")
     for name, expected in EXPECTED_COUNTS.items():

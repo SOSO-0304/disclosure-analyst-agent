@@ -109,8 +109,7 @@ def extract_supply_contract_termination(
         raise ValueError("Supply Contract Termination extractor requires an Exchange filing")
     if package.filing.document_subtype != "단일판매공급계약해지":
         raise ValueError(
-            "Supply Contract Termination extractor requires "
-            "document_subtype=단일판매공급계약해지"
+            "Supply Contract Termination extractor requires document_subtype=단일판매공급계약해지"
         )
 
     field_reader = reader or ExchangeFieldReader()

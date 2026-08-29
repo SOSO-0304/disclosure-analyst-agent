@@ -103,11 +103,7 @@ def main() -> None:
                 f"predecessor={link.predecessor_receipt_number}"
             )
 
-    ambiguous = [
-        link
-        for link in lineage.links
-        if link.status is LineageResolutionStatus.AMBIGUOUS
-    ]
+    ambiguous = [link for link in lineage.links if link.status is LineageResolutionStatus.AMBIGUOUS]
     if ambiguous:
         print()
         print("=== ambiguous details ===")
@@ -115,8 +111,7 @@ def main() -> None:
             correction = by_filing_id[link.correction_filing_id]
             correction_event = events[correction.filing_id]
             print(
-                f"receipt={link.correction_receipt_number} "
-                f"related_date={link.related_filing_date}"
+                f"receipt={link.correction_receipt_number} related_date={link.related_filing_date}"
             )
             for candidate_id in link.candidate_filing_ids:
                 candidate = by_filing_id[candidate_id]

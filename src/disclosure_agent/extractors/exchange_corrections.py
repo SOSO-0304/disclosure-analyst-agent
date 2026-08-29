@@ -135,8 +135,7 @@ def _find_header(
 ) -> tuple[int, int, int, int] | None:
     for row_index, row in enumerate(grid):
         labels = [
-            _normalise_header(cell.text_normalized) if cell is not None else ""
-            for cell in row
+            _normalise_header(cell.text_normalized) if cell is not None else "" for cell in row
         ]
         item_columns = [i for i, label in enumerate(labels) if label == "정정항목"]
         before_columns = [i for i, label in enumerate(labels) if label == "정정전"]

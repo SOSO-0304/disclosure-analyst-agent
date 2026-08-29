@@ -16,9 +16,9 @@ from disclosure_agent.domain.models import (
     FilingMetadata,
     FilingPackage,
     ManifestFileFormat,
+    ParserProfile,
     ParseStatus,
     ParseSummary,
-    ParserProfile,
     SourceFile,
     SourceRole,
 )

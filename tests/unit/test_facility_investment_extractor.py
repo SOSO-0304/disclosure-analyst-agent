@@ -14,6 +14,8 @@ def _fact(
     value: str,
     row: int,
     numeric: Decimal | None = None,
+    header: str | None = None,
+    table_id: str = "table:1",
 ) -> GenericFact:
     return GenericFact(
         fact_id=fact_id,
@@ -22,11 +24,11 @@ def _fact(
         document_id="document:1",
         section_id=None,
         block_id="block:1",
-        table_id="table:1",
+        table_id=table_id,
         row_index=row,
         column_index=2,
         label_text=label,
-        header_text=None,
+        header_text=header,
         path_text=f"[기재정정]신규시설투자등 | {label}",
         value_text=value,
         raw_value=value,
@@ -151,6 +153,41 @@ def test_equity_amount_does_not_prefer_equity_ratio_fact() -> None:
     assert extraction.event.equity_krw == 2_000_000_000_000
     assert extraction.event.equity_ratio == Decimal("18.5")
     assert extraction.evidence["equity_krw"].fact_id == "equity"
+
+
+def test_correction_table_prefers_after_value_over_before_value() -> None:
+    facts = [
+        _fact(
+            fact_id="before",
+            label="2. 투자내역 > 투자금액(원)",
+            value="100,000,000,000",
+            row=1,
+            numeric=Decimal("100000000000"),
+            header="정정전",
+            table_id="table:correction",
+        ),
+        _fact(
+            fact_id="after",
+            label="2. 투자내역 > 투자금액(원) > 100,000,000,000",
+            value="120,000,000,000",
+            row=1,
+            numeric=Decimal("120000000000"),
+            header="정정후",
+            table_id="table:correction",
+        ),
+    ]
+
+    extraction = extract_facility_investment(
+        filing_id="filing:correction",
+        receipt_number="20260327903037",
+        company_name="테스트회사",
+        stock_code="123456",
+        is_correction=True,
+        facts=facts,
+    )
+
+    assert extraction.event.investment_amount_krw == 120_000_000_000
+    assert extraction.evidence["investment_amount_krw"].fact_id == "after"
 
 
 def test_missing_dash_values_are_not_promoted_as_evidence() -> None:

@@ -39,9 +39,7 @@ BOND_AMOUNT_TOKENS = (
     "사채의권면총액",
     "발행금액",
 )
-DATE_PATTERN = re.compile(
-    r"20\d{2}\s*(?:년|[./-])\s*\d{1,2}\s*(?:월|[./-])\s*\d{1,2}"
-)
+DATE_PATTERN = re.compile(r"20\d{2}\s*(?:년|[./-])\s*\d{1,2}\s*(?:월|[./-])\s*\d{1,2}")
 
 
 def _compact(value: str | None) -> str:
@@ -87,8 +85,7 @@ def _logical_rows(table: SourceTableRow) -> tuple[tuple[dict[str, Any], ...], ..
             rows[logical_row].append(cell)
 
     return tuple(
-        tuple(sorted(row, key=lambda item: int(item.get("column_index", 0))))
-        for row in rows
+        tuple(sorted(row, key=lambda item: int(item.get("column_index", 0)))) for row in rows
     )
 
 

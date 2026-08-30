@@ -464,3 +464,80 @@ class SourceTableRow(Base):
     normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
     grid: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)
     attributes_raw: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)
+
+
+class RetrievalChunkRunRow(Base):
+    """One validated materialization of an approved retrieval plan."""
+
+    __tablename__ = "retrieval_chunk_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_load_run_id",
+            "plan_sha256",
+            name="uq_retrieval_chunk_run_source_plan",
+        ),
+        Index(
+            "ix_retrieval_chunk_runs_source_status",
+            "source_load_run_id",
+            "status",
+        ),
+    )
+
+    chunk_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_load_run_id: Mapped[str] = mapped_column(
+        ForeignKey("load_runs.load_run_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    plan_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    plan_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    counts: Mapped[dict[str, int]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class RetrievalChunkRow(Base):
+    """Versioned retrieval text plus canonical block/table provenance."""
+
+    __tablename__ = "retrieval_chunks"
+    __table_args__ = (
+        Index("ix_retrieval_chunks_run_type", "chunk_run_id", "chunk_type"),
+        Index("ix_retrieval_chunks_filing_type", "filing_id", "chunk_type"),
+        Index("ix_retrieval_chunks_document", "document_id"),
+        Index("ix_retrieval_chunks_section", "section_id"),
+        Index("ix_retrieval_chunks_source_table", "source_table_id"),
+    )
+
+    chunk_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    chunk_run_id: Mapped[str] = mapped_column(
+        ForeignKey("retrieval_chunk_runs.chunk_run_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    filing_id: Mapped[str] = mapped_column(
+        ForeignKey("source_filings.filing_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("source_documents.document_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    section_id: Mapped[str | None] = mapped_column(
+        ForeignKey("source_sections.section_id", ondelete="SET NULL")
+    )
+    document_group: Mapped[str] = mapped_column(String(32), nullable=False)
+    chunk_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    heading_path: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    source_block_ids: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    source_table_id: Mapped[str | None] = mapped_column(
+        ForeignKey("source_tables.table_id", ondelete="CASCADE")
+    )
+    start_block_order: Mapped[int | None] = mapped_column(Integer)
+    end_block_order: Mapped[int | None] = mapped_column(Integer)
+    table_row_start: Mapped[int | None] = mapped_column(Integer)
+    table_row_end: Mapped[int | None] = mapped_column(Integer)
+    metadata: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)

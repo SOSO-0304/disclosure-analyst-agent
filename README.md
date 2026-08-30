@@ -18,8 +18,9 @@ PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 �
 | Source Layer 코드 | 구현 | migration, staging, atomic promotion, 검증기 |
 | Source Layer DB | 완료 | 70 companies, 4,204 filings, 2,700,533 blocks |
 | 공급계약 vertical slice | 구현 | 1,106 packages, correction 563건 |
-| Generic facts / chunks | 진행 중 | read-only chunk planner 구현 |
-| Retrieval / API / LLM | 미구현 | pgvector, query planner, HyperCLOVA X 연동 예정 |
+| Retrieval chunks | 구현 | v4 policy 확정, versioned loader/검증기 구현 |
+| Generic facts | 진행 중 | periodic numeric table structured lane 예정 |
+| Retrieval / API / LLM | 미구현 | embedding, query planner, HyperCLOVA X 연동 예정 |
 
 최종 Canonical 상태는 다음과 같습니다.
 
@@ -150,27 +151,40 @@ Loader는 `source_staging`에 먼저 적재하고 전체 count와 참조 무결�
 transaction으로 public Source Layer에 반영합니다. 성공하면 같은 transaction에서 staging을
 비우며, 중간 실패 시 기존 public snapshot은 변경되지 않습니다.
 
-## Retrieval chunk 사전 분석
+## Retrieval chunk 계획과 적재
 
-Source Layer를 다시 쓰지 않는 read-only profiler로 block 유형, 문서군, 정규화 텍스트 길이,
-표 크기와 중첩 관계를 집계합니다. 이 결과를 기준으로 page break 제외, heading 문맥화,
-paragraph 병합 및 table 선별 규칙을 결정합니다.
-
-```powershell
-python scripts/profile_source_content.py `
-  --database-url $PerfDatabaseUrl `
-  --output data\\quality\\source-content-profile.json
-```
-
-프로파일 확인 후에는 DB를 변경하지 않는 dry-run planner로 문단 병합 결과와 문서군별 table
-분류를 계산합니다. `small_layout_review`와 `nested_review`는 삭제 판정이 아니며 Source
-Layer에 그대로 남습니다.
+Source Layer를 바꾸지 않는 read-only planner로 narrative 병합과 table lane을 결정합니다.
+승인된 v4 정책은 narrative 133,092개와 vector 대상 table 33,136개를 계약으로 고정합니다.
+table chunk 36,959개는 문자 길이 기반 사전 추정값이므로 실제 행 경계 분할 결과와 다를 수
+있습니다.
 
 ```powershell
 python scripts/plan_retrieval_chunks.py `
   --database-url $PerfDatabaseUrl `
-  --output data\\quality\\retrieval-chunk-plan.json
+  --tables-only `
+  --reuse-narrative-plan data\quality\retrieval-chunk-plan-v3.json `
+  --output data\quality\retrieval-chunk-plan-v4.json
 ```
+
+Periodic 숫자표는 SQL structured lane, 나머지 periodic 표는 lexical lane으로 보내며
+1,580,832개 원본 표는 Source Layer에 모두 유지합니다.
+
+```powershell
+alembic upgrade head
+
+python scripts/load_retrieval_chunks.py `
+  --database-url $PerfDatabaseUrl `
+  --plan data\quality\retrieval-chunk-plan-v4.json
+
+python scripts/verify_retrieval_chunks_db.py `
+  --database-url $PerfDatabaseUrl `
+  --plan data\quality\retrieval-chunk-plan-v4.json
+```
+
+Loader는 전체 작업을 하나의 transaction으로 처리합니다. 검증까지 성공한 run만 active로
+전환되고, 실패하면 새 chunk와 run metadata가 모두 rollback되어 기존 active run을 보존합니다.
+각 chunk에는 filing/document/section, source block/table ID와 content SHA-256이 남습니다.
+Embedding 모델과 차원이 확정되기 전까지 vector 컬럼은 의도적으로 만들지 않습니다.
 
 ## 폴더 구조
 
@@ -198,7 +212,7 @@ python scripts/plan_retrieval_chunks.py `
 │   ├── storage/                     # JSONL reader, ORM, repositories
 │   ├── services/                    # ingestion과 application orchestration
 │   ├── api/                         # 향후 HTTP API namespace
-│   ├── retrieval/                   # 향후 retrieval namespace
+│   ├── retrieval/                   # chunk planner와 materialization policy
 │   └── llm/                         # 향후 HyperCLOVA X namespace
 └── tests/
     ├── unit/                        # parser, extractor, storage 단위 테스트

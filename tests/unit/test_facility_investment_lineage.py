@@ -16,6 +16,7 @@ def _snapshot(
     decision_date: date | None,
     subject: str | None = "제5공장 신설",
     amount: int | None = 100,
+    related_filing_date: date | None = None,
 ) -> FacilityInvestmentSnapshot:
     return FacilityInvestmentSnapshot(
         filing_id=filing_id,
@@ -27,6 +28,7 @@ def _snapshot(
         investment_type="신규시설투자",
         purpose="생산능력 확대",
         investment_amount_krw=amount,
+        related_filing_date=related_filing_date,
     )
 
 
@@ -83,6 +85,25 @@ def test_correction_with_pre_corpus_decision_is_marked_external_predecessor() ->
     assert link.status == "out_of_corpus_predecessor"
     assert result.lifecycles[0].lineage_complete is False
     assert result.lifecycles[0].status == "out_of_corpus_predecessor"
+
+
+def test_correction_uses_reference_date_when_decision_date_changed() -> None:
+    correction = _snapshot(
+        "correction",
+        date(2025, 1, 20),
+        correction=True,
+        decision_date=date(2025, 1, 20),
+        related_filing_date=date(2022, 11, 23),
+        subject="온산제련소 퓨머(Fumer)",
+        amount=89_200_000_000,
+    )
+
+    result = resolve_facility_investment_lineage([correction])
+
+    link = result.corrections[0]
+    assert link.predecessor_filing_id is None
+    assert link.status == "out_of_corpus_predecessor"
+    assert result.lifecycles[0].lineage_complete is False
 
 
 def test_same_company_different_subject_does_not_create_false_lineage() -> None:

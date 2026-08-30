@@ -23,9 +23,9 @@ def main() -> None:
         source_company_count = (
             session.scalar(select(func.count()).select_from(SourceCompanyRow)) or 0
         )
-        indexed_company_count = session.scalar(
-            select(func.count(func.distinct(RetrievalChunkRow.corp_code)))
-        ) or 0
+        indexed_company_count = (
+            session.scalar(select(func.count(func.distinct(RetrievalChunkRow.corp_code)))) or 0
+        )
 
         totals = session.execute(
             select(

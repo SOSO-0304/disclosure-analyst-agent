@@ -1,7 +1,7 @@
 """Extract typed facility-investment events from persisted generic facts.
 
 Unlike the legacy Supply Contract slice, this extractor deliberately consumes the
-full-corpus generic fact layer.  That lets typed-event expansion run without
+full-corpus generic fact layer. That lets typed-event expansion run without
 re-reading the 27GB canonical JSONL snapshot.
 """
 
@@ -44,7 +44,9 @@ ALIASES: dict[str, tuple[tuple[str, ...], ...]] = {
 }
 
 _MISSING = {"", "-", "해당없음", "해당 없음", "없음"}
-_DATE_PATTERN = re.compile(r"(?P<year>20\d{2})\s*[./-]\s*(?P<month>\d{1,2})\s*[./-]\s*(?P<day>\d{1,2})")
+_DATE_PATTERN = re.compile(
+    r"(?P<year>20\d{2})\s*[./-]\s*(?P<month>\d{1,2})\s*[./-]\s*(?P<day>\d{1,2})"
+)
 _NUMBER_PATTERN = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
 _LEADING_NUMBER = re.compile(r"^\s*\d+(?:[-.]\d+)*\s*[.)]?\s*")
 
@@ -104,7 +106,6 @@ def _first_matching_fact(
             score = _match_score(compact_parts, normalized_aliases)
             if score is None:
                 continue
-            # Prefer direct row labels over path-only matches, then stable table/cell order.
             direct_bonus = 1 if fact.label_text else 0
             ranked.append((score + direct_bonus, -alias_order, -fact.row_index, fact))
             break
@@ -122,18 +123,26 @@ def _match_score(parts: tuple[str, ...], aliases: tuple[str, ...]) -> int | None
             return 5
         if alias in parts:
             return 4
-        if parts[-1].endswith(alias):
+        if parts[-1].startswith(alias) or parts[-1].endswith(alias):
             return 3
         return None
 
     position = 0
     for alias in aliases:
-        try:
-            found = parts.index(alias, position)
-        except ValueError:
+        matched_index = next(
+            (
+                index
+                for index in range(position, len(parts))
+                if parts[index] == alias
+                or parts[index].startswith(alias)
+                or parts[index].endswith(alias)
+            ),
+            None,
+        )
+        if matched_index is None:
             return None
-        position = found + 1
-    if parts[-1] == aliases[-1]:
+        position = matched_index + 1
+    if parts[-1] == aliases[-1] or parts[-1].startswith(aliases[-1]):
         return 6
     return 5
 
@@ -143,7 +152,10 @@ def _label_parts(fact: GenericFact) -> tuple[str, ...]:
         parts = tuple(part.strip() for part in fact.label_text.split(">") if part.strip())
         if parts:
             return parts
-    return tuple(part.strip() for part in fact.path_text.split("|") if part.strip())
+    path_parts: list[str] = []
+    for segment in fact.path_text.split("|"):
+        path_parts.extend(part.strip() for part in segment.split(">") if part.strip())
+    return tuple(path_parts)
 
 
 def _compact_label(value: str) -> str:

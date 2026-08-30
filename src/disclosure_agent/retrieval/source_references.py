@@ -63,6 +63,10 @@ def render_source_references(references: tuple[SourceReference, ...]) -> str:
     """Render the public evidence footer required for every answer."""
 
     lines = ["근거 공시"]
+    if not references:
+        lines.append("- 확인된 근거 공시 없음")
+        return "\n".join(lines)
+
     for reference in references:
         labels = ",".join(reference.evidence_labels)
         receipt_date = (

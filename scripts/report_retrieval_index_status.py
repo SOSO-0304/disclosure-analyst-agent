@@ -30,9 +30,9 @@ def main() -> None:
         totals = session.execute(
             select(
                 func.count(RetrievalChunkRow.chunk_id).label("chunks"),
-                func.sum(
-                    case((RetrievalChunkRow.embedding.is_not(None), 1), else_=0)
-                ).label("embedded"),
+                func.sum(case((RetrievalChunkRow.embedding.is_not(None), 1), else_=0)).label(
+                    "embedded"
+                ),
                 func.sum(RetrievalChunkRow.char_count).label("characters"),
                 func.sum(
                     case(
@@ -64,9 +64,9 @@ def main() -> None:
                 select(
                     SourceCompanyRow.listed_name.label("company_name"),
                     func.count(RetrievalChunkRow.chunk_id).label("chunks"),
-                    func.sum(
-                        case((RetrievalChunkRow.embedding.is_not(None), 1), else_=0)
-                    ).label("embedded"),
+                    func.sum(case((RetrievalChunkRow.embedding.is_not(None), 1), else_=0)).label(
+                        "embedded"
+                    ),
                 )
                 .outerjoin(
                     RetrievalChunkRow,

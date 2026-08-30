@@ -12,7 +12,7 @@ from disclosure_agent.storage.database import get_engine, session_scope
 from disclosure_agent.storage.db_models import SourceCompanyRow, SourceFilingRow, SourceSectionRow
 from disclosure_agent.storage.generic_fact_models import GenericFactRow
 
-TARGET_TOKEN = "증권의발행을통한자금조달"
+TARGET_TOKEN = "증권의발행을통한자금조달실적"
 BROAD_TOKEN = "자금조달"
 
 

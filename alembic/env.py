@@ -12,6 +12,8 @@ from disclosure_agent.storage.source_event_models import SourceEventRow
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = SourceEventRow.__table__.metadata
+if FundraisingEventRow.__table__.metadata is not target_metadata:
+    raise RuntimeError("Fundraising models must use the shared SQLAlchemy metadata")
 
 
 def run_migrations_offline() -> None:

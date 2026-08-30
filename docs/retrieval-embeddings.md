@@ -75,6 +75,41 @@ python scripts/load_retrieval_embeddings.py `
 리포트의 `scope.sample_completed=true`, `call failed=0`을 확인한 뒤 검색 평가를 수행합니다.
 입력 버전을 승인하기 전에는 `--sample-per-stratum`을 제거한 전체 적재를 실행하지 않습니다.
 
+두 표본이 모두 완료되면 API 호출 없는 계약 확인부터 실행합니다.
+
+```powershell
+python scripts/evaluate_embedding_variants.py `
+  --database-url $PerfDatabaseUrl `
+  --dry-run
+```
+
+평가기는 두 run의 정확히 같은 1,772개 표본 coverage를 강제하고, 기본 60개 target에서
+다음 180개 proxy 질의를 만듭니다.
+
+- `company_context`: 회사명과 주제를 함께 묻고 회사 필터 없이 검색
+- `topic_filtered`: 회사 필터 안에서 주제만 검색
+- `content_anchor`: 회사 필터 안에서 원문의 짧은 핵심구를 검색
+
+질의 embedding은 한 번만 생성하여 v1/v2에 똑같이 사용합니다. 검색 후보도 두 버전 모두
+1,772개 표본으로 제한하므로 먼저 시작했던 v1의 추가 embedding이 비교를 왜곡하지 않습니다.
+실제 평가는 다음과 같습니다.
+
+```powershell
+python scripts/evaluate_embedding_variants.py `
+  --database-url $PerfDatabaseUrl `
+  --workers 8 `
+  --requests-per-minute 480 `
+  --report data\quality\embedding-variant-eval.json
+```
+
+평가기는 Recall@1/5/10, MRR@10, 회사 Top-1 정확도와 wrong-company@1을 출력합니다.
+전체 평균뿐 아니라 `document_group`과 `chunk_type`별 지표도 JSON 리포트에 남겨 특정
+공시 유형의 회귀가 평균에 가려지는 것을 막습니다.
+자동 gate는 의미 있는 회귀를 탐지하고 후보 버전을 추천할 뿐이며, 결과와 실제 질문
+수동 검토 전에는 항상 `full_embedding_allowed=false`를 유지합니다. 이 평가는 chunk
+메타데이터로 만든 재현 가능한 proxy benchmark이므로 실제 사용자 질문 품질을 대신하지
+않습니다.
+
 ## 안전한 실행 순서
 
 Perf DB 외에는 loader가 실행되지 않습니다. `disclosure_perf`, port `55432`가 아니면 즉시

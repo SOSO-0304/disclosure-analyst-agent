@@ -18,7 +18,7 @@ PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 �
 | Source Layer 코드 | 구현 | migration, staging, atomic promotion, 검증기 |
 | Source Layer DB | 완료 | 70 companies, 4,204 filings, 2,700,533 blocks |
 | 공급계약 vertical slice | 구현 | 1,106 packages, correction 563건 |
-| Generic facts / chunks | 다음 단계 | Source Layer 적재 후 구현 |
+| Generic facts / chunks | 진행 중 | read-only chunk planner 구현 |
 | Retrieval / API / LLM | 미구현 | pgvector, query planner, HyperCLOVA X 연동 예정 |
 
 최종 Canonical 상태는 다음과 같습니다.
@@ -160,6 +160,16 @@ paragraph 병합 및 table 선별 규칙을 결정합니다.
 python scripts/profile_source_content.py `
   --database-url $PerfDatabaseUrl `
   --output data\\quality\\source-content-profile.json
+```
+
+프로파일 확인 후에는 DB를 변경하지 않는 dry-run planner로 문단 병합 결과와 문서군별 table
+분류를 계산합니다. `small_layout_review`와 `nested_review`는 삭제 판정이 아니며 Source
+Layer에 그대로 남습니다.
+
+```powershell
+python scripts/plan_retrieval_chunks.py `
+  --database-url $PerfDatabaseUrl `
+  --output data\\quality\\retrieval-chunk-plan.json
 ```
 
 ## 폴더 구조

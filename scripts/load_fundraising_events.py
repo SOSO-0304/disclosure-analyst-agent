@@ -33,14 +33,8 @@ def main() -> None:
     print(f"source occurrences              {result.source_occurrences}")
     print(f"canonical events                {result.canonical_events}")
     print(f"persisted source rows           {result.source_rows}")
-    print(
-        "issue-date coverage             "
-        f"{result.issue_date_coverage}/{result.source_occurrences}"
-    )
-    print(
-        "amount coverage                 "
-        f"{result.amount_coverage}/{result.source_occurrences}"
-    )
+    print(f"issue-date coverage             {result.issue_date_coverage}/{result.source_occurrences}")
+    print(f"amount coverage                 {result.amount_coverage}/{result.source_occurrences}")
     print("\n=== canonical event counts by type ===")
     for instrument, count in result.type_counts.items():
         print(f"{instrument:<28} {count:>4}")

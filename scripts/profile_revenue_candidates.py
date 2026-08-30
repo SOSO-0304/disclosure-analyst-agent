@@ -21,6 +21,7 @@ CONSOLIDATED_TERMS = ("연결", "연결재무제표", "연결감사보고서")
 SEPARATE_TERMS = ("별도", "개별", "별도재무제표")
 STATEMENT_TERMS = ("손익계산서", "포괄손익계산서")
 PRIMARY_CONSOLIDATED_TERMS = ("연결손익계산서", "연결포괄손익계산서")
+AUDITED_CONSOLIDATED_TERMS = ("연결감사보고서", "첨부연결재무제표")
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,20 +93,23 @@ def _score_fact(fact: GenericFactRow, year: int) -> tuple[int, tuple[str, ...]]:
     if _contains_compact(path, PRIMARY_CONSOLIDATED_TERMS):
         score += 160
         signals.append("primary_consolidated_statement")
+    elif _contains_compact(path, AUDITED_CONSOLIDATED_TERMS):
+        score += 140
+        signals.append("audited_consolidated_financial_statements")
     elif _contains_compact(path, STATEMENT_TERMS):
         score += 80
         signals.append("income_statement_context")
 
-    if any(term in combined for term in CONSOLIDATED_TERMS):
+    if _contains_compact(combined, CONSOLIDATED_TERMS):
         score += 30
         signals.append("consolidated_context")
-    if any(term in combined for term in SEPARATE_TERMS):
+    if _contains_compact(combined, SEPARATE_TERMS):
         score -= 120
         signals.append("separate_context")
     if str(year) in header:
         score += 30
         signals.append("target_year_header")
-    if "당기" in header:
+    if _contains_compact(header, ("당기",)):
         score += 20
         signals.append("current_period_header")
     if "주석" in path:
@@ -206,8 +210,17 @@ def _print_candidate(candidate: Candidate) -> None:
 
 
 def _is_primary_statement(candidate: Candidate) -> bool:
-    return (
+    statement_signal = (
         "primary_consolidated_statement" in candidate.signals
+        or "audited_consolidated_financial_statements" in candidate.signals
+    )
+    period_signal = (
+        "target_year_header" in candidate.signals
+        or "current_period_header" in candidate.signals
+    )
+    return (
+        statement_signal
+        and period_signal
         and "notes_context" not in candidate.signals
         and "separate_context" not in candidate.signals
     )

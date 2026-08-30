@@ -31,6 +31,5 @@ def test_alembic_revision_ids_fit_version_table() -> None:
         if len(revision) > ALEMBIC_VERSION_NUM_MAX_LENGTH
     ]
     assert not too_long, (
-        "Alembic revision IDs must fit alembic_version.version_num VARCHAR(32): "
-        f"{too_long}"
+        f"Alembic revision IDs must fit alembic_version.version_num VARCHAR(32): {too_long}"
     )

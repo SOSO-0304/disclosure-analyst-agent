@@ -84,11 +84,17 @@ python scripts/evaluate_embedding_variants.py `
 ```
 
 평가기는 두 run의 정확히 같은 1,772개 표본 coverage를 강제하고, 기본 60개 target에서
-다음 180개 proxy 질의를 만듭니다.
+최대 180개 proxy 질의를 만듭니다. 기호뿐인 값이나 placeholder처럼 의미 없는 content
+anchor는 자동으로 제외합니다.
 
 - `company_context`: 회사명과 주제를 함께 묻고 회사 필터 없이 검색
 - `topic_filtered`: 회사 필터 안에서 주제만 검색
 - `content_anchor`: 회사 필터 안에서 원문의 짧은 핵심구를 검색
+
+정답 범위도 질의의 구체성에 맞춥니다. 회사 문맥 질의는 같은 회사의 표본 전체, 표 제목
+질의는 같은 원본 표, section 제목 질의는 같은 section, 보고서 수준의 넓은 질의는 같은
+filing의 chunk를 정답으로 봅니다. 넓은 질문을 특정 표 하나에만 맞춰 평가하는 false
+negative를 방지합니다.
 
 질의 embedding은 한 번만 생성하여 v1/v2에 똑같이 사용합니다. 검색 후보도 두 버전 모두
 1,772개 표본으로 제한하므로 먼저 시작했던 v1의 추가 embedding이 비교를 왜곡하지 않습니다.

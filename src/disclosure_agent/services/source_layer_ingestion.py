@@ -33,7 +33,7 @@ class SourceLayerIngestionResult:
 def ingest_effective_source_layer(
     *,
     base_path: str | Path,
-    overlay_path: str | Path,
+    overlay_path: str | Path | None,
     validated_manifest: EffectiveCanonicalManifest,
     session: Session,
     expectations: EffectiveCanonicalExpectations,

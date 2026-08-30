@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import date
 from pathlib import Path
 
@@ -151,6 +152,39 @@ def test_reader_accepts_compressed_base_and_overlay_with_same_logical_hashes(
     assert list(compressed) == list(plain)
     assert compressed.manifest.base_sha256 == plain.manifest.base_sha256
     assert compressed.manifest.overlay_sha256 == plain.manifest.overlay_sha256
+
+
+def test_reader_accepts_standalone_compressed_snapshot(tmp_path: Path) -> None:
+    snapshot = tmp_path / "canonical.jsonl.gz"
+    packages = [
+        _package("a", "20240101000001", tables=2),
+        _package("b", "20240101000002", status=ParseStatus.PARTIAL, tables=3),
+    ]
+    write_canonical(
+        snapshot,
+        packages,
+        profile=COMPACT_CANONICAL_PROFILE,
+        compression="gzip",
+    )
+    expected = EffectiveCanonicalExpectations(
+        base_packages=2,
+        overlay_packages=0,
+        effective_packages=2,
+        effective_documents=2,
+        effective_success=1,
+        effective_partial=1,
+        effective_failed=0,
+        effective_tables=5,
+        replaced_packages=0,
+    )
+
+    reader = EffectiveCanonicalReader(snapshot, expectations=expected)
+
+    assert list(reader) == packages
+    assert reader.manifest.overlay_file == ""
+    assert reader.manifest.overlay_sha256 == hashlib.sha256(b"").hexdigest()
+    assert reader.manifest.overlay_ids_in_base == 0
+    assert reader.manifest.replacement_identity_checks == 0
 
 
 def test_reader_rejects_overlay_only_filing(tmp_path: Path) -> None:

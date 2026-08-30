@@ -182,9 +182,9 @@ def read_canonical(path: str | Path) -> Iterator[FilingPackage]:
 
 def read_effective_canonical(
     base_path: str | Path,
-    overlay_path: str | Path,
+    overlay_path: str | Path | None = None,
 ) -> Iterator[FilingPackage]:
-    """Compatibility iterator backed by the official EffectiveCanonicalReader."""
+    """Read a canonical snapshot with an optional package overlay."""
 
     from disclosure_agent.storage.effective_canonical import EffectiveCanonicalReader
 

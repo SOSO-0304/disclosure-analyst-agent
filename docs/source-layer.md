@@ -1,53 +1,64 @@
-# Effective Canonical -> PostgreSQL Source Layer
+# Accepted Canonical -> Isolated PostgreSQL Source Layer
 
-Canonical parser is frozen at schema `2.2.0` with the accepted DART parser `2.2.1`
-overlay. Reopen parser work only when downstream evidence demonstrates a concrete
-preservation loss.
+Canonical parser is frozen at schema `2.2.0`. The accepted final snapshot already
+contains the DART parser `2.2.1` repairs. Reopen parser work only when downstream
+evidence demonstrates a concrete preservation loss.
 
-## 1. Validate the effective view
+## 1. Validate the accepted snapshot
 
-The official merge key is `filing_id`. The reader streams the large base exactly once,
-keeps the overlay in memory, rejects duplicate/unknown overlay IDs, and verifies that
-replacement packages preserve the original document/source identity sets.
+The reader transparently decompresses and streams the snapshot exactly once. It hashes
+the logical JSONL bytes, validates every package, rejects duplicate filing IDs, and
+checks the accepted whole-corpus invariants.
 
-```bash
-python scripts/validate_effective_canonical.py \
-  --base data/processed/canonical-v22-smoke.jsonl \
-  --overlay data/processed/canonical-dart-221-overlay.jsonl
+```powershell
+python scripts/validate_effective_canonical.py `
+  --input data\processed\canonical-v221-final.jsonl.gz `
+  --manifest data\processed\canonical-v221-final.manifest.json
 ```
 
 Accepted corpus invariants:
 
 ```text
-base packages             4,204
-overlay packages             77
+snapshot packages         4,204
+overlay packages              0
 effective packages        4,204
 effective documents       4,619
-effective success         4,602
-effective partial            17
+effective success         4,513
+effective partial           106
 effective failed               0
 effective tables       1,580,832
-replaced packages             77
+replaced packages              0
 ```
 
-The deterministic output is
-`data/processed/effective-canonical.manifest.json`. It contains the base and overlay
-SHA-256 values and is required by the database loader. Re-running with identical inputs
-produces the same manifest bytes and hash.
+The deterministic output is `canonical-v221-final.manifest.json`. It contains the
+snapshot's logical SHA-256 and is required by the database loader. Re-running with an
+identical input produces the same manifest bytes and hash. The reader still supports
+the historical `--base` plus `--overlay` workflow, but it is not the production input.
 
 ## 2. Apply the additive source-layer migration
 
-The migration creates only the generic source layer and its isolated UNLOGGED staging
-schema. Existing Supply Contract domain tables remain in place. In particular, the
-existing `companies` table stays the verified 34-company Supply Contract slice. The full
-70-company corpus master is stored separately in `source_companies`.
+The perf Compose stack uses a separate container, port, database, user, network and
+volume. Never run the default Compose project while working on this branch.
 
-When running Alembic from the host Mac, point `DATABASE_URL` at `localhost`:
+```powershell
+$PerfDatabaseUrl = (
+  Get-Content .env.perf |
+    Where-Object { $_ -like "PERF_DATABASE_URL=*" } |
+    Select-Object -First 1
+) -replace "^PERF_DATABASE_URL=", ""
 
-```bash
-DATABASE_URL='postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure' \
-  alembic upgrade head
+if (-not $PerfDatabaseUrl) {
+  throw "PERF_DATABASE_URL is missing from .env.perf"
+}
+$env:DATABASE_URL = $PerfDatabaseUrl
+
+python -c "from disclosure_agent.config import get_settings; print(get_settings().database_url)"
+alembic upgrade head
 ```
+
+The printed URL must contain port `55432` and database `disclosure_perf` before
+Alembic runs. The migration creates only the generic source layer and its isolated
+UNLOGGED staging schema.
 
 New public tables:
 
@@ -68,12 +79,11 @@ retrieval-relevant atomic values.
 
 ## 3. Load through staging and promote
 
-```bash
-python scripts/load_source_layer.py \
-  --base data/processed/canonical-v22-smoke.jsonl \
-  --overlay data/processed/canonical-dart-221-overlay.jsonl \
-  --manifest data/processed/effective-canonical.manifest.json \
-  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure
+```powershell
+python scripts/load_source_layer.py `
+  --input data\processed\canonical-v221-final.jsonl.gz `
+  --manifest data\processed\canonical-v221-final.manifest.json `
+  --database-url $PerfDatabaseUrl
 ```
 
 The loader follows Controller -> Service -> Repository. It stages all rows in
@@ -81,11 +91,8 @@ The loader follows Controller -> Service -> Repository. It stages all rows in
 manifest again while streaming, and only then promotes rows to public tables using
 canonical-ID upserts. A PostgreSQL advisory transaction lock serializes full source
 loads. If validation or promotion fails, the transaction rolls back without changing
-the accepted public source snapshot or typed Supply Contract tables.
+the accepted public source snapshot.
 
 The load run ID is derived from the validated manifest hash, so repeating the same input
-updates the same source snapshot rather than creating duplicate canonical rows.
-
-After migration and again after a full source load, run
-`scripts/verify_supply_contract_db.py`. Its original exact counts, including
-`companies=34`, must remain unchanged.
+updates the same source snapshot rather than creating duplicate canonical rows. After
+the load, run `scripts/verify_source_layer_db.py` against the same perf database URL.

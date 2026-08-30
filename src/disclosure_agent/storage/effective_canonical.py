@@ -1,4 +1,4 @@
-"""Validated streaming view over an immutable canonical base plus overlay."""
+"""Validated streaming view over a canonical snapshot and optional overlay."""
 
 from __future__ import annotations
 
@@ -74,31 +74,35 @@ class EffectiveCanonicalManifest:
 
 
 class EffectiveCanonicalReader:
-    """Stream a base JSONL once while replacing validated overlay packages.
+    """Stream a canonical JSONL once, optionally replacing overlay packages.
 
-    The overlay is small enough to hold in memory. The large base file is opened
-    exactly once: each raw line is hashed, validated as ``FilingPackage``, checked
-    for duplicate IDs, and either yielded or replaced. Replacement package identity
-    is stricter than the merge key so normal companion documents cannot disappear
-    silently during package-level overlay application.
+    When present, the overlay is small enough to hold in memory. The large snapshot
+    is opened exactly once: each logical JSONL line is hashed, validated as a
+    ``FilingPackage``, checked for duplicate IDs, and either yielded or replaced.
+    Replacement package identity is stricter than the merge key so normal companion
+    documents cannot disappear silently during package-level overlay application.
     """
 
     def __init__(
         self,
         base_path: str | Path,
-        overlay_path: str | Path,
+        overlay_path: str | Path | None = None,
         *,
         expectations: EffectiveCanonicalExpectations | None = None,
     ) -> None:
         self.base_path = Path(base_path)
-        self.overlay_path = Path(overlay_path)
+        self.overlay_path = Path(overlay_path) if overlay_path is not None else None
         self.expectations = expectations or EffectiveCanonicalExpectations()
         if not self.base_path.is_file():
             raise FileNotFoundError(self.base_path)
-        if not self.overlay_path.is_file():
+        if self.overlay_path is not None and not self.overlay_path.is_file():
             raise FileNotFoundError(self.overlay_path)
 
-        self._overlay, self._overlay_sha256 = self._load_overlay()
+        if self.overlay_path is None:
+            self._overlay = {}
+            self._overlay_sha256 = hashlib.sha256(b"").hexdigest()
+        else:
+            self._overlay, self._overlay_sha256 = self._load_overlay()
         self._consumed = False
         self._manifest: EffectiveCanonicalManifest | None = None
 
@@ -117,6 +121,8 @@ class EffectiveCanonicalReader:
         return self._iter_effective()
 
     def _load_overlay(self) -> tuple[dict[str, FilingPackage], str]:
+        if self.overlay_path is None:
+            raise RuntimeError("Overlay path is not configured")
         overlay: dict[str, FilingPackage] = {}
         digest = hashlib.sha256()
         for line_number, line in enumerate(iter_canonical_lines(self.overlay_path), 1):
@@ -173,7 +179,7 @@ class EffectiveCanonicalReader:
             manifest_version="1.0.0",
             merge_key="filing_id",
             base_file=self.base_path.name,
-            overlay_file=self.overlay_path.name,
+            overlay_file=(self.overlay_path.name if self.overlay_path is not None else ""),
             base_sha256=base_digest.hexdigest(),
             overlay_sha256=self._overlay_sha256,
             base_packages=counts["base_packages"],

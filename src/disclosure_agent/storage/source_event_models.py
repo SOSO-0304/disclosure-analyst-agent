@@ -7,9 +7,11 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Date,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -17,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from disclosure_agent.storage.db_models import Base
+from disclosure_agent.storage.db_models import Base, JSON_DOCUMENT
 from disclosure_agent.storage.generic_fact_models import GenericFactRow
 
 
@@ -87,3 +89,45 @@ class FacilityInvestmentEventRow(Base):
     defer_reason: Mapped[str | None] = mapped_column(Text)
     defer_until: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class FacilityInvestmentCorrectionLinkRow(Base):
+    """Correction filing to predecessor/root resolution for facility investments."""
+
+    __tablename__ = "facility_investment_correction_links"
+    __table_args__ = (
+        Index("ix_facility_investment_correction_root", "root_filing_id"),
+        Index("ix_facility_investment_correction_status", "status"),
+    )
+
+    correction_filing_id: Mapped[str] = mapped_column(
+        ForeignKey("source_filings.filing_id", ondelete="CASCADE"), primary_key=True
+    )
+    predecessor_filing_id: Mapped[str | None] = mapped_column(String(128))
+    root_filing_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    candidate_filing_ids: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    match_score: Mapped[int | None] = mapped_column(Integer)
+
+
+class FacilityInvestmentLifecycleRow(Base):
+    """Latest effective filing for one facility-investment correction chain."""
+
+    __tablename__ = "facility_investment_lifecycle"
+    __table_args__ = (
+        Index("ix_facility_investment_lifecycle_corp", "corp_code"),
+        Index("ix_facility_investment_lifecycle_latest", "latest_receipt_date"),
+        Index("ix_facility_investment_lifecycle_status", "status"),
+    )
+
+    root_filing_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    corp_code: Mapped[str] = mapped_column(
+        ForeignKey("source_companies.corp_code", ondelete="RESTRICT"), nullable=False
+    )
+    latest_filing_id: Mapped[str] = mapped_column(
+        ForeignKey("source_filings.filing_id", ondelete="CASCADE"), nullable=False
+    )
+    latest_receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
+    correction_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    lineage_complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)

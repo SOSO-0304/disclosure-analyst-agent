@@ -20,8 +20,11 @@ from sqlalchemy.engine import make_url
 
 from disclosure_agent.retrieval.embeddings import (
     DEFAULT_TARGET_QPM,
+    EMBEDDING_INPUT_VERSION_V1,
+    EMBEDDING_INPUT_VERSION_V2,
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
+    EmbeddingDocumentContext,
     EmbeddingResult,
     EmbeddingTelemetry,
     GlobalRateLimiter,
@@ -38,8 +41,19 @@ PENDING_SQL = """
         c.chunk_run_id,
         c.content,
         c.content_sha256,
-        c.heading_path
+        c.heading_path,
+        c.metadata,
+        sc.corp_name,
+        sc.listed_name,
+        coalesce(sc.stock_code, '') AS stock_code,
+        f.report_name,
+        coalesce(f.document_subtype, '') AS document_subtype,
+        coalesce(d.title_normalized, '') AS document_title,
+        f.is_correction
     FROM public.retrieval_chunks c
+    JOIN public.source_filings f ON f.filing_id = c.filing_id
+    JOIN public.source_companies sc ON sc.corp_code = f.corp_code
+    JOIN public.source_documents d ON d.document_id = c.document_id
     LEFT JOIN public.retrieval_embeddings e
       ON e.embedding_run_id = :embedding_run_id
      AND e.chunk_id = c.chunk_id
@@ -51,6 +65,76 @@ PENDING_SQL = """
       )
     ORDER BY c.chunk_id
     LIMIT :page_size
+"""
+
+SAMPLE_PENDING_SQL = """
+    WITH ranked AS (
+        SELECT
+            c.chunk_id,
+            c.chunk_run_id,
+            c.content,
+            c.content_sha256,
+            c.heading_path,
+            c.metadata,
+            sc.corp_name,
+            sc.listed_name,
+            coalesce(sc.stock_code, '') AS stock_code,
+            f.report_name,
+            coalesce(f.document_subtype, '') AS document_subtype,
+            coalesce(d.title_normalized, '') AS document_title,
+            f.is_correction,
+            row_number() OVER (
+                PARTITION BY f.corp_code, c.document_group, c.chunk_type
+                ORDER BY md5(c.chunk_id || :sample_seed), c.chunk_id
+            ) AS sample_rank
+        FROM public.retrieval_chunks c
+        JOIN public.source_filings f ON f.filing_id = c.filing_id
+        JOIN public.source_companies sc ON sc.corp_code = f.corp_code
+        JOIN public.source_documents d ON d.document_id = c.document_id
+        WHERE c.chunk_run_id = :chunk_run_id
+    )
+    SELECT ranked.*
+    FROM ranked
+    LEFT JOIN public.retrieval_embeddings e
+      ON e.embedding_run_id = :embedding_run_id
+     AND e.chunk_id = ranked.chunk_id
+    WHERE ranked.sample_rank <= :sample_per_stratum
+      AND ranked.chunk_id > :after_chunk_id
+      AND (
+        e.embedding_run_id IS NULL
+        OR e.chunk_content_sha256 <> ranked.content_sha256
+      )
+    ORDER BY ranked.chunk_id
+    LIMIT :page_size
+"""
+
+SAMPLE_COUNTS_SQL = """
+    WITH ranked AS (
+        SELECT
+            c.chunk_id,
+            c.content_sha256,
+            row_number() OVER (
+                PARTITION BY f.corp_code, c.document_group, c.chunk_type
+                ORDER BY md5(c.chunk_id || :sample_seed), c.chunk_id
+            ) AS sample_rank
+        FROM public.retrieval_chunks c
+        JOIN public.source_filings f ON f.filing_id = c.filing_id
+        WHERE c.chunk_run_id = :chunk_run_id
+    ), sampled AS (
+        SELECT chunk_id, content_sha256
+        FROM ranked
+        WHERE sample_rank <= :sample_per_stratum
+    )
+    SELECT
+        count(*)::bigint AS sample_chunks,
+        count(*) FILTER (
+            WHERE e.embedding_run_id IS NULL
+               OR e.chunk_content_sha256 <> sampled.content_sha256
+        )::bigint AS sample_pending
+    FROM sampled
+    LEFT JOIN public.retrieval_embeddings e
+      ON e.embedding_run_id = :embedding_run_id
+     AND e.chunk_id = sampled.chunk_id
 """
 
 UPSERT_SQL = """
@@ -110,6 +194,7 @@ class LoadResult:
     failure_examples: list[dict[str, str]]
     provider_telemetry: dict[str, Any]
     rate_limit: dict[str, int | float | None]
+    scope: dict[str, Any]
 
 
 def _assert_perf_database(database_url: str) -> None:
@@ -254,21 +339,40 @@ def _tasks(
     chunk_run_id: str,
     after_chunk_id: str,
     page_size: int,
+    input_version: str,
+    sample_per_stratum: int | None,
+    sample_seed: str,
 ) -> list[EmbeddingTask]:
+    query = SAMPLE_PENDING_SQL if sample_per_stratum is not None else PENDING_SQL
     rows = connection.execute(
-        text(PENDING_SQL),
+        text(query),
         {
             "embedding_run_id": run_id,
             "chunk_run_id": chunk_run_id,
             "after_chunk_id": after_chunk_id,
             "page_size": page_size,
+            "sample_per_stratum": sample_per_stratum,
+            "sample_seed": sample_seed,
         },
     ).mappings()
     tasks: list[EmbeddingTask] = []
     for row in rows:
+        metadata = dict(row["metadata"] or {})
+        context = EmbeddingDocumentContext(
+            corp_name=str(row["corp_name"] or ""),
+            listed_name=str(row["listed_name"] or ""),
+            stock_code=str(row["stock_code"] or ""),
+            report_name=str(row["report_name"] or ""),
+            document_subtype=str(row["document_subtype"] or ""),
+            document_title=str(row["document_title"] or ""),
+            is_correction=bool(row["is_correction"]),
+            table_caption=str(metadata.get("caption") or ""),
+        )
         input_text = compose_embedding_input(
             str(row["content"]),
             list(row["heading_path"] or []),
+            input_version=input_version,
+            context=context,
         )
         tasks.append(
             EmbeddingTask(
@@ -280,6 +384,26 @@ def _tasks(
             )
         )
     return tasks
+
+
+def _sample_counts(
+    connection: Connection,
+    *,
+    run_id: str,
+    chunk_run_id: str,
+    sample_per_stratum: int,
+    sample_seed: str,
+) -> dict[str, int]:
+    row = connection.execute(
+        text(SAMPLE_COUNTS_SQL),
+        {
+            "embedding_run_id": run_id,
+            "chunk_run_id": chunk_run_id,
+            "sample_per_stratum": sample_per_stratum,
+            "sample_seed": sample_seed,
+        },
+    ).mappings().one()
+    return {key: int(value or 0) for key, value in row.items()}
 
 
 def _embed_page(
@@ -397,6 +521,8 @@ def _load(
     page_size: int,
     limit: int | None,
     requests_per_minute: int,
+    sample_per_stratum: int | None,
+    sample_seed: str,
 ) -> LoadResult:
     engine = get_engine(database_url)
     with engine.begin() as connection:
@@ -413,6 +539,15 @@ def _load(
             config=config,
         )
         prior = Counter({key: int(value) for key, value in (existing["counts"] or {}).items()})
+        sample_pending_start = None
+        if sample_per_stratum is not None:
+            sample_pending_start = _sample_counts(
+                connection,
+                run_id=run_id,
+                chunk_run_id=chunk_run_id,
+                sample_per_stratum=sample_per_stratum,
+                sample_seed=sample_seed,
+            )["sample_pending"]
 
     attempts = prior["provider_attempts"]
     failures_total = prior["provider_failures"]
@@ -444,6 +579,9 @@ def _load(
                     chunk_run_id=chunk_run_id,
                     after_chunk_id=after_chunk_id,
                     page_size=current_size,
+                    input_version=config.input_version,
+                    sample_per_stratum=sample_per_stratum,
+                    sample_seed=sample_seed,
                 )
             if not tasks:
                 break
@@ -490,10 +628,18 @@ def _load(
                 )
             elapsed = max(time.perf_counter() - started, 0.001)
             rate = successful_this_call / elapsed
-            eta_seconds = counts["pending_chunks"] / rate if rate else 0.0
+            pending_for_eta = counts["pending_chunks"]
+            pending_label = f"pending={pending_for_eta}"
+            if sample_pending_start is not None:
+                pending_for_eta = max(
+                    sample_pending_start - successful_this_call,
+                    0,
+                )
+                pending_label = f"sample_pending~={pending_for_eta}"
+            eta_seconds = pending_for_eta / rate if rate else 0.0
             print(
                 f"embedded={counts['embedded_chunks']}/{counts['total_chunks']} "
-                f"pending={counts['pending_chunks']} failures={failures_total} "
+                f"{pending_label} failures={failures_total} "
                 f"rate={rate:.2f}/s eta={eta_seconds / 3600:.2f}h "
                 f"qpm={rate_limiter.effective_qpm:.0f}",
                 flush=True,
@@ -501,6 +647,7 @@ def _load(
             if failures and not successes:
                 break
 
+    scope: dict[str, Any] = {"mode": "full"}
     with engine.begin() as connection:
         counts = _run_counts(connection, run_id, chunk_run_id)
         provider_telemetry = telemetry.snapshot()
@@ -515,6 +662,21 @@ def _load(
         )
         completed = counts["pending_chunks"] == 0
         status = "completed" if completed else "partial"
+        if sample_per_stratum is not None:
+            sample_counts = _sample_counts(
+                connection,
+                run_id=run_id,
+                chunk_run_id=chunk_run_id,
+                sample_per_stratum=sample_per_stratum,
+                sample_seed=sample_seed,
+            )
+            scope = {
+                "mode": "stratified_sample",
+                "per_stratum": sample_per_stratum,
+                "seed": sample_seed,
+                **sample_counts,
+                "sample_completed": sample_counts["sample_pending"] == 0,
+            }
         _update_run(
             connection,
             run_id=run_id,
@@ -540,6 +702,7 @@ def _load(
             "observed_limit_qpm": rate_limiter.observed_limit_qpm,
             "effective_qpm": rate_limiter.effective_qpm,
         },
+        scope=scope,
     )
 
 
@@ -548,6 +711,11 @@ def main() -> None:
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--api-key-env", default="CLOVASTUDIO_API_KEY")
     parser.add_argument("--endpoint", default=EmbeddingConfig().endpoint)
+    parser.add_argument(
+        "--input-version",
+        choices=(EMBEDDING_INPUT_VERSION_V1, EMBEDDING_INPUT_VERSION_V2),
+        default=EMBEDDING_INPUT_VERSION_V1,
+    )
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--page-size", type=int, default=64)
     parser.add_argument(
@@ -560,6 +728,18 @@ def main() -> None:
         ),
     )
     parser.add_argument("--limit", type=int)
+    parser.add_argument(
+        "--sample-per-stratum",
+        type=int,
+        help=(
+            "deterministically select up to N chunks per "
+            "(company, document group, chunk type) stratum"
+        ),
+    )
+    parser.add_argument(
+        "--sample-seed",
+        default="embedding-context-eval-20260830",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
@@ -573,9 +753,16 @@ def main() -> None:
         )
     if args.limit is not None and args.limit <= 0:
         parser.error("--limit must be positive")
+    if args.sample_per_stratum is not None and args.sample_per_stratum <= 0:
+        parser.error("--sample-per-stratum must be positive")
+    if not args.sample_seed.strip():
+        parser.error("--sample-seed must not be empty")
     _assert_perf_database(args.database_url)
 
-    config = EmbeddingConfig(endpoint=args.endpoint.rstrip("/"))
+    config = EmbeddingConfig(
+        endpoint=args.endpoint.rstrip("/"),
+        input_version=args.input_version,
+    )
     engine = get_engine(args.database_url)
     with engine.begin() as connection:
         chunk_run = _active_chunk_run(connection)
@@ -590,6 +777,15 @@ def main() -> None:
         counts = dict(existing or {})
         total = int((chunk_run["counts"] or {}).get("total_chunks", 0))
         embedded = int(counts.get("embedded_chunks", 0))
+        sample_counts = None
+        if args.sample_per_stratum is not None:
+            sample_counts = _sample_counts(
+                connection,
+                run_id=run_id,
+                chunk_run_id=str(chunk_run["chunk_run_id"]),
+                sample_per_stratum=args.sample_per_stratum,
+                sample_seed=args.sample_seed,
+            )
 
     print("=== retrieval embedding contract ===")
     print(f"chunk run                       {chunk_run['chunk_run_id']}")
@@ -598,10 +794,14 @@ def main() -> None:
     print(f"model                           {config.model}")
     print(f"dimensions                      {config.dimensions}")
     print(f"distance metric                 {config.distance_metric}")
+    print(f"input version                   {config.input_version}")
     print(f"total chunks                    {total}")
     print(f"already embedded                {embedded}")
     print(f"pending estimate                {max(total - embedded, 0)}")
     print(f"configured QPM ceiling          {args.requests_per_minute}")
+    if sample_counts is not None:
+        print(f"sample chunks                   {sample_counts['sample_chunks']}")
+        print(f"sample pending                  {sample_counts['sample_pending']}")
     if args.dry_run:
         print("provider calls                  0")
         print("database writes                 0")
@@ -618,6 +818,8 @@ def main() -> None:
         page_size=args.page_size,
         limit=args.limit,
         requests_per_minute=args.requests_per_minute,
+        sample_per_stratum=args.sample_per_stratum,
+        sample_seed=args.sample_seed,
     )
     report = {
         "embedding_run_id": result.run_id,
@@ -635,6 +837,7 @@ def main() -> None:
         "failure_examples": result.failure_examples,
         "provider_telemetry": result.provider_telemetry,
         "rate_limit": result.rate_limit,
+        "scope": result.scope,
     }
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
@@ -651,6 +854,7 @@ def main() -> None:
     print(f"failure categories             {result.failure_categories}")
     print(f"observed provider QPM          {result.rate_limit['observed_limit_qpm']}")
     print(f"effective QPM                  {result.rate_limit['effective_qpm']}")
+    print(f"scope                          {result.scope}")
     print(f"status                         {result.status}")
 
 

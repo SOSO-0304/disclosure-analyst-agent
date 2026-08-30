@@ -116,6 +116,28 @@ python scripts/evaluate_embedding_variants.py `
 메타데이터로 만든 재현 가능한 proxy benchmark이므로 실제 사용자 질문 품질을 대신하지
 않습니다.
 
+자동 proxy를 통과한 후보는 6개 corpus lane에서 4문항씩, 총 24개의 유한한 Top-5 검토로
+마지막 승인합니다. 먼저 계약을 확인합니다.
+
+```powershell
+python scripts/review_embedding_variants.py `
+  --database-url $PerfDatabaseUrl `
+  --dry-run
+```
+
+실제 검토 리포트는 query embedding만 최대 24회 호출하고 DB에는 쓰지 않습니다.
+
+```powershell
+python scripts/review_embedding_variants.py `
+  --database-url $PerfDatabaseUrl `
+  --workers 8 `
+  --requests-per-minute 480
+```
+
+`data/quality/embedding-manual-review.md`에는 각 질문의 v1/v2 Top-5 원문 preview와
+provenance가 나란히 기록됩니다. 잘못된 회사 Top-1, 실제 근거의 Top-5 누락, 정정공시
+혼동을 판정하고 v2의 명백한 패배가 2건 이하면 v2를 승인하며 검증을 종료합니다.
+
 ## 안전한 실행 순서
 
 Perf DB 외에는 loader가 실행되지 않습니다. `disclosure_perf`, port `55432`가 아니면 즉시

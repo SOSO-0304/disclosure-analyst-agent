@@ -153,9 +153,10 @@ def is_primary_revenue_candidate(signals: tuple[str, ...]) -> bool:
     }
     period_signals = {"target_year_header", "current_period_header"}
     blocked_signals = {"notes_context", "separate_context", "prior_period_header"}
-    return bool(signal_set & statement_signals) and bool(signal_set & period_signals) and not (
-        signal_set & blocked_signals
-    )
+    has_statement = bool(signal_set & statement_signals)
+    has_period = bool(signal_set & period_signals)
+    has_blocker = bool(signal_set & blocked_signals)
+    return has_statement and has_period and not has_blocker
 
 
 def extract_monetary_unit(text: str | None) -> str | None:

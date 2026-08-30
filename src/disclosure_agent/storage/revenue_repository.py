@@ -325,34 +325,56 @@ class RevenueRepository:
         if block is None or table is None:
             return None
 
-        parts = [
+        table_texts = (
             table.caption_normalized or table.caption_raw or "",
             table.normalized_text,
-        ]
-        previous_blocks = self.session.scalars(
+        )
+        for text in table_texts:
+            unit = extract_monetary_unit(text)
+            if unit is not None:
+                return unit
+
+        for nearby in self._nearby_blocks(block, same_section=True):
+            unit = extract_monetary_unit(self._unit_text_from_block(nearby))
+            if unit is not None:
+                return unit
+
+        for nearby in self._nearby_blocks(block, same_section=False):
+            unit = extract_monetary_unit(self._unit_text_from_block(nearby))
+            if unit is not None:
+                return unit
+
+        return None
+
+    def _nearby_blocks(
+        self,
+        block: SourceBlockRow,
+        *,
+        same_section: bool,
+    ) -> tuple[SourceBlockRow, ...]:
+        filters = [SourceBlockRow.document_id == block.document_id]
+        if same_section:
+            filters.append(SourceBlockRow.section_id == block.section_id)
+
+        previous = self.session.scalars(
             select(SourceBlockRow)
-            .where(
-                SourceBlockRow.document_id == block.document_id,
-                SourceBlockRow.section_id == block.section_id,
-                SourceBlockRow.block_order < block.block_order,
-            )
+            .where(*filters, SourceBlockRow.block_order < block.block_order)
             .order_by(SourceBlockRow.block_order.desc())
+            .limit(24)
+        ).all()
+        following = self.session.scalars(
+            select(SourceBlockRow)
+            .where(*filters, SourceBlockRow.block_order > block.block_order)
+            .order_by(SourceBlockRow.block_order)
             .limit(8)
         ).all()
+        return tuple([*previous, *following])
 
-        for previous in previous_blocks:
-            if previous.block_type == "table":
-                unit_text = self._adjacent_unit_table_text(previous)
-                if unit_text:
-                    parts.append(unit_text)
-                break
-            text = previous.text_normalized or previous.text_raw or ""
-            if "단위" in text:
-                parts.append(text)
-            if previous.block_type == "heading":
-                break
-
-        return extract_monetary_unit(" ".join(part for part in parts if part))
+    def _unit_text_from_block(self, block: SourceBlockRow) -> str:
+        if block.block_type == "table":
+            return self._adjacent_unit_table_text(block)
+        text = block.text_normalized or block.text_raw or ""
+        return text if "단위" in text else ""
 
     def _adjacent_unit_table_text(self, block: SourceBlockRow) -> str:
         if block.table_id is None:

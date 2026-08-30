@@ -16,6 +16,10 @@ from disclosure_agent.retrieval.evidence_pack import (
 )
 from disclosure_agent.retrieval.hybrid_search import HybridRetriever
 from disclosure_agent.retrieval.query_router import route_query
+from disclosure_agent.retrieval.source_references import (
+    build_source_references,
+    render_source_references,
+)
 from disclosure_agent.storage.database import get_engine, session_scope
 
 NO_MATCH_ANSWER = "제공된 공시에서 확인되지 않는다."
@@ -91,14 +95,14 @@ def main() -> None:
             top_k=args.top_k,
             candidate_k=args.candidate_k,
         )
-
-    pack = build_hybrid_evidence_pack(
-        args.query,
-        structured_items=result.structured_items,
-        semantic_hits=result.semantic_hits,
-        max_semantic_items=args.top_k,
-        max_total_chars=args.max_total_chars,
-    )
+        pack = build_hybrid_evidence_pack(
+            args.query,
+            structured_items=result.structured_items,
+            semantic_hits=result.semantic_hits,
+            max_semantic_items=args.top_k,
+            max_total_chars=args.max_total_chars,
+        )
+        source_references = build_source_references(session, pack)
 
     print("=== GROUNDED ANSWER ===")
     print(f"company                         {args.company}")
@@ -111,6 +115,8 @@ def main() -> None:
         print("generation                      skipped_no_match")
         print("answer:")
         print(NO_MATCH_ANSWER)
+        print()
+        print(render_source_references(source_references))
         return
 
     prompt = build_grounded_answer_prompt(args.query, pack)
@@ -127,6 +133,8 @@ def main() -> None:
     print(f"total_tokens                    {answer.total_tokens}")
     print("answer:")
     print(answer.content)
+    print()
+    print(render_source_references(source_references))
 
     if args.show_evidence:
         print()

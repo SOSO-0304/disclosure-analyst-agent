@@ -13,14 +13,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 import orjson
 from sqlalchemy import Connection, text
 from sqlalchemy.engine import make_url
 
 from disclosure_agent.retrieval.embeddings import (
+    DEFAULT_TARGET_QPM,
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
     EmbeddingResult,
+    EmbeddingTelemetry,
+    GlobalRateLimiter,
     compose_embedding_input,
     embedding_input_sha256,
     embedding_run_id,
@@ -94,6 +98,18 @@ class EmbeddingTask:
 class EmbeddedTask:
     task: EmbeddingTask
     result: EmbeddingResult
+
+
+@dataclass(frozen=True, slots=True)
+class LoadResult:
+    run_id: str
+    counts: dict[str, int]
+    status: str
+    call_counts: dict[str, int]
+    failure_categories: dict[str, int]
+    failure_examples: list[dict[str, str]]
+    provider_telemetry: dict[str, Any]
+    rate_limit: dict[str, int | float | None]
 
 
 def _assert_perf_database(database_url: str) -> None:
@@ -286,6 +302,18 @@ def _embed_page(
     return successes, failures
 
 
+def _failure_category(error: Exception) -> str:
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"http_{error.response.status_code}"
+    if isinstance(error, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(error, httpx.TransportError):
+        return "transport_error"
+    if isinstance(error, ValueError):
+        return "input_validation"
+    return type(error).__name__
+
+
 def _save_page(
     connection: Connection,
     run_id: str,
@@ -368,7 +396,8 @@ def _load(
     workers: int,
     page_size: int,
     limit: int | None,
-) -> tuple[str, dict[str, int], str]:
+    requests_per_minute: int,
+) -> LoadResult:
     engine = get_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -389,11 +418,20 @@ def _load(
     failures_total = prior["provider_failures"]
     processed_this_call = 0
     successful_this_call = 0
+    failure_categories: Counter[str] = Counter()
+    failure_examples: list[dict[str, str]] = []
     last_error: str | None = None
     after_chunk_id = ""
     started = time.perf_counter()
+    rate_limiter = GlobalRateLimiter(target_qpm=requests_per_minute)
+    telemetry = EmbeddingTelemetry()
 
-    with ClovaStudioEmbeddingClient(api_key, config) as client:
+    with ClovaStudioEmbeddingClient(
+        api_key,
+        config,
+        rate_limiter=rate_limiter,
+        telemetry=telemetry,
+    ) as client:
         while limit is None or processed_this_call < limit:
             current_size = page_size
             if limit is not None:
@@ -417,12 +455,31 @@ def _load(
             successful_this_call += len(successes)
             if failures:
                 last_error = f"{failures[-1][0].chunk_id}: {failures[-1][1]}"[:2_000]
+                for failed_task, error in failures:
+                    category = _failure_category(error)
+                    failure_categories[category] += 1
+                    if len(failure_examples) < 5:
+                        failure_examples.append(
+                            {
+                                "chunk_id": failed_task.chunk_id,
+                                "category": category,
+                                "error": str(error)[:500],
+                            }
+                        )
 
             with engine.begin() as connection:
                 _save_page(connection, run_id, successes)
                 counts = _run_counts(connection, run_id, chunk_run_id)
+                current_telemetry = telemetry.snapshot()
                 counts["provider_attempts"] = attempts
                 counts["provider_failures"] = failures_total
+                counts["provider_http_requests"] = (
+                    prior["provider_http_requests"]
+                    + int(current_telemetry["http_requests"])
+                )
+                counts["provider_retries"] = (
+                    prior["provider_retries"] + int(current_telemetry["retries"])
+                )
                 _update_run(
                     connection,
                     run_id=run_id,
@@ -437,7 +494,8 @@ def _load(
             print(
                 f"embedded={counts['embedded_chunks']}/{counts['total_chunks']} "
                 f"pending={counts['pending_chunks']} failures={failures_total} "
-                f"rate={rate:.2f}/s eta={eta_seconds / 3600:.2f}h",
+                f"rate={rate:.2f}/s eta={eta_seconds / 3600:.2f}h "
+                f"qpm={rate_limiter.effective_qpm:.0f}",
                 flush=True,
             )
             if failures and not successes:
@@ -445,8 +503,16 @@ def _load(
 
     with engine.begin() as connection:
         counts = _run_counts(connection, run_id, chunk_run_id)
+        provider_telemetry = telemetry.snapshot()
         counts["provider_attempts"] = attempts
         counts["provider_failures"] = failures_total
+        counts["provider_http_requests"] = (
+            prior["provider_http_requests"]
+            + int(provider_telemetry["http_requests"])
+        )
+        counts["provider_retries"] = (
+            prior["provider_retries"] + int(provider_telemetry["retries"])
+        )
         completed = counts["pending_chunks"] == 0
         status = "completed" if completed else "partial"
         _update_run(
@@ -457,7 +523,24 @@ def _load(
             last_error=last_error,
             activate=completed,
         )
-    return run_id, counts, status
+    return LoadResult(
+        run_id=run_id,
+        counts=counts,
+        status=status,
+        call_counts={
+            "attempted": processed_this_call,
+            "succeeded": successful_this_call,
+            "failed": processed_this_call - successful_this_call,
+        },
+        failure_categories=dict(sorted(failure_categories.items())),
+        failure_examples=failure_examples,
+        provider_telemetry=provider_telemetry,
+        rate_limit={
+            "configured_qpm": requests_per_minute,
+            "observed_limit_qpm": rate_limiter.observed_limit_qpm,
+            "effective_qpm": rate_limiter.effective_qpm,
+        },
+    )
 
 
 def main() -> None:
@@ -467,12 +550,27 @@ def main() -> None:
     parser.add_argument("--endpoint", default=EmbeddingConfig().endpoint)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--page-size", type=int, default=64)
+    parser.add_argument(
+        "--requests-per-minute",
+        type=int,
+        default=DEFAULT_TARGET_QPM,
+        help=(
+            "hard QPM ceiling; starts at 54 QPM and adapts to 90%% of the "
+            "provider-advertised limit (default: %(default)s)"
+        ),
+    )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
-    if args.workers <= 0 or args.page_size <= 0:
-        parser.error("--workers and --page-size must be positive")
+    if (
+        args.workers <= 0
+        or args.page_size <= 0
+        or args.requests_per_minute <= 0
+    ):
+        parser.error(
+            "--workers, --page-size, and --requests-per-minute must be positive"
+        )
     if args.limit is not None and args.limit <= 0:
         parser.error("--limit must be positive")
     _assert_perf_database(args.database_url)
@@ -503,6 +601,7 @@ def main() -> None:
     print(f"total chunks                    {total}")
     print(f"already embedded                {embedded}")
     print(f"pending estimate                {max(total - embedded, 0)}")
+    print(f"configured QPM ceiling          {args.requests_per_minute}")
     if args.dry_run:
         print("provider calls                  0")
         print("database writes                 0")
@@ -511,17 +610,18 @@ def main() -> None:
     api_key = os.environ.get(args.api_key_env, "")
     if not api_key:
         raise SystemExit(f"Environment variable {args.api_key_env} is missing")
-    run_id, counts, status = _load(
+    result = _load(
         database_url=args.database_url,
         config=config,
         api_key=api_key,
         workers=args.workers,
         page_size=args.page_size,
         limit=args.limit,
+        requests_per_minute=args.requests_per_minute,
     )
     report = {
-        "embedding_run_id": run_id,
-        "status": status,
+        "embedding_run_id": result.run_id,
+        "status": result.status,
         "config": {
             "provider": config.provider,
             "model": config.model,
@@ -529,16 +629,29 @@ def main() -> None:
             "distance_metric": config.distance_metric,
             "input_version": config.input_version,
         },
-        "counts": counts,
+        "counts": result.counts,
+        "call_counts": result.call_counts,
+        "failure_categories": result.failure_categories,
+        "failure_examples": result.failure_examples,
+        "provider_telemetry": result.provider_telemetry,
+        "rate_limit": result.rate_limit,
     }
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_bytes(orjson.dumps(report, option=orjson.OPT_INDENT_2) + b"\n")
     print("\n=== retrieval embedding load ===")
-    print(f"embedding run                  {run_id}")
-    for key, value in counts.items():
+    print(f"embedding run                  {result.run_id}")
+    for key, value in result.counts.items():
         print(f"{key:32} {value}")
-    print(f"status                         {status}")
+    print(f"call attempted                 {result.call_counts['attempted']}")
+    print(f"call succeeded                 {result.call_counts['succeeded']}")
+    print(f"call failed                    {result.call_counts['failed']}")
+    print(f"provider HTTP requests         {result.provider_telemetry['http_requests']}")
+    print(f"provider retries               {result.provider_telemetry['retries']}")
+    print(f"failure categories             {result.failure_categories}")
+    print(f"observed provider QPM          {result.rate_limit['observed_limit_qpm']}")
+    print(f"effective QPM                  {result.rate_limit['effective_qpm']}")
+    print(f"status                         {result.status}")
 
 
 if __name__ == "__main__":

@@ -83,9 +83,7 @@ def main() -> None:
                 select(func.count(FacilityInvestmentEventRow.investment_amount_krw))
             )
             or 0,
-            "equity_krw": session.scalar(
-                select(func.count(FacilityInvestmentEventRow.equity_krw))
-            )
+            "equity_krw": session.scalar(select(func.count(FacilityInvestmentEventRow.equity_krw)))
             or 0,
             "equity_ratio": session.scalar(
                 select(func.count(FacilityInvestmentEventRow.equity_ratio))

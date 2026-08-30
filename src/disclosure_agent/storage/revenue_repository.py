@@ -334,6 +334,10 @@ class RevenueRepository:
             if unit is not None:
                 return unit
 
+        previous_unit = self._immediate_previous_table_unit(block)
+        if previous_unit is not None:
+            return previous_unit
+
         for nearby in self._nearby_blocks(block, same_section=True):
             unit = extract_monetary_unit(self._unit_text_from_block(nearby))
             if unit is not None:
@@ -345,6 +349,22 @@ class RevenueRepository:
                 return unit
 
         return None
+
+    def _immediate_previous_table_unit(self, block: SourceBlockRow) -> str | None:
+        previous = self.session.scalar(
+            select(SourceBlockRow).where(
+                SourceBlockRow.document_id == block.document_id,
+                SourceBlockRow.section_id == block.section_id,
+                SourceBlockRow.block_order == block.block_order - 1,
+            )
+        )
+        if previous is None or previous.table_id is None:
+            return None
+
+        table = self.session.get(SourceTableRow, previous.table_id)
+        if table is None:
+            return None
+        return extract_monetary_unit(table.normalized_text)
 
     def _nearby_blocks(
         self,

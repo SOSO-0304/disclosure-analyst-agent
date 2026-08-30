@@ -58,13 +58,9 @@ class FundraisingOccurrence:
                 self.issue_date.isoformat() if self.issue_date else "",
                 _compact(self.issuance_method),
                 _compact(self.stock_kind),
+                str(self.share_quantity or ""),
+                str(self.issue_price_krw or ""),
             )
-            if not self.issue_date:
-                identity = (
-                    *identity,
-                    str(self.share_quantity or ""),
-                    str(self.issue_price_krw or ""),
-                )
         else:
             series_key = _series_key(self.series, self.security_name)
             identity = (
@@ -221,8 +217,6 @@ def _extract_rights_issue_rows(
 ) -> tuple[FundraisingOccurrence, ...]:
     occurrences = []
     for row_index, row in logical_rows.items():
-        if row_index in header_rows:
-            continue
         method_cell = _cell_for_header(row, cells, header_rows, required=("발행감소형태",))
         method = _cell_text(method_cell)
         if "유상증자" not in method:
@@ -288,8 +282,6 @@ def _extract_bond_matrix_rows(
 ) -> tuple[FundraisingOccurrence, ...]:
     occurrences = []
     for row_index, row in logical_rows.items():
-        if row_index in header_rows:
-            continue
         security_cell = _cell_for_header(row, cells, header_rows, required=("종류구분",))
         security_name = _cell_text(security_cell)
         instrument = _instrument_from_text(security_name)
@@ -365,7 +357,7 @@ def _extract_vertical_bond(
     issue_row = _find_field_row(field_rows, ("발행일",))
     amount_row = _find_field_row(field_rows, ("발행금액", "사채의권면총액", "권면총액"))
     method_row = _find_field_row(field_rows, ("발행방법",))
-    if amount_row is None:
+    if amount_row is None or len(amount_row[1]) < 2:
         return None
 
     amount_cell = _last_value_cell(amount_row[1])

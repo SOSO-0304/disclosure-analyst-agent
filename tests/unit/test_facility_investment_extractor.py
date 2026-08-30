@@ -35,7 +35,10 @@ def _fact(
         currency=None,
         concept_code=None,
         context_ref=None,
-        source_locator={"source_file_id": "source:1", "xpath": f"/TABLE/TR[{row + 1}]/TD[3]"},
+        source_locator={
+            "source_file_id": "source:1",
+            "xpath": f"/TABLE/TR[{row + 1}]/TD[3]",
+        },
     )
 
 

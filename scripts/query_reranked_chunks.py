@@ -25,6 +25,8 @@ def main() -> None:
     parser.add_argument("--database-url")
     parser.add_argument("--query", required=True)
     parser.add_argument("--company")
+    parser.add_argument("--filing-id")
+    parser.add_argument("--report-name")
     parser.add_argument("--year", type=int)
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--candidate-k", type=int, default=40)
@@ -44,6 +46,8 @@ def main() -> None:
         candidates = RetrievalEmbeddingRepository(session).search(
             query_vector=query_embedding.vector,
             company_name=args.company,
+            filing_id=args.filing_id,
+            report_name=args.report_name,
             year=args.year,
             top_k=args.candidate_k,
         )
@@ -59,6 +63,8 @@ def main() -> None:
     print("=== reranked semantic retrieval ===")
     print(f"query                           {args.query}")
     print(f"company                         {args.company or 'all'}")
+    print(f"filing                          {args.filing_id or 'all'}")
+    print(f"report                          {args.report_name or 'all'}")
     print(f"year                            {args.year or 'all'}")
     print(f"candidates                      {len(candidates)}")
     print(f"hits                            {len(hits)}")

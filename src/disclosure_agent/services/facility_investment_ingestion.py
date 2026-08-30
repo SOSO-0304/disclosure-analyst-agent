@@ -13,7 +13,7 @@ from disclosure_agent.storage.facility_investment_repository import FacilityInve
 
 @dataclass(frozen=True, slots=True)
 class FacilityInvestmentIngestionResult:
-    """Counts and field coverage from one deterministic typed-event projection."""
+    """Counts and parsed field coverage from one deterministic typed-event projection."""
 
     candidate_filings: int
     events: int
@@ -52,7 +52,8 @@ def ingest_facility_investment_events(
             facts=candidate.facts,
         )
         for attribute in extraction.evidence:
-            coverage[attribute] += 1
+            if getattr(extraction.event, attribute) is not None:
+                coverage[attribute] += 1
         projections.append((candidate, extraction.event, extraction.evidence))
 
     event_count, evidence_count = repository.replace_events(projections=projections)

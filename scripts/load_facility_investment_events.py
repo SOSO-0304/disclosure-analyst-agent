@@ -33,7 +33,12 @@ def main() -> None:
     print(f"candidate filings               {result.candidate_filings}")
     print(f"events                          {result.events}")
     print(f"corrections                     {result.corrections}")
+    print(f"correction links                {result.correction_links}")
+    print(f"lifecycle rows                  {result.lifecycle_rows}")
     print(f"evidence links                  {result.evidence}")
+    print("\n=== correction lineage ===")
+    for status, count in result.lineage_status_counts.items():
+        print(f"{status:<32} {count:>4}/{result.corrections}")
     print("\n=== field coverage ===")
     for field, count in result.coverage.items():
         print(f"{field:<32} {count:>4}/{result.events}")

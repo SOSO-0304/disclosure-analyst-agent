@@ -57,9 +57,7 @@ def test_long_table_is_split_and_keeps_table_lineage() -> None:
 
 
 def test_chunk_ids_are_deterministic() -> None:
-    blocks = (
-        SourceBlockText("b1", 1, "s1", "사업의 내용", None, "동일한 문단"),
-    )
+    blocks = (SourceBlockText("b1", 1, "s1", "사업의 내용", None, "동일한 문단"),)
 
     first = build_document_chunks(_context(), blocks)
     second = build_document_chunks(_context(), blocks)

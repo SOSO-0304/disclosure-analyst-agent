@@ -150,6 +150,18 @@ Loader는 `source_staging`에 먼저 적재하고 전체 count와 참조 무결�
 transaction으로 public Source Layer에 반영합니다. 성공하면 같은 transaction에서 staging을
 비우며, 중간 실패 시 기존 public snapshot은 변경되지 않습니다.
 
+## Retrieval chunk 사전 분석
+
+Source Layer를 다시 쓰지 않는 read-only profiler로 block 유형, 문서군, 정규화 텍스트 길이,
+표 크기와 중첩 관계를 집계합니다. 이 결과를 기준으로 page break 제외, heading 문맥화,
+paragraph 병합 및 table 선별 규칙을 결정합니다.
+
+```powershell
+python scripts/profile_source_content.py `
+  --database-url $PerfDatabaseUrl `
+  --output data\\quality\\source-content-profile.json
+```
+
 ## 폴더 구조
 
 ```text

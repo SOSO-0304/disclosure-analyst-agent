@@ -14,7 +14,13 @@ from uuid import uuid4
 
 import httpx
 
-EMBEDDING_INPUT_VERSION = "retrieval-embedding-v1"
+EMBEDDING_INPUT_VERSION_V1 = "retrieval-embedding-v1"
+EMBEDDING_INPUT_VERSION_V2 = "retrieval-embedding-v2"
+EMBEDDING_INPUT_VERSION = EMBEDDING_INPUT_VERSION_V1
+SUPPORTED_INPUT_VERSIONS = {
+    EMBEDDING_INPUT_VERSION_V1,
+    EMBEDDING_INPUT_VERSION_V2,
+}
 DEFAULT_PROVIDER = "clova-studio"
 DEFAULT_MODEL = "bge-m3"
 DEFAULT_DIMENSIONS = 1_024
@@ -48,6 +54,10 @@ class EmbeddingConfig:
             raise ValueError("CLOVA Studio bge-m3 requires 1024 dimensions")
         if self.distance_metric != DEFAULT_DISTANCE_METRIC:
             raise ValueError("CLOVA Studio bge-m3 uses cosine distance")
+        if self.input_version not in SUPPORTED_INPUT_VERSIONS:
+            raise ValueError(
+                f"Unsupported embedding input version: {self.input_version}"
+            )
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if self.max_retries < 0:
@@ -61,6 +71,20 @@ class EmbeddingResult:
     vector: tuple[float, ...]
     input_tokens: int | None
     request_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingDocumentContext:
+    """Document metadata available for context-rich v2 document embeddings."""
+
+    corp_name: str = ""
+    listed_name: str = ""
+    stock_code: str = ""
+    report_name: str = ""
+    document_subtype: str = ""
+    document_title: str = ""
+    is_correction: bool = False
+    table_caption: str = ""
 
 
 class GlobalRateLimiter:
@@ -194,15 +218,26 @@ def embedding_run_id(chunk_run_id: str, config: EmbeddingConfig) -> str:
     return sha256("\x1f".join(values).encode()).hexdigest()[:32]
 
 
-def compose_embedding_input(content: str, heading_path: list[str] | tuple[str, ...]) -> str:
-    """Add canonical heading context without mutating the stored chunk text."""
+def compose_embedding_input(
+    content: str,
+    heading_path: list[str] | tuple[str, ...],
+    *,
+    input_version: str = EMBEDDING_INPUT_VERSION_V1,
+    context: EmbeddingDocumentContext | None = None,
+) -> str:
+    """Compose a versioned document input without mutating the stored chunk text."""
 
     body = content.strip()
     headings = [value.strip() for value in heading_path if value and value.strip()]
-    if headings:
-        value = f"[문맥] {' > '.join(headings)}\n\n{body}"
+    if input_version not in SUPPORTED_INPUT_VERSIONS:
+        raise ValueError(f"Unsupported embedding input version: {input_version}")
+    if input_version == EMBEDDING_INPUT_VERSION_V1:
+        value = f"[문맥] {' > '.join(headings)}\n\n{body}" if headings else body
     else:
-        value = body
+        if context is None:
+            raise ValueError("v2 embedding input requires document context")
+        prefix = _context_prefix(context, headings)
+        value = f"{prefix}\n\n{body}" if prefix else body
     if not value:
         raise ValueError("Embedding input must not be empty")
     if len(value) > MAX_INPUT_CHARS:
@@ -210,6 +245,32 @@ def compose_embedding_input(content: str, heading_path: list[str] | tuple[str, .
             f"Embedding input exceeds {MAX_INPUT_CHARS} characters: {len(value)}"
         )
     return value
+
+
+def _context_prefix(
+    context: EmbeddingDocumentContext,
+    headings: list[str],
+) -> str:
+    lines: list[str] = []
+    company = context.listed_name.strip() or context.corp_name.strip()
+    if company:
+        stock_code = context.stock_code.strip()
+        suffix = f" ({stock_code})" if stock_code else ""
+        lines.append(f"[기업] {company}{suffix}")
+    if context.report_name.strip():
+        lines.append(f"[공시] {context.report_name.strip()}")
+    if context.document_subtype.strip():
+        lines.append(f"[유형] {context.document_subtype.strip()}")
+    if context.document_title.strip():
+        lines.append(f"[문서] {context.document_title.strip()}")
+    if context.is_correction:
+        lines.append("[상태] 정정공시")
+    if headings:
+        lines.append(f"[문맥] {' > '.join(headings)}")
+    caption = context.table_caption.strip()
+    if caption and caption not in headings:
+        lines.append(f"[표제목] {caption}")
+    return "\n".join(dict.fromkeys(lines))
 
 
 def embedding_input_sha256(value: str) -> str:

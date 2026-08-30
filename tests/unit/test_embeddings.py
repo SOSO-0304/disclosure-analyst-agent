@@ -6,8 +6,10 @@ import httpx
 import pytest
 
 from disclosure_agent.retrieval.embeddings import (
+    EMBEDDING_INPUT_VERSION_V2,
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
+    EmbeddingDocumentContext,
     GlobalRateLimiter,
     compose_embedding_input,
     embedding_input_sha256,
@@ -27,6 +29,44 @@ def test_compose_embedding_input_adds_provenance_context() -> None:
         "계약금액은 100억원입니다."
     )
     assert embedding_input_sha256(value) == embedding_input_sha256(value)
+
+
+def test_compose_v2_embedding_input_adds_retrieval_metadata() -> None:
+    value = compose_embedding_input(
+        "매출액은 100억원입니다.",
+        ["II. 사업의 내용", "매출 및 수주상황"],
+        input_version=EMBEDDING_INPUT_VERSION_V2,
+        context=EmbeddingDocumentContext(
+            corp_name="테스트주식회사",
+            listed_name="테스트",
+            stock_code="123456",
+            report_name="2026년 반기보고서",
+            document_subtype="반기보고서",
+            document_title="반기보고서 본문",
+            is_correction=True,
+            table_caption="부문별 매출액",
+        ),
+    )
+
+    assert value == (
+        "[기업] 테스트 (123456)\n"
+        "[공시] 2026년 반기보고서\n"
+        "[유형] 반기보고서\n"
+        "[문서] 반기보고서 본문\n"
+        "[상태] 정정공시\n"
+        "[문맥] II. 사업의 내용 > 매출 및 수주상황\n"
+        "[표제목] 부문별 매출액\n\n"
+        "매출액은 100억원입니다."
+    )
+
+
+def test_compose_v2_embedding_input_requires_metadata() -> None:
+    with pytest.raises(ValueError, match="requires document context"):
+        compose_embedding_input(
+            "매출액은 100억원입니다.",
+            [],
+            input_version=EMBEDDING_INPUT_VERSION_V2,
+        )
 
 
 def test_embedding_run_identity_changes_with_input_contract() -> None:
@@ -175,3 +215,8 @@ def test_clova_client_rejects_provider_error() -> None:
 def test_config_rejects_wrong_dimension() -> None:
     with pytest.raises(ValueError, match="1024"):
         EmbeddingConfig(dimensions=768)
+
+
+def test_config_rejects_unknown_input_version() -> None:
+    with pytest.raises(ValueError, match="Unsupported embedding input version"):
+        EmbeddingConfig(input_version="retrieval-embedding-unknown")

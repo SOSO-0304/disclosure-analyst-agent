@@ -95,10 +95,23 @@ def _first_matching_fact(
     facts: Iterable[GenericFact],
     alias_groups: tuple[tuple[str, ...], ...],
 ) -> GenericFact | None:
+    fact_list = tuple(facts)
+    correction_table_ids = {
+        fact.table_id
+        for fact in fact_list
+        if "정정전" in _compact_label(fact.header_text or "")
+        or "정정후" in _compact_label(fact.header_text or "")
+    }
+
     ranked: list[tuple[int, int, int, GenericFact]] = []
-    for fact in facts:
+    for fact in fact_list:
         if _is_missing(fact.value_text):
             continue
+
+        compact_header = _compact_label(fact.header_text or "")
+        if "정정전" in compact_header:
+            continue
+
         label_parts = _label_parts(fact)
         compact_parts = tuple(_compact_label(part) for part in label_parts)
         for alias_order, aliases in enumerate(alias_groups):
@@ -106,8 +119,19 @@ def _first_matching_fact(
             score = _match_score(compact_parts, normalized_aliases)
             if score is None:
                 continue
+
             direct_bonus = 1 if fact.label_text else 0
-            ranked.append((score + direct_bonus, -alias_order, -fact.row_index, fact))
+            correction_bonus = 2 if "정정후" in compact_header else 0
+            if fact.table_id in correction_table_ids and correction_bonus == 0:
+                correction_bonus = -1
+            ranked.append(
+                (
+                    score + direct_bonus + correction_bonus,
+                    -alias_order,
+                    -fact.row_index,
+                    fact,
+                )
+            )
             break
     if not ranked:
         return None
@@ -123,6 +147,8 @@ def _match_score(parts: tuple[str, ...], aliases: tuple[str, ...]) -> int | None
             return 5
         if alias in parts:
             return 4
+        if alias == "자기자본" and "대비" in parts[-1]:
+            return None
         if parts[-1].startswith(alias) or parts[-1].endswith(alias):
             return 3
         return None

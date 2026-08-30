@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from disclosure_agent.extractors.facility_investment import extract_facility_investment
+from disclosure_agent.storage.facility_investment_lineage_repository import (
+    FacilityInvestmentLineageRepository,
+)
 from disclosure_agent.storage.facility_investment_repository import FacilityInvestmentRepository
 
 
@@ -19,6 +22,9 @@ class FacilityInvestmentIngestionResult:
     events: int
     evidence: int
     corrections: int
+    correction_links: int
+    lifecycle_rows: int
+    lineage_status_counts: dict[str, int]
     coverage: dict[str, int]
 
 
@@ -57,10 +63,14 @@ def ingest_facility_investment_events(
         projections.append((candidate, extraction.event, extraction.evidence))
 
     event_count, evidence_count = repository.replace_events(projections=projections)
+    lineage = FacilityInvestmentLineageRepository(session).replace_lineage()
     return FacilityInvestmentIngestionResult(
         candidate_filings=len(candidates),
         events=event_count,
         evidence=evidence_count,
         corrections=corrections,
+        correction_links=lineage.correction_links,
+        lifecycle_rows=lineage.lifecycle_rows,
+        lineage_status_counts=lineage.status_counts,
         coverage=dict(sorted(coverage.items())),
     )

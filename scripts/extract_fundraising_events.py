@@ -4,12 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import re
-import unicodedata
 from collections import Counter
-
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
 
 from disclosure_agent.extractors.fundraising import (
     FundraisingEvent,
@@ -18,96 +13,7 @@ from disclosure_agent.extractors.fundraising import (
     extract_fundraising_occurrences,
 )
 from disclosure_agent.storage.database import get_engine, session_scope
-from disclosure_agent.storage.db_models import (
-    SourceBlockRow,
-    SourceCompanyRow,
-    SourceFilingRow,
-    SourceSectionRow,
-    SourceTableRow,
-)
-
-TARGET_TOKEN = "증권의발행을통한자금조달실적"
-SEARCH_TERMS = ("유상증자", "전환사채", "신주인수권부사채", "교환사채")
-
-
-def _compact(value: str | None) -> str:
-    text = unicodedata.normalize("NFKC", value or "")
-    return re.sub(r"[^0-9A-Za-z가-힣]", "", text)
-
-
-def _target_section_ids(session: Session) -> tuple[str, ...]:
-    rows = session.execute(
-        select(
-            SourceSectionRow.section_id,
-            SourceSectionRow.title_raw,
-            SourceSectionRow.title_normalized,
-        )
-        .join(SourceFilingRow, SourceFilingRow.filing_id == SourceSectionRow.filing_id)
-        .where(SourceFilingRow.document_group == "periodic")
-    ).all()
-    return tuple(
-        row.section_id
-        for row in rows
-        if TARGET_TOKEN in _compact(row.title_normalized or row.title_raw)
-    )
-
-
-def _candidate_tables(session: Session, section_ids: tuple[str, ...], companies: list[str]):
-    term_filters = [SourceTableRow.normalized_text.ilike(f"%{term}%") for term in SEARCH_TERMS]
-    statement = (
-        select(SourceTableRow, SourceBlockRow, SourceFilingRow, SourceCompanyRow)
-        .join(SourceBlockRow, SourceBlockRow.block_id == SourceTableRow.block_id)
-        .join(SourceFilingRow, SourceFilingRow.filing_id == SourceTableRow.filing_id)
-        .join(SourceCompanyRow, SourceCompanyRow.corp_code == SourceFilingRow.corp_code)
-        .where(SourceBlockRow.section_id.in_(section_ids), or_(*term_filters))
-        .order_by(SourceFilingRow.receipt_date, SourceTableRow.table_id)
-    )
-    if companies:
-        statement = statement.where(
-            or_(
-                SourceCompanyRow.listed_name.in_(companies),
-                SourceCompanyRow.corp_name.in_(companies),
-            )
-        )
-    return session.execute(statement).all()
-
-
-def _table_context_text(
-    session: Session,
-    table: SourceTableRow,
-    block: SourceBlockRow,
-) -> str:
-    previous_blocks = session.scalars(
-        select(SourceBlockRow)
-        .where(
-            SourceBlockRow.document_id == block.document_id,
-            SourceBlockRow.section_id == block.section_id,
-            SourceBlockRow.block_order < block.block_order,
-        )
-        .order_by(SourceBlockRow.block_order.desc())
-        .limit(12)
-    ).all()
-
-    preceding_text = []
-    for previous in previous_blocks:
-        if previous.block_type == "table":
-            if previous.table_id:
-                previous_table = session.scalar(
-                    select(SourceTableRow).where(SourceTableRow.table_id == previous.table_id)
-                )
-                if previous_table is not None:
-                    unit_text = previous_table.normalized_text.strip()
-                    if previous_table.row_count <= 2 and "단위" in unit_text:
-                        preceding_text.append(unit_text)
-            break
-        text = previous.text_normalized or previous.text_raw or ""
-        if text.strip():
-            preceding_text.append(text.strip())
-    preceding_text.reverse()
-
-    caption = table.caption_normalized or table.caption_raw or ""
-    parts = [*preceding_text, caption, table.normalized_text]
-    return " ".join(part for part in parts if part)
+from disclosure_agent.storage.fundraising_repository import FundraisingRepository
 
 
 def _event_sort_key(event: FundraisingEvent):
@@ -163,20 +69,20 @@ def main() -> None:
 
     engine = get_engine(args.database_url)
     with session_scope(engine) as session:
-        section_ids = _target_section_ids(session)
-        tables = _candidate_tables(session, section_ids, args.company)
+        candidates = FundraisingRepository(session).read_candidates(
+            companies=tuple(args.company),
+        )
         occurrences = []
-        for table, block, filing, company in tables:
-            context_text = _table_context_text(session, table, block)
+        for table in candidates.tables:
             occurrences.extend(
                 extract_fundraising_occurrences(
-                    filing_id=filing.filing_id,
-                    corp_code=filing.corp_code,
-                    company_name=company.listed_name,
-                    receipt_date=filing.receipt_date,
+                    filing_id=table.filing_id,
+                    corp_code=table.corp_code,
+                    company_name=table.company_name,
+                    receipt_date=table.receipt_date,
                     table_id=table.table_id,
                     grid=table.grid,
-                    normalized_text=context_text,
+                    normalized_text=table.context_text,
                 )
             )
 
@@ -190,8 +96,8 @@ def main() -> None:
     ]
 
     print("=== fundraising extraction ===")
-    print(f"target sections                 {len(section_ids)}")
-    print(f"candidate tables                {len(tables)}")
+    print(f"target sections                 {candidates.target_section_count}")
+    print(f"candidate tables                {len(candidates.tables)}")
     print(f"source occurrences              {len(occurrences)}")
     print(f"canonical events                {len(events)}")
     print(f"duplicates collapsed            {len(occurrences) - len(events)}")

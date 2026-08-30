@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from alembic import context
 from disclosure_agent.config import get_settings
+from disclosure_agent.storage.fundraising_models import FundraisingEventRow
 from disclosure_agent.storage.source_event_models import SourceEventRow
 
 config = context.config

@@ -91,6 +91,14 @@ def _table_context_text(
     preceding_text = []
     for previous in previous_blocks:
         if previous.block_type == "table":
+            if previous.table_id:
+                previous_table = session.scalar(
+                    select(SourceTableRow).where(SourceTableRow.table_id == previous.table_id)
+                )
+                if previous_table is not None:
+                    unit_text = previous_table.normalized_text.strip()
+                    if previous_table.row_count <= 2 and "단위" in unit_text:
+                        preceding_text.append(unit_text)
             break
         text = previous.text_normalized or previous.text_raw or ""
         if text.strip():

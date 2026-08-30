@@ -53,7 +53,7 @@ def test_adjacent_paragraphs_merge_with_section_and_heading_provenance() -> None
     assert chunks[0].block_ids == ("doc-1:block:1", "doc-1:block:2")
 
 
-def test_table_and_unknown_are_hard_boundaries_but_page_break_is_not() -> None:
+def test_table_and_page_break_are_transparent_but_unknown_is_a_boundary() -> None:
     chunks = _plan(
         [
             _block(0, "paragraph", "앞"),
@@ -67,8 +67,7 @@ def test_table_and_unknown_are_hard_boundaries_but_page_break_is_not() -> None:
     )
 
     assert [chunk.text for chunk in chunks] == [
-        "앞\n\n뒤",
-        "표 다음",
+        "앞\n\n뒤\n\n표 다음",
         "unknown 다음",
     ]
 
@@ -89,13 +88,13 @@ def test_heading_and_section_changes_flush_previous_context() -> None:
         ]
     )
 
-    assert [chunk.text for chunk in chunks] == ["A", "B", "C"]
-    assert chunks[1].heading_path == ("사업의 내용", "새 제목")
-    assert chunks[2].heading_path == ("위험 요인",)
+    assert [chunk.text for chunk in chunks] == ["A\n\n[소제목] 새 제목\n\nB", "C"]
+    assert chunks[0].heading_path == ("사업의 내용", "새 제목")
+    assert chunks[1].heading_path == ("위험 요인",)
 
 
 def test_oversized_paragraph_splits_with_bounded_overlap() -> None:
-    policy = ChunkPolicy(target_chars=10, max_chars=12, overlap_chars=3)
+    policy = ChunkPolicy(min_chars=5, target_chars=10, max_chars=12, overlap_chars=3)
     chunks = _plan([_block(0, "paragraph", "abcdefghijklmnopqrstuvwxyz")], policy)
 
     assert len(chunks) == 3
@@ -125,3 +124,18 @@ def test_policy_rejects_invalid_boundaries() -> None:
         assert "max_chars" in str(exc)
     else:
         raise AssertionError("invalid policy was accepted")
+
+
+def test_heading_flushes_when_existing_chunk_reaches_minimum() -> None:
+    policy = ChunkPolicy(min_chars=5, target_chars=10, max_chars=20, overlap_chars=2)
+    chunks = _plan(
+        [
+            _block(0, "paragraph", "12345"),
+            _block(1, "heading", "다음", heading_level=1),
+            _block(2, "paragraph", "6789"),
+        ],
+        policy,
+    )
+
+    assert [chunk.text for chunk in chunks] == ["12345", "6789"]
+    assert chunks[1].heading_path == ("사업의 내용", "다음")

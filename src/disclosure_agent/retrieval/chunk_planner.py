@@ -9,13 +9,18 @@ from dataclasses import dataclass, field
 class ChunkPolicy:
     """Character-based boundaries used before model-specific tokenization is chosen."""
 
+    min_chars: int = 400
     target_chars: int = 1_000
     max_chars: int = 1_200
     overlap_chars: int = 120
 
     def __post_init__(self) -> None:
+        if self.min_chars <= 0:
+            raise ValueError("min_chars must be positive")
         if self.target_chars <= 0:
             raise ValueError("target_chars must be positive")
+        if self.min_chars > self.target_chars:
+            raise ValueError("min_chars must not exceed target_chars")
         if self.max_chars < self.target_chars:
             raise ValueError("max_chars must be greater than or equal to target_chars")
         if not 0 <= self.overlap_chars < self.max_chars:
@@ -67,6 +72,7 @@ class NarrativeChunkPlanner:
     _headings: dict[int, str] = field(default_factory=dict)
     _texts: list[str] = field(default_factory=list)
     _block_ids: list[str] = field(default_factory=list)
+    _chunk_headings: list[str] = field(default_factory=list)
     _start_order: int | None = None
     _end_order: int | None = None
     _chunk_ordinal: int = 0
@@ -85,13 +91,18 @@ class NarrativeChunkPlanner:
         if block.block_type == "paragraph":
             emitted.extend(self._push_paragraph(block))
         elif block.block_type == "heading":
-            emitted.extend(self._flush())
+            if self._texts and self._current_length() >= self.policy.min_chars:
+                emitted.extend(self._flush())
             self._set_heading(block)
-        elif block.block_type == "page_break":
+            if self._texts:
+                emitted.extend(self._append_heading_marker(block))
+        elif block.block_type in {"page_break", "table"}:
             pass
         else:
-            # Tables and unknown blocks are hard boundaries. They are classified
-            # independently and must not silently join paragraphs on either side.
+            # Unknown content remains a conservative boundary until representative
+            # samples have been reviewed. Tables are deliberately transparent:
+            # DART uses many of them for layout, and table retrieval is planned
+            # independently without fragmenting surrounding narrative.
             emitted.extend(self._flush())
         return emitted
 
@@ -105,6 +116,7 @@ class NarrativeChunkPlanner:
         self._section_id = None
         self._section_title = None
         self._headings.clear()
+        self._chunk_headings.clear()
         self._chunk_ordinal = 0
         return emitted
 
@@ -157,6 +169,7 @@ class NarrativeChunkPlanner:
 
         self._texts.append(value)
         self._block_ids.append(block.block_id)
+        self._record_current_headings()
         if self._start_order is None:
             self._start_order = block.block_order
         self._end_order = block.block_order
@@ -165,6 +178,25 @@ class NarrativeChunkPlanner:
         # coherent blocks while the hard maximum prevents unbounded chunks.
         if sum(len(text) for text in self._texts) >= self.policy.target_chars:
             emitted.extend(self._flush())
+        return emitted
+
+    def _append_heading_marker(
+        self, block: SourceBlock
+    ) -> list[PlannedNarrativeChunk]:
+        value = _clean(block.text)
+        if not value:
+            return []
+        marker = f"[소제목] {value}"
+        emitted: list[PlannedNarrativeChunk] = []
+        if self._current_length(extra=marker) > self.policy.max_chars:
+            emitted.extend(self._flush())
+            return emitted
+        self._texts.append(marker)
+        self._block_ids.append(block.block_id)
+        self._record_current_headings()
+        if self._start_order is None:
+            self._start_order = block.block_order
+        self._end_order = block.block_order
         return emitted
 
     def _flush(self) -> list[PlannedNarrativeChunk]:
@@ -189,11 +221,14 @@ class NarrativeChunkPlanner:
         )
         self._texts.clear()
         self._block_ids.clear()
+        self._chunk_headings.clear()
         self._start_order = None
         self._end_order = None
         return [chunk]
 
     def _heading_path(self) -> tuple[str, ...]:
+        if self._chunk_headings:
+            return tuple(self._chunk_headings)
         values: list[str] = []
         if self._section_title:
             values.append(self._section_title)
@@ -202,6 +237,27 @@ class NarrativeChunkPlanner:
             if not values or values[-1] != heading:
                 values.append(heading)
         return tuple(values)
+
+    def _record_current_headings(self) -> None:
+        for value in self._current_heading_path():
+            if value not in self._chunk_headings:
+                self._chunk_headings.append(value)
+
+    def _current_heading_path(self) -> tuple[str, ...]:
+        values: list[str] = []
+        if self._section_title:
+            values.append(self._section_title)
+        for level in sorted(self._headings):
+            heading = self._headings[level]
+            if not values or values[-1] != heading:
+                values.append(heading)
+        return tuple(values)
+
+    def _current_length(self, *, extra: str | None = None) -> int:
+        values = [*self._texts]
+        if extra:
+            values.append(extra)
+        return len("\n\n".join(values))
 
 
 def _clean(value: str | None) -> str:

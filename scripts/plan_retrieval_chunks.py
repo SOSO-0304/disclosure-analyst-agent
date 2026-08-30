@@ -57,6 +57,9 @@ TABLE_BUCKETS_SQL = """
             f.document_group,
             char_length(t.normalized_text) AS text_length,
             t.row_count::bigint * t.column_count::bigint AS cell_slots,
+            nullif(btrim(t.caption_normalized), '') IS NOT NULL AS has_caption,
+            jsonb_array_length(t.header_row_indices) > 0 AS has_header_rows,
+            t.normalized_text ~ '[0-9]' AS has_digits,
             CASE
                 WHEN t.normalized_text = '' THEN 'exclude_empty'
                 WHEN f.document_group = 'exchange'
@@ -64,6 +67,34 @@ TABLE_BUCKETS_SQL = """
                     THEN 'exchange_row_window'
                 WHEN f.document_group = 'exchange' THEN 'exchange_direct'
                 WHEN t.parent_table_id IS NOT NULL THEN 'nested_review'
+                WHEN f.document_group = 'periodic'
+                     AND (
+                         nullif(btrim(t.caption_normalized), '') IS NOT NULL
+                         OR jsonb_array_length(t.header_row_indices) > 0
+                     )
+                     AND char_length(t.normalized_text) > :table_max_chars
+                    THEN 'periodic_strong_row_window'
+                WHEN f.document_group = 'periodic'
+                     AND (
+                         nullif(btrim(t.caption_normalized), '') IS NOT NULL
+                         OR jsonb_array_length(t.header_row_indices) > 0
+                     )
+                    THEN 'periodic_strong_direct'
+                WHEN f.document_group = 'periodic'
+                     AND t.row_count >= 2
+                     AND t.column_count >= 2
+                     AND char_length(t.normalized_text) >= 100
+                     AND t.normalized_text ~ '[0-9]'
+                     AND char_length(t.normalized_text) > :table_max_chars
+                    THEN 'periodic_numeric_row_window'
+                WHEN f.document_group = 'periodic'
+                     AND t.row_count >= 2
+                     AND t.column_count >= 2
+                     AND char_length(t.normalized_text) >= 100
+                     AND t.normalized_text ~ '[0-9]'
+                    THEN 'periodic_numeric_direct'
+                WHEN f.document_group = 'periodic'
+                    THEN 'periodic_deferred'
                 WHEN char_length(t.normalized_text) > :table_max_chars
                     THEN 'row_window_candidate'
                 WHEN char_length(t.normalized_text) <= 50
@@ -88,7 +119,20 @@ TABLE_BUCKETS_SQL = """
                         1,
                         ceil(text_length::numeric / :table_max_chars)::bigint
                     )
-                WHEN decision_bucket IN ('exchange_direct', 'direct_candidate') THEN 1
+                WHEN decision_bucket IN (
+                    'periodic_strong_row_window',
+                    'periodic_numeric_row_window'
+                )
+                    THEN greatest(
+                        1,
+                        ceil(text_length::numeric / :table_max_chars)::bigint
+                    )
+                WHEN decision_bucket IN (
+                    'exchange_direct',
+                    'direct_candidate',
+                    'periodic_strong_direct',
+                    'periodic_numeric_direct'
+                ) THEN 1
                 ELSE 0
             END
         )::bigint AS initial_chunk_estimate
@@ -138,6 +182,7 @@ def main() -> None:
     parser.add_argument("--database-url")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--target-chars", type=int, default=1_000)
+    parser.add_argument("--min-chars", type=int, default=400)
     parser.add_argument("--max-chars", type=int, default=1_200)
     parser.add_argument("--overlap-chars", type=int, default=120)
     parser.add_argument("--table-max-chars", type=int, default=2_000)
@@ -146,6 +191,7 @@ def main() -> None:
     args = parser.parse_args()
 
     policy = ChunkPolicy(
+        min_chars=args.min_chars,
         target_chars=args.target_chars,
         max_chars=args.max_chars,
         overlap_chars=args.overlap_chars,
@@ -240,15 +286,16 @@ def main() -> None:
         int(row["initial_chunk_estimate"] or 0) for row in table_buckets
     )
     plan = {
-        "plan_version": "1.0.0",
+        "plan_version": "2.0.0",
         "mode": "read_only_dry_run",
         "load": load,
         "policy": {
             "narrative_target_chars": policy.target_chars,
+            "narrative_min_chars": policy.min_chars,
             "narrative_max_chars": policy.max_chars,
             "narrative_overlap_chars": policy.overlap_chars,
             "table_max_chars": args.table_max_chars,
-            "headings": "metadata_only",
+            "headings": "adaptive_context_with_minimum_chunk_boundary",
             "page_breaks": "excluded",
             "unknown": "deferred_for_review",
             "tables": "classified_only_not_persisted",
@@ -277,7 +324,7 @@ def main() -> None:
             "initial_chunk_estimate_excluding_review_buckets": table_chunk_estimate,
             "warning": (
                 "This is a size estimate, not an approved table embedding policy. "
-                "small_layout_review and nested_review remain in the Source Layer."
+                "Deferred and review buckets remain in the Source Layer."
             ),
         },
     }

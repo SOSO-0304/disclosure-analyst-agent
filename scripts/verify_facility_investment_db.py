@@ -11,12 +11,15 @@ from disclosure_agent.domain.events import EventType
 from disclosure_agent.storage.database import get_engine, session_scope
 from disclosure_agent.storage.db_models import SourceFilingRow
 from disclosure_agent.storage.source_event_models import (
+    FacilityInvestmentCorrectionLinkRow,
     FacilityInvestmentEventRow,
+    FacilityInvestmentLifecycleRow,
     SourceEventEvidenceRow,
     SourceEventRow,
 )
 
 EXPECTED_FILINGS = 43
+EXPECTED_CORRECTIONS = 15
 
 
 def main() -> None:
@@ -69,6 +72,32 @@ def main() -> None:
             )
             or 0
         )
+        correction_count = (
+            session.scalar(select(func.count()).select_from(FacilityInvestmentCorrectionLinkRow))
+            or 0
+        )
+        lifecycle_count = (
+            session.scalar(select(func.count()).select_from(FacilityInvestmentLifecycleRow)) or 0
+        )
+        lifecycle_corrections = (
+            session.scalar(select(func.sum(FacilityInvestmentLifecycleRow.correction_count))) or 0
+        )
+        incomplete_lifecycles = (
+            session.scalar(
+                select(func.count())
+                .select_from(FacilityInvestmentLifecycleRow)
+                .where(FacilityInvestmentLifecycleRow.lineage_complete.is_(False))
+            )
+            or 0
+        )
+        lineage_statuses = dict(
+            session.execute(
+                select(
+                    FacilityInvestmentCorrectionLinkRow.status,
+                    func.count(),
+                ).group_by(FacilityInvestmentCorrectionLinkRow.status)
+            ).all()
+        )
 
         coverage = {
             "investment_type": session.scalar(
@@ -111,6 +140,13 @@ def main() -> None:
     print(f"source event envelopes       {envelope_count:>5}  expected={EXPECTED_FILINGS}")
     print(f"evidence links               {evidence_count:>5}")
     print(f"orphan typed rows            {orphan_typed:>5}")
+    print(f"correction links             {correction_count:>5}  expected={EXPECTED_CORRECTIONS}")
+    print(f"lifecycle rows               {lifecycle_count:>5}")
+    print(f"lifecycle correction sum     {lifecycle_corrections:>5}")
+    print(f"incomplete lifecycles        {incomplete_lifecycles:>5}")
+    print("\n=== correction status ===")
+    for status, count in sorted(lineage_statuses.items()):
+        print(f"{status:<30} {count:>4}/{correction_count}")
     print("\n=== typed field coverage ===")
     for field, count in coverage.items():
         print(f"{field:<30} {count:>4}/{event_count}")
@@ -126,10 +162,16 @@ def main() -> None:
         failures.append("no evidence links")
     if orphan_typed:
         failures.append(f"orphan typed rows={orphan_typed}")
-    if coverage["investment_amount_krw"] <= 0:
-        failures.append("investment amount coverage is zero")
-    if coverage["purpose"] <= 0:
-        failures.append("purpose coverage is zero")
+    if correction_count != EXPECTED_CORRECTIONS:
+        failures.append(f"correction links={correction_count}")
+    if lifecycle_count <= 0 or lifecycle_count > event_count:
+        failures.append(f"invalid lifecycle rows={lifecycle_count}")
+    if lifecycle_corrections != EXPECTED_CORRECTIONS:
+        failures.append(f"lifecycle correction sum={lifecycle_corrections}")
+    if coverage["investment_amount_krw"] != EXPECTED_FILINGS:
+        failures.append("investment amount coverage is not complete")
+    if coverage["purpose"] != EXPECTED_FILINGS:
+        failures.append("purpose coverage is not complete")
 
     if failures:
         raise SystemExit("Facility investment verification failed: " + "; ".join(failures))

@@ -147,8 +147,7 @@ def main() -> None:
     year_events = [
         event
         for event in events
-        if event.occurrence.issue_date is not None
-        and event.occurrence.issue_date.year == args.year
+        if event.occurrence.issue_date is not None and event.occurrence.issue_date.year == args.year
     ]
 
     print("=== fundraising extraction ===")

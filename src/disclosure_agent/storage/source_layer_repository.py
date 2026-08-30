@@ -45,8 +45,7 @@ class SourceLayerRepository:
         """Serialize source loads and clear only the dedicated staging schema."""
 
         self.session.execute(text("SELECT pg_advisory_xact_lock(742041221)"))
-        tables = ", ".join(f"{STAGING_SCHEMA}.{name}" for name in reversed(_STAGE_TABLES))
-        self.session.execute(text(f"TRUNCATE TABLE {tables}"))
+        self._truncate_staging()
 
     def stage_rows(self, table_name: str, rows: Iterable[Mapping[str, Any]]) -> int:
         """Insert typed batches into an UNLOGGED staging table."""
@@ -249,6 +248,15 @@ class SourceLayerRepository:
         self._promote_table(SourceBlockRow, "source_blocks", ("block_id",))
         self._promote_table(SourceTableRow, "source_tables", ("table_id",))
         self._prune_stale_source_rows()
+        self._truncate_staging()
+
+    def _truncate_staging(self) -> None:
+        """Release temporary staging rows inside the current load transaction."""
+
+        tables = ", ".join(
+            f"{STAGING_SCHEMA}.{name}" for name in reversed(_STAGE_TABLES)
+        )
+        self.session.execute(text(f"TRUNCATE TABLE {tables}"))
 
     def _stage_table(self, name: str) -> Table:
         if name not in self._staging:

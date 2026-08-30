@@ -5,7 +5,7 @@ PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 �
 만드는 프로젝트입니다.
 
 현재 브랜치는 `perf/canonical-pipeline`입니다. Canonical parser와 최종 snapshot은
-확정됐고, 격리된 PostgreSQL Source Layer를 구축하는 단계입니다.
+확정됐고, 격리된 PostgreSQL Source Layer 적재까지 완료한 상태입니다.
 
 ## 현재 상태
 
@@ -16,7 +16,7 @@ PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 �
 | 최종 snapshot | 확정 | `canonical-v221-final.jsonl.gz`, 약 1.43 GB |
 | Canonical 품질 | 승인 | 4,619 documents, failed 0 |
 | Source Layer 코드 | 구현 | migration, staging, atomic promotion, 검증기 |
-| Source Layer DB | 진행 중 | 격리된 perf PostgreSQL에 전체 corpus 적재 |
+| Source Layer DB | 완료 | 70 companies, 4,204 filings, 2,700,533 blocks |
 | 공급계약 vertical slice | 구현 | 1,106 packages, correction 563건 |
 | Generic facts / chunks | 다음 단계 | Source Layer 적재 후 구현 |
 | Retrieval / API / LLM | 미구현 | pgvector, query planner, HyperCLOVA X 연동 예정 |
@@ -147,8 +147,8 @@ python scripts/verify_source_layer_db.py `
 ```
 
 Loader는 `source_staging`에 먼저 적재하고 전체 count와 참조 무결성을 검사한 뒤 하나의
-transaction으로 public Source Layer에 반영합니다. 중간 실패 시 기존 public snapshot은
-변경되지 않습니다.
+transaction으로 public Source Layer에 반영합니다. 성공하면 같은 transaction에서 staging을
+비우며, 중간 실패 시 기존 public snapshot은 변경되지 않습니다.
 
 ## 폴더 구조
 

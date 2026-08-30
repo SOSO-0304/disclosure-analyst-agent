@@ -90,9 +90,30 @@ The loader follows Controller -> Service -> Repository. It stages all rows in
 `source_staging`, validates counts and parent/reference integrity, verifies the effective
 manifest again while streaming, and only then promotes rows to public tables using
 canonical-ID upserts. A PostgreSQL advisory transaction lock serializes full source
-loads. If validation or promotion fails, the transaction rolls back without changing
-the accepted public source snapshot.
+loads. Successful promotion clears the temporary staging rows in the same transaction.
+If validation or promotion fails, the transaction rolls back without changing the
+accepted public source snapshot.
 
 The load run ID is derived from the validated manifest hash, so repeating the same input
 updates the same source snapshot rather than creating duplicate canonical rows. After
 the load, run `scripts/verify_source_layer_db.py` against the same perf database URL.
+
+## 4. Accepted full load
+
+The accepted snapshot was promoted and independently verified with these counts:
+
+```text
+companies                       70
+filings                      4,204
+documents                    4,619
+sections                    90,962
+blocks                   2,700,533
+tables                   1,580,832
+success                      4,513
+partial                        106
+```
+
+Load run: `1e6f5f8b4feafa87d9259eeee097c8dd`
+
+Manifest SHA-256:
+`1e6f5f8b4feafa87d9259eeee097c8ddb2e6d31f3182f6875ea1dfbf1d234965`

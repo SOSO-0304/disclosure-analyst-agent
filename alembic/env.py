@@ -6,11 +6,11 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from disclosure_agent.config import get_settings
-from disclosure_agent.storage.generic_fact_models import GenericFactRow
+from disclosure_agent.storage.source_event_models import SourceEventRow
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
-target_metadata = GenericFactRow.__table__.metadata
+target_metadata = SourceEventRow.__table__.metadata
 
 
 def run_migrations_offline() -> None:

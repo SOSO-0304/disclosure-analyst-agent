@@ -540,4 +540,6 @@ class RetrievalChunkRow(Base):
     end_block_order: Mapped[int | None] = mapped_column(Integer)
     table_row_start: Mapped[int | None] = mapped_column(Integer)
     table_row_end: Mapped[int | None] = mapped_column(Integer)
-    metadata: Mapped[dict[str, object]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    metadata_json: Mapped[dict[str, object]] = mapped_column(
+        "metadata", JSON_DOCUMENT, nullable=False
+    )

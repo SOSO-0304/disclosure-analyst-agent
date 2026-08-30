@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from disclosure_agent.storage.db_models import Base
@@ -68,8 +68,8 @@ class FacilityInvestmentEventRow(Base):
     )
     investment_type: Mapped[str | None] = mapped_column(Text)
     investment_subject: Mapped[str | None] = mapped_column(Text)
-    investment_amount_krw: Mapped[int | None] = mapped_column(Numeric(30, 0))
-    equity_krw: Mapped[int | None] = mapped_column(Numeric(30, 0))
+    investment_amount_krw: Mapped[int | None] = mapped_column(BigInteger)
+    equity_krw: Mapped[int | None] = mapped_column(BigInteger)
     equity_ratio: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
     purpose: Mapped[str | None] = mapped_column(Text)
     investment_start_date: Mapped[date | None] = mapped_column(Date)

@@ -214,9 +214,7 @@ def _is_primary_statement(candidate: Candidate) -> bool:
         "primary_consolidated_statement" in candidate.signals
         or "audited_consolidated_financial_statements" in candidate.signals
     )
-    period_signal = bool(
-        {"target_year_header", "current_period_header"} & set(candidate.signals)
-    )
+    period_signal = bool({"target_year_header", "current_period_header"} & set(candidate.signals))
     return (
         statement_signal
         and period_signal

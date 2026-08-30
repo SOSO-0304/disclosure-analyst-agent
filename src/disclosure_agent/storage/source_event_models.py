@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from disclosure_agent.storage.db_models import Base, JSON_DOCUMENT
+from disclosure_agent.storage.db_models import JSON_DOCUMENT, Base
 from disclosure_agent.storage.generic_fact_models import GenericFactRow
 
 

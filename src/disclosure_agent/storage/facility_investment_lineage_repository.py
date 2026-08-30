@@ -48,9 +48,7 @@ class FacilityInvestmentLineageRepository:
             .order_by(SourceFilingRow.receipt_date, SourceFilingRow.filing_id)
         ).all()
 
-        correction_ids = [
-            filing.filing_id for filing, _event in rows if filing.is_correction
-        ]
+        correction_ids = [filing.filing_id for filing, _event in rows if filing.is_correction]
         related_dates = self._read_related_filing_dates(correction_ids)
         snapshots = [
             FacilityInvestmentSnapshot(

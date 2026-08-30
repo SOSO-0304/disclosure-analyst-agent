@@ -20,7 +20,9 @@ def main() -> None:
 
     engine = get_engine(args.database_url)
     with session_scope(engine) as session:
-        source_company_count = session.scalar(select(func.count()).select_from(SourceCompanyRow)) or 0
+        source_company_count = (
+            session.scalar(select(func.count()).select_from(SourceCompanyRow)) or 0
+        )
         indexed_company_count = session.scalar(
             select(func.count(func.distinct(RetrievalChunkRow.corp_code)))
         ) or 0

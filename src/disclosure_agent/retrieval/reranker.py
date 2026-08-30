@@ -130,13 +130,9 @@ def rerank_semantic_hits(
         )
 
     lowered_texts = tuple(hit.content_text.lower() for hit in hits)
-    document_frequency = {
-        term: sum(term in text for text in lowered_texts)
-        for term in terms
-    }
+    document_frequency = {term: sum(term in text for text in lowered_texts) for term in terms}
     term_weights = {
-        term: math.log((len(hits) + 1) / (document_frequency[term] + 1)) + 1.0
-        for term in terms
+        term: math.log((len(hits) + 1) / (document_frequency[term] + 1)) + 1.0 for term in terms
     }
     total_weight = sum(term_weights.values())
     lexical_weight = 1.0 - semantic_weight

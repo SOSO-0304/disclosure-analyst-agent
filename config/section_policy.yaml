@@ -1,2 +1,2 @@
-# Section-level extraction and retrieval policy.
-# The existing section_policy.yml is preserved for backward compatibility.
+# Reserved for section-level extraction and retrieval policy.
+# Canonical data is never filtered by this policy.

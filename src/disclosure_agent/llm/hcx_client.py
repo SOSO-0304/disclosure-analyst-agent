@@ -1,1 +1,0 @@
-"""HCX client adapter."""

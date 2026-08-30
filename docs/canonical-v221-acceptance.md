@@ -1,80 +1,76 @@
-# Canonical DART v2.2.1 overlay acceptance
+# Canonical v2.2.1 acceptance
 
-This note records the acceptance decision for the selective DART v2.2.1 overlay.
-The immutable base snapshot remains `data/processed/canonical-v22-smoke.jsonl`; the
-replacement overlay is `data/processed/canonical-dart-221-overlay.jsonl` and is merged
-by `filing_id` through `read_effective_canonical(...)`.
+This note records why the accepted downstream input is
+`data/processed/canonical-v221-final.jsonl.gz`.
 
-## Before / after profile
+## Accepted final snapshot
 
-The selective overlay contained 77 filing packages and 119 DART documents.
+| Metric | Result |
+|---|---:|
+| Filing packages | 4,204 |
+| Semantic documents | 4,619 |
+| Canonical tables | 1,580,832 |
+| Success | 4,513 |
+| Partial | 106 |
+| Failed / unsupported | 0 |
+| Compressed size | 1,432,113,080 bytes |
 
-| Metric | v2.2 base | v2.2.1 overlay |
-| --- | ---: | ---: |
-| DART documents compared | 119 | 119 |
-| emitted tables | 117,678 | 165,213 |
-| table delta |  | +47,535 |
-| markup-recovery documents | 77 | 0 |
-| partial -> success |  | 77 |
-| success -> success |  | 42 |
-| documents with table increase |  | 77 |
-| documents with equal table count |  | 42 |
-| documents with table decrease |  | 0 |
+The final gzip snapshot is semantically equivalent to the compact plain JSONL generated
+by the same run. A 100-package comparison also matched the legacy serialization after
+excluding only the independently generated `created_at` timestamp.
 
-The recovered table delta of `+47,535` exactly matches the table gap previously
-reported for the 77 structurally recovered DART documents. No DART document lost
-an emitted table after the parser update.
+The gzip output reduced the compact snapshot size by about 93% in the measured sample.
+Compression changes storage only; the reader hashes logical decompressed JSONL lines so
+plain and gzip representations of the same records produce the same corpus digest.
 
-## Independent audit
+## Quality decision
 
-Audit input:
+The final audit reported 3,147 DART sources scanned, 3,068 table-count matches and 79
+conservative reviews. Across the reviewed DART sources:
 
-- `canonical-dart-221-overlay.jsonl`
-- audit version `1.1.0`
-- 77 packages / 119 documents / 165,213 canonical tables
-- all 119 documents reported `success`
-- all 119 DART documents reported parser version `2.2.1`
+- source and Canonical table counts matched;
+- no source table was unrepresented;
+- no Canonical table was unmapped;
+- reviewed target-text checks had no missing or extra occurrences;
+- sampled comparable tables had no cell mismatch verdict.
 
-Source coverage reported 42 `MATCH_COUNT` documents and 77 `REVIEW` documents. The
-77 reviews are expected conservative audit outcomes, not source/canonical table-count
-mismatches. For every reviewed document:
+All DART documents use parser `2.2.1` and are `success`. The remaining 106 `partial`
+documents are Exchange parser diagnostics. They remain in the accepted snapshot and
+must be loaded with their parse status and issues; downstream code must not silently
+filter them out.
 
-- `source_table_count == canonical_table_count`
-- `unmapped_canonical_tables == 0`
-- `unrepresented_source_tables == 0`
+The audit is a diagnostic report, not a whole-corpus proof of perfect losslessness.
+Parser work should reopen only when downstream evidence identifies a concrete source to
+Canonical preservation loss.
 
-Across those 77 reviewed documents, 153,431 source tables and 153,431 canonical tables
-were paired by lexical XPath with no missing or extra table. The only document-scope
-warnings were raw-source lexical stack warnings caused by malformed `TE` / `TH` tags:
+## Historical base and overlay
 
-- `Unbalanced lexical tag: TE`: 44 documents
-- `Unbalanced lexical tag: TH`: 24 documents
-- both TE and TH warnings: 9 documents
+The earlier acceptance process kept these artifacts separate:
 
-This is consistent with the design: the original XML stays byte-for-byte unchanged,
-while the production parser creates an in-memory repair buffer for malformed `ENG`
-attribute quotes. The independent auditor examines the original malformed source and
-therefore remains conservative rather than importing the production repair logic.
+- `canonical-v22-smoke.jsonl`: immutable v2.2 base;
+- `canonical-dart-221-overlay.jsonl`: 77 selectively reparsed filing packages.
 
-All 127 target-text checks downgraded to `REVIEW` by those scope warnings had
-`missing_occurrences == 0` and `extra_occurrences == 0`. The 18 sampled table checks
-were marked `UNVERIFIED_PAIRING` because audit 1.1.0 intentionally refuses a table-cell
-verdict whenever a document has a lexical scope warning; no cell mismatch was reported.
+The overlay recovered 47,535 DART tables, exactly matching the previously observed gap,
+without decreasing any affected document's table count. It remains useful for audit
+reproducibility, and the reader keeps base-plus-overlay compatibility.
 
-## Decision
-
-The DART v2.2.1 overlay is accepted as the effective replacement for these 77 filing
-packages for downstream source/fact/retrieval construction. Keep the v2.2 base snapshot
-and the overlay separate; do not rewrite the 27 GB base JSONL.
-
-Downstream readers should use:
+The production downstream input is now the single accepted gzip snapshot:
 
 ```python
-read_effective_canonical(
-    "data/processed/canonical-v22-smoke.jsonl",
-    "data/processed/canonical-dart-221-overlay.jsonl",
+from disclosure_agent.storage.jsonl import read_effective_canonical
+
+packages = read_effective_canonical(
+    "data/processed/canonical-v221-final.jsonl.gz"
 )
 ```
 
-The 2.2.0 canonical schema version remains unchanged because this update repairs parser
-behavior rather than changing the serialized data contract.
+Validate it before loading PostgreSQL:
+
+```powershell
+python scripts/validate_effective_canonical.py `
+  --input data\processed\canonical-v221-final.jsonl.gz `
+  --manifest data\processed\canonical-v221-final.manifest.json
+```
+
+The Canonical schema remains `2.2.0`; `2.2.1` is a parser behavior version, not a schema
+change.

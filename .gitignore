@@ -44,6 +44,7 @@ htmlcov/
 # Generated disclosure data
 /data/raw/**
 /data/canonical/**
+/data/processed/**
 /data/retrieval/**
 /data/quality/**
 

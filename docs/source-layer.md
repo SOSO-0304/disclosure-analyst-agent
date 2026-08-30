@@ -70,7 +70,7 @@ $env:DATABASE_URL="postgresql+psycopg://disclosure:disclosure_dev@localhost:5432
 python -m alembic upgrade head
 ```
 
-Public tables added by the first two migrations:
+The source/fact migrations create:
 
 ```text
 load_runs
@@ -124,14 +124,22 @@ rows to public tables. A PostgreSQL advisory transaction lock serializes full so
 loads. If source validation, fact validation, or promotion fails, the transaction rolls
 back without changing the accepted public snapshot or typed Supply Contract tables.
 
-The load run ID is derived from the validated manifest hash, so repeating the same input
-updates the same source snapshot rather than creating duplicate canonical rows. The
-exact `generic_facts` count is intentionally data-derived rather than hard-coded; the
-staged count must equal the extractor-emitted count for that run.
+The accepted full load currently verifies:
 
-## 4. Verify and profile before adding typed events
+```text
+companies                     70
+filings                     4,204
+documents                   4,619
+sections                   90,962
+blocks                  2,700,533
+tables                  1,580,832
+generic facts           7,634,414
+```
 
-Verify the promoted source snapshot and the existing Supply Contract slice separately:
+The exact `generic_facts` count is data-derived rather than a corpus invariant, but it
+must match the count recorded in the deterministic load run.
+
+## 4. Verify and profile the generic layer
 
 ```bash
 python scripts/verify_source_layer_db.py \
@@ -141,11 +149,9 @@ python scripts/verify_supply_contract_db.py \
   --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure
 ```
 
-`verify_source_layer_db.py` requires the runtime `generic_facts` count to match the
-recorded load-run count and rejects an empty fact layer. The fact count is not otherwise
-hard-coded because it is an extractor output rather than a corpus invariant.
-
-Before designing new typed extractors, inspect the actual generic-fact distribution:
+The accepted generic-fact profile is dominated by periodic reports. Only six facts in
+the current canonical snapshot carry a concept code, so typed periodic financial
+extraction must not assume XBRL concept coverage.
 
 ```bash
 python scripts/profile_generic_facts.py \
@@ -157,11 +163,51 @@ python scripts/profile_generic_facts.py \
   --contains 계약
 ```
 
-The profiler reports total/numeric/concept-coded facts, fact-kind distribution,
-document-group distribution, top concept codes and labels, plus evidence-locatable
-samples for requested substrings. Use this output to decide which high-value domains
-need typed event extractors and which questions can be answered directly from generic
-facts.
+## 5. Materialise facility-investment typed events without re-reading canonical JSONL
 
-After migration and again after a full source load, `scripts/verify_supply_contract_db.py`
-must retain its original exact counts, including `companies=34`.
+The first full-corpus typed event domain is the 43 Exchange `신규시설투자등` filings.
+The materialiser reads only `source_filings` and indexed `generic_facts`, so adding or
+rerunning this domain does **not** scan the 27GB canonical JSONL again.
+
+After applying the latest migration:
+
+```bash
+DATABASE_URL='postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure' \
+  python -m alembic upgrade head
+```
+
+materialise and verify:
+
+```bash
+python scripts/load_facility_investment_events.py \
+  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure
+
+python scripts/verify_facility_investment_db.py \
+  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure
+
+python scripts/profile_facility_investment_events.py \
+  --database-url postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure \
+  --limit 20
+```
+
+The new public tables are:
+
+```text
+source_events
+source_event_evidence
+facility_investment_events
+```
+
+`source_event_evidence` stores an attribute -> `generic_facts.fact_id` link instead of
+copying evidence text. This keeps typed values auditable back to the exact canonical
+filing/table/cell while avoiding another large evidence payload.
+
+The facility extractor deliberately uses tolerant label normalization because Exchange
+form numbering can shift across revisions. It extracts investment type/subject, KRW
+amount, equity and ratio, purpose, period, decision date, disclosure-deferral fields,
+and notes. Corrections are retained as distinct filings for now; correction-lineage
+resolution is a subsequent domain step rather than an inferred merge.
+
+After any migration or typed-event projection, the existing
+`scripts/verify_supply_contract_db.py` exact counts, including `companies=34`, must remain
+unchanged.

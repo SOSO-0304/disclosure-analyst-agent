@@ -68,18 +68,12 @@ TABLE_BUCKETS_SQL = """
                 WHEN f.document_group = 'exchange' THEN 'exchange_direct'
                 WHEN t.parent_table_id IS NOT NULL THEN 'nested_review'
                 WHEN f.document_group = 'periodic'
-                     AND (
-                         nullif(btrim(t.caption_normalized), '') IS NOT NULL
-                         OR jsonb_array_length(t.header_row_indices) > 0
-                     )
+                     AND nullif(btrim(t.caption_normalized), '') IS NOT NULL
                      AND char_length(t.normalized_text) > :table_max_chars
-                    THEN 'periodic_strong_row_window'
+                    THEN 'periodic_caption_row_window'
                 WHEN f.document_group = 'periodic'
-                     AND (
-                         nullif(btrim(t.caption_normalized), '') IS NOT NULL
-                         OR jsonb_array_length(t.header_row_indices) > 0
-                     )
-                    THEN 'periodic_strong_direct'
+                     AND nullif(btrim(t.caption_normalized), '') IS NOT NULL
+                    THEN 'periodic_caption_direct'
                 WHEN f.document_group = 'periodic'
                      AND t.row_count >= 2
                      AND t.column_count >= 2
@@ -93,6 +87,9 @@ TABLE_BUCKETS_SQL = """
                      AND char_length(t.normalized_text) >= 100
                      AND t.normalized_text ~ '[0-9]'
                     THEN 'periodic_numeric_direct'
+                WHEN f.document_group = 'periodic'
+                     AND jsonb_array_length(t.header_row_indices) > 0
+                    THEN 'periodic_header_deferred'
                 WHEN f.document_group = 'periodic'
                     THEN 'periodic_deferred'
                 WHEN char_length(t.normalized_text) > :table_max_chars
@@ -120,7 +117,7 @@ TABLE_BUCKETS_SQL = """
                         ceil(text_length::numeric / :table_max_chars)::bigint
                     )
                 WHEN decision_bucket IN (
-                    'periodic_strong_row_window',
+                    'periodic_caption_row_window',
                     'periodic_numeric_row_window'
                 )
                     THEN greatest(
@@ -130,7 +127,7 @@ TABLE_BUCKETS_SQL = """
                 WHEN decision_bucket IN (
                     'exchange_direct',
                     'direct_candidate',
-                    'periodic_strong_direct',
+                    'periodic_caption_direct',
                     'periodic_numeric_direct'
                 ) THEN 1
                 ELSE 0
@@ -177,6 +174,48 @@ def _record_chunk(
     length_buckets[_length_bucket(length)] += 1
 
 
+def _narrative_summary(
+    *,
+    totals: Counter[str],
+    by_group: Counter[str],
+    length_buckets: Counter[str],
+) -> dict[str, Any]:
+    chunks = totals["narrative_chunks"]
+    return {
+        "chunks": chunks,
+        "chars": totals["narrative_chars"],
+        "avg_chars": round(totals["narrative_chars"] / chunks) if chunks else 0,
+        "max_chars": totals["narrative_max_chars"],
+        "block_references": totals["narrative_block_references"],
+        "paragraph_blocks_seen": totals["paragraph_blocks_seen"],
+        "paragraph_blocks_with_text": totals["paragraph_blocks_with_text"],
+        "headings_used_as_metadata": totals["headings_used_as_metadata"],
+        "unknown_blocks_deferred": totals["unknown_blocks_deferred"],
+        "by_document_group": dict(sorted(by_group.items())),
+        "length_buckets": dict(sorted(length_buckets.items())),
+    }
+
+
+def _reuse_narrative(
+    path: Path, load: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, int]]:
+    previous = orjson.loads(path.read_bytes())
+    previous_load = previous.get("load", {})
+    for key in ("load_run_id", "manifest_sha256"):
+        if previous_load.get(key) != load.get(key):
+            raise ValueError(
+                f"Narrative plan {key} mismatch: "
+                f"current={load.get(key)!r}, previous={previous_load.get(key)!r}"
+            )
+    narrative = previous.get("narrative")
+    if not isinstance(narrative, dict) or not narrative.get("chunks"):
+        raise ValueError("Narrative plan does not contain an approved narrative summary")
+    streamed = previous.get("streamed_block_counts", {})
+    if not isinstance(streamed, dict):
+        streamed = {}
+    return narrative, {str(key): int(value) for key, value in streamed.items()}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url")
@@ -188,6 +227,8 @@ def main() -> None:
     parser.add_argument("--table-max-chars", type=int, default=2_000)
     parser.add_argument("--fetch-size", type=int, default=5_000)
     parser.add_argument("--progress-every", type=int, default=100_000)
+    parser.add_argument("--tables-only", action="store_true")
+    parser.add_argument("--reuse-narrative-plan", type=Path)
     args = parser.parse_args()
 
     policy = ChunkPolicy(
@@ -200,6 +241,8 @@ def main() -> None:
         parser.error("--table-max-chars must be positive")
     if args.fetch_size <= 0:
         parser.error("--fetch-size must be positive")
+    if args.tables_only and args.reuse_narrative_plan is None:
+        parser.error("--tables-only requires --reuse-narrative-plan")
 
     engine = get_engine(args.database_url)
     planner = NarrativeChunkPlanner(policy)
@@ -232,62 +275,76 @@ def main() -> None:
             table_max_chars=args.table_max_chars,
         )
 
-        print("[3/3] Streaming ordered blocks for narrative planning...", flush=True)
-        result = connection.execution_options(stream_results=True).execute(
-            text(BLOCK_STREAM_SQL)
-        ).mappings().yield_per(args.fetch_size)
-        for index, row in enumerate(result, 1):
-            block_type = str(row["block_type"])
-            source_types[block_type] += 1
-            if block_type == "paragraph":
-                totals["paragraph_blocks_seen"] += 1
-                if (row["text_normalized"] or "").strip():
-                    totals["paragraph_blocks_with_text"] += 1
-            elif block_type == "heading":
-                totals["headings_used_as_metadata"] += 1
-            elif block_type == "unknown":
-                totals["unknown_blocks_deferred"] += 1
-            elif block_type == "table":
-                totals["table_boundaries_seen"] += 1
-
-            source = SourceBlock(
-                document_group=str(row["document_group"]),
-                filing_id=str(row["filing_id"]),
-                document_id=str(row["document_id"]),
-                section_id=str(row["section_id"]) if row["section_id"] else None,
-                section_title=row["section_title"],
-                block_id=str(row["block_id"]),
-                block_order=int(row["block_order"]),
-                block_type=block_type,
-                text=row["text_normalized"],
-                heading_level=row["heading_level"],
+        if args.tables_only:
+            print("[3/3] Reusing approved narrative plan...", flush=True)
+            narrative, reused_source_types = _reuse_narrative(
+                args.reuse_narrative_plan, load
             )
-            for chunk in planner.push(source):
+            source_types.update(reused_source_types)
+            narrative_source = str(args.reuse_narrative_plan)
+        else:
+            print("[3/3] Streaming ordered blocks for narrative planning...", flush=True)
+            result = connection.execution_options(stream_results=True).execute(
+                text(BLOCK_STREAM_SQL)
+            ).mappings().yield_per(args.fetch_size)
+            for index, row in enumerate(result, 1):
+                block_type = str(row["block_type"])
+                source_types[block_type] += 1
+                if block_type == "paragraph":
+                    totals["paragraph_blocks_seen"] += 1
+                    if (row["text_normalized"] or "").strip():
+                        totals["paragraph_blocks_with_text"] += 1
+                elif block_type == "heading":
+                    totals["headings_used_as_metadata"] += 1
+                elif block_type == "unknown":
+                    totals["unknown_blocks_deferred"] += 1
+                elif block_type == "table":
+                    totals["table_boundaries_seen"] += 1
+
+                source = SourceBlock(
+                    document_group=str(row["document_group"]),
+                    filing_id=str(row["filing_id"]),
+                    document_id=str(row["document_id"]),
+                    section_id=str(row["section_id"]) if row["section_id"] else None,
+                    section_title=row["section_title"],
+                    block_id=str(row["block_id"]),
+                    block_order=int(row["block_order"]),
+                    block_type=block_type,
+                    text=row["text_normalized"],
+                    heading_level=row["heading_level"],
+                )
+                for chunk in planner.push(source):
+                    _record_chunk(
+                        chunk,
+                        by_group=by_group,
+                        length_buckets=length_buckets,
+                        totals=totals,
+                    )
+                if args.progress_every and index % args.progress_every == 0:
+                    print(
+                        f"[{index}] narrative_chunks={totals['narrative_chunks']}",
+                        flush=True,
+                    )
+            for chunk in planner.finish():
                 _record_chunk(
                     chunk,
                     by_group=by_group,
                     length_buckets=length_buckets,
                     totals=totals,
                 )
-            if args.progress_every and index % args.progress_every == 0:
-                print(
-                    f"[{index}] narrative_chunks={totals['narrative_chunks']}",
-                    flush=True,
-                )
-        for chunk in planner.finish():
-            _record_chunk(
-                chunk,
+            narrative = _narrative_summary(
+                totals=totals,
                 by_group=by_group,
                 length_buckets=length_buckets,
-                totals=totals,
             )
+            narrative_source = "computed"
 
     table_chunk_estimate = sum(
         int(row["initial_chunk_estimate"] or 0) for row in table_buckets
     )
     plan = {
-        "plan_version": "2.0.0",
-        "mode": "read_only_dry_run",
+        "plan_version": "3.0.0",
+        "mode": "read_only_table_dry_run" if args.tables_only else "read_only_dry_run",
         "load": load,
         "policy": {
             "narrative_target_chars": policy.target_chars,
@@ -299,26 +356,11 @@ def main() -> None:
             "page_breaks": "excluded",
             "unknown": "deferred_for_review",
             "tables": "classified_only_not_persisted",
+            "narrative_source": narrative_source,
         },
         "source_block_counts": block_counts,
         "streamed_block_counts": dict(sorted(source_types.items())),
-        "narrative": {
-            "chunks": totals["narrative_chunks"],
-            "chars": totals["narrative_chars"],
-            "avg_chars": round(
-                totals["narrative_chars"] / totals["narrative_chunks"]
-            )
-            if totals["narrative_chunks"]
-            else 0,
-            "max_chars": totals["narrative_max_chars"],
-            "block_references": totals["narrative_block_references"],
-            "paragraph_blocks_seen": totals["paragraph_blocks_seen"],
-            "paragraph_blocks_with_text": totals["paragraph_blocks_with_text"],
-            "headings_used_as_metadata": totals["headings_used_as_metadata"],
-            "unknown_blocks_deferred": totals["unknown_blocks_deferred"],
-            "by_document_group": dict(sorted(by_group.items())),
-            "length_buckets": dict(sorted(length_buckets.items())),
-        },
+        "narrative": narrative,
         "tables": {
             "buckets": table_buckets,
             "initial_chunk_estimate_excluding_review_buckets": table_chunk_estimate,
@@ -334,9 +376,9 @@ def main() -> None:
     )
 
     print("\n=== retrieval chunk dry run ===")
-    print(f"narrative chunks              {totals['narrative_chunks']}")
+    print(f"narrative chunks              {narrative['chunks']}")
     print(f"narrative average chars       {plan['narrative']['avg_chars']}")
-    print(f"narrative maximum chars       {totals['narrative_max_chars']}")
+    print(f"narrative maximum chars       {narrative['max_chars']}")
     print(f"table initial estimate        {table_chunk_estimate}")
     print("database writes               0")
     print(f"PLAN                          {args.output}")

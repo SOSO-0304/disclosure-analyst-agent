@@ -8,6 +8,7 @@ import pytest
 from disclosure_agent.retrieval.embeddings import (
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
+    GlobalRateLimiter,
     compose_embedding_input,
     embedding_input_sha256,
     embedding_run_id,
@@ -78,6 +79,75 @@ def test_clova_client_parses_native_v2_response() -> None:
     assert result.vector[0] == 0.125
     assert result.request_id
     http_client.close()
+
+
+def test_rate_limiter_clamps_to_provider_advertised_qpm() -> None:
+    limiter = GlobalRateLimiter(target_qpm=480, startup_qpm=54)
+
+    limiter.observe_headers(
+        httpx.Headers({"x-ratelimit-limit-requests": "60"})
+    )
+
+    assert limiter.observed_limit_qpm == 60
+    assert limiter.effective_qpm == 54
+
+
+def test_clova_client_retries_429_with_shared_telemetry() -> None:
+    calls = 0
+    request_ids: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        request_ids.append(request.headers["X-NCP-CLOVASTUDIO-REQUEST-ID"])
+        if calls == 1:
+            return httpx.Response(
+                429,
+                headers={
+                    "Retry-After": "0.001",
+                    "x-ratelimit-limit-requests": "60000",
+                },
+            )
+        return httpx.Response(
+            200,
+            headers={"x-ratelimit-limit-requests": "60000"},
+            json={
+                "status": {"code": "20000", "message": "OK"},
+                "result": {
+                    "embedding": [0.125] * 1024,
+                    "inputTokens": 7,
+                },
+            },
+        )
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    limiter = GlobalRateLimiter(target_qpm=60000, startup_qpm=60000)
+    client = ClovaStudioEmbeddingClient(
+        "secret",
+        EmbeddingConfig(max_retries=1),
+        client=http_client,
+        rate_limiter=limiter,
+    )
+
+    result = client.embed("공급계약")
+    telemetry = client.telemetry.snapshot()
+
+    assert len(result.vector) == 1024
+    assert calls == 2
+    assert len(set(request_ids)) == 2
+    assert telemetry["http_requests"] == 2
+    assert telemetry["retries"] == 1
+    assert telemetry["status_counts"] == {"http_200": 1, "http_429": 1}
+    http_client.close()
+
+
+def test_retry_delay_uses_rate_limit_reset_header() -> None:
+    response = httpx.Response(
+        429,
+        headers={"x-ratelimit-reset-requests": "12.5s"},
+    )
+
+    assert ClovaStudioEmbeddingClient._retry_delay(response, 0) == 12.5
 
 
 def test_clova_client_rejects_provider_error() -> None:

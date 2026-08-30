@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from datetime import datetime
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from disclosure_agent.storage.db_models import JSON_DOCUMENT, Base
@@ -22,6 +25,7 @@ class RetrievalChunkRow(Base):
         Index("ix_retrieval_chunks_filing", "filing_id"),
         Index("ix_retrieval_chunks_document", "document_id"),
         Index("ix_retrieval_chunks_section", "section_id"),
+        Index("ix_retrieval_chunks_embedding_model", "embedding_model"),
     )
 
     chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -46,3 +50,7 @@ class RetrievalChunkRow(Base):
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    embedding_model: Mapped[str | None] = mapped_column(String(64))
+    embedding_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

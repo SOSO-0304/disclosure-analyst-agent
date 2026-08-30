@@ -5,7 +5,7 @@ PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 �
 만드는 프로젝트입니다.
 
 현재 브랜치는 `perf/canonical-pipeline`입니다. Canonical parser와 최종 snapshot은
-확정됐고, 격리된 PostgreSQL Source Layer 적재까지 완료한 상태입니다.
+확정됐고, 격리된 Source Layer와 Retrieval Chunk 적재·검증까지 완료한 상태입니다.
 
 ## 현재 상태
 
@@ -18,9 +18,10 @@ PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 �
 | Source Layer 코드 | 구현 | migration, staging, atomic promotion, 검증기 |
 | Source Layer DB | 완료 | 70 companies, 4,204 filings, 2,700,533 blocks |
 | 공급계약 vertical slice | 구현 | 1,106 packages, correction 563건 |
-| Retrieval chunks | 구현 | v4 policy 확정, versioned loader/검증기 구현 |
+| Retrieval chunks | 완료 | 178,822 chunks, provenance/coverage 검증 |
+| Embedding layer | 구현 | CLOVA bge-m3 1,024D, resumable loader/검증/검색 CLI |
 | Generic facts | 진행 중 | periodic numeric table structured lane 예정 |
-| Retrieval / API / LLM | 미구현 | embedding, query planner, HyperCLOVA X 연동 예정 |
+| Retrieval / API / LLM | 진행 중 | embedding 적재 후 hybrid planner/HyperCLOVA X 연결 |
 
 최종 Canonical 상태는 다음과 같습니다.
 
@@ -45,8 +46,8 @@ flowchart TD
     B --> C["최종 gzip snapshot"]
     C --> D["PostgreSQL Source Layer"]
     D --> E["Generic facts / events"]
-    D --> F["Sections / chunks"]
-    F --> G["pgvector retrieval"]
+    D --> F["Retrieval chunks"]
+    F --> G["bge-m3 / pgvector"]
     E --> H["Query planner"]
     G --> H
     H --> I["HyperCLOVA X + citations"]
@@ -185,6 +186,24 @@ Loader는 전체 작업을 하나의 transaction으로 처리합니다. 검증�
 전환되고, 실패하면 새 chunk와 run metadata가 모두 rollback되어 기존 active run을 보존합니다.
 각 chunk에는 filing/document/section, source block/table ID와 content SHA-256이 남습니다.
 Embedding 모델과 차원이 확정되기 전까지 vector 컬럼은 의도적으로 만들지 않습니다.
+
+## Embedding 적재와 검색
+
+검증된 active chunk run은 178,822개입니다. CLOVA Studio Embedding v2의 `bge-m3`
+(1,024 dimensions, cosine)을 별도 versioned run으로 적재합니다. 먼저 migration과 dry-run,
+100건 API smoke를 통과한 뒤 전체 적재를 재개합니다.
+
+```powershell
+alembic upgrade head
+
+python scripts/load_retrieval_embeddings.py `
+  --database-url $PerfDatabaseUrl `
+  --dry-run
+```
+
+API 키·100건 smoke·전체 resume·검증·검색 명령은
+[Retrieval embeddings](docs/retrieval-embeddings.md)에 정리되어 있습니다. API 키는 Git,
+DB, 명령행 인자에 저장하지 않습니다.
 
 ## 폴더 구조
 

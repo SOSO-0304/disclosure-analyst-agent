@@ -5,13 +5,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -543,3 +546,71 @@ class RetrievalChunkRow(Base):
     metadata_json: Mapped[dict[str, object]] = mapped_column(
         "metadata", JSON_DOCUMENT, nullable=False
     )
+
+
+class EmbeddingRunRow(Base):
+    """One resumable embedding contract for an immutable retrieval chunk run."""
+
+    __tablename__ = "embedding_runs"
+    __table_args__ = (
+        CheckConstraint("dimensions = 1024", name="ck_embedding_run_dimensions"),
+        CheckConstraint(
+            "distance_metric = 'cosine'",
+            name="ck_embedding_run_distance_metric",
+        ),
+        Index("ix_embedding_runs_chunk_status", "chunk_run_id", "status"),
+    )
+
+    embedding_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    chunk_run_id: Mapped[str] = mapped_column(
+        ForeignKey("retrieval_chunk_runs.chunk_run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
+    distance_metric: Mapped[str] = mapped_column(String(32), nullable=False)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False)
+    input_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    counts: Mapped[dict[str, int]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class RetrievalEmbeddingRow(Base):
+    """A bge-m3 vector tied to the exact chunk content and provider input."""
+
+    __tablename__ = "retrieval_embeddings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["chunk_id", "chunk_run_id"],
+            ["retrieval_chunks.chunk_id", "retrieval_chunks.chunk_run_id"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_retrieval_embeddings_chunk_run", "chunk_run_id"),
+        Index("ix_retrieval_embeddings_content_sha", "chunk_content_sha256"),
+        Index(
+            "ix_retrieval_embeddings_hnsw_cosine",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_with={"m": 16, "ef_construction": 64},
+        ),
+    )
+
+    embedding_run_id: Mapped[str] = mapped_column(
+        ForeignKey("embedding_runs.embedding_run_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    chunk_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    chunk_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    chunk_content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024), nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    provider_request_id: Mapped[str | None] = mapped_column(String(64))
+    embedded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

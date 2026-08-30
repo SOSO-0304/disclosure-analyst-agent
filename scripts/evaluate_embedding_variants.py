@@ -44,6 +44,7 @@ SAMPLE_SQL = """
             c.chunk_run_id,
             c.content,
             c.content_sha256,
+            c.filing_id,
             c.document_id,
             c.section_id,
             c.source_table_id,
@@ -322,8 +323,8 @@ def _examples(
     rows: list[dict[str, Any]] = []
     for case_id, v1 in left.items():
         v2 = right[case_id]
-        v1_rank = int(v1["first_relevant_rank"] or 999)
-        v2_rank = int(v2["first_relevant_rank"] or 999)
+        v1_rank = int(v1["first_relevant_rank"] or 11)
+        v2_rank = int(v2["first_relevant_rank"] or 11)
         case = case_by_id[case_id]
         rows.append(
             {
@@ -333,11 +334,13 @@ def _examples(
                 "corp_code": case.corp_code,
                 "document_group": case.document_group,
                 "chunk_type": case.chunk_type,
-                "v1_rank": None if v1_rank == 999 else v1_rank,
-                "v2_rank": None if v2_rank == 999 else v2_rank,
+                "v1_rank": None if v1_rank == 11 else v1_rank,
+                "v2_rank": None if v2_rank == 11 else v2_rank,
                 "rank_gain": v1_rank - v2_rank,
                 "v1_top_corp": v1["top_corp_code"],
                 "v2_top_corp": v2["top_corp_code"],
+                "v1_top_chunk": v1["top_chunk_id"],
+                "v2_top_chunk": v2["top_chunk_id"],
             }
         )
     return {
@@ -475,6 +478,7 @@ def main() -> None:
     )
     report = {
         "contract": {
+            "benchmark_version": "retrieval-proxy-v2",
             "chunk_run_id": chunk_run_id,
             "sample_per_stratum": args.sample_per_stratum,
             "sample_seed": args.sample_seed,

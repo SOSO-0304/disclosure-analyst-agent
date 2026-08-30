@@ -123,7 +123,8 @@ def extract_fundraising_occurrences(
     cells = _cells(grid)
     header_rows = _header_rows(grid)
     logical_rows = _logical_rows(cells)
-    context_text = normalized_text or _all_cell_text(cells)
+    grid_text = _all_cell_text(cells)
+    context_text = f"{normalized_text} {grid_text}".strip()
     occurrences: list[FundraisingOccurrence] = []
 
     if _is_share_issuance_matrix(cells, header_rows):

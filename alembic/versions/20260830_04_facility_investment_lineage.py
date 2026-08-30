@@ -1,6 +1,6 @@
 """Add facility-investment correction lineage and latest-state storage.
 
-Revision ID: 20260830_04_facility_investment_lineage
+Revision ID: 20260830_04_facility_lineage
 Revises: 20260830_03_facility_investment
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision: str = "20260830_04_facility_investment_lineage"
+revision: str = "20260830_04_facility_lineage"
 down_revision: str | None = "20260830_03_facility_investment"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

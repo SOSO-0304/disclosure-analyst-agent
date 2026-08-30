@@ -5,6 +5,7 @@ from disclosure_agent.retrieval.evaluation import (
     aggregate_metrics,
     automated_recommendation,
     build_benchmark_cases,
+    is_informative_probe,
     metrics_by_dimension,
     score_ranking,
     select_balanced_targets,
@@ -28,6 +29,7 @@ def _row(
         "document_group": document_group,
         "chunk_type": chunk_type,
         "document_id": "document-1",
+        "filing_id": "filing-1",
         "section_id": section_id,
         "source_table_id": None,
         "heading_path": ["사업의 내용", "매출 및 수주상황"],
@@ -77,6 +79,20 @@ def test_build_cases_creates_three_independent_retrieval_checks() -> None:
     assert cases[1].filter_corp_code is True
     assert cases[0].relevant_chunk_ids == ("a", "b")
     assert cases[2].relevant_chunk_ids == ("a",)
+
+
+def test_low_information_content_anchor_is_omitted() -> None:
+    row = _row("dash")
+    row["content"] = "-"
+
+    cases = build_benchmark_cases([row], [row])
+
+    assert [case.suite for case in cases] == [
+        "company_context",
+        "topic_filtered",
+    ]
+    assert is_informative_probe("-") is False
+    assert is_informative_probe("매출액은 100억원") is True
 
 
 def test_topic_prefers_table_caption_and_heading() -> None:

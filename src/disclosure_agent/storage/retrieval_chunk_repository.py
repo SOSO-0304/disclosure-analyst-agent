@@ -193,7 +193,10 @@ def build_document_chunks(
         pending_parts: list[str] = []
         pending_chars = 0
 
-        def flush_pending() -> None:
+        def flush_pending(
+            current_section_id: str | None,
+            current_section_title: str,
+        ) -> None:
             nonlocal chunk_index, pending, pending_parts, pending_chars
             if not pending:
                 return
@@ -201,8 +204,8 @@ def build_document_chunks(
             chunks.append(
                 _make_chunk(
                     context=context,
-                    section_id=section_id,
-                    section_title=section_title,
+                    section_id=current_section_id,
+                    section_title=current_section_title,
                     chunk_index=chunk_index,
                     blocks=tuple(pending),
                     body=body,
@@ -216,7 +219,7 @@ def build_document_chunks(
         for block in section_blocks:
             text = block.text
             if len(text) > body_budget:
-                flush_pending()
+                flush_pending(section_id, section_title)
                 for part in _split_long_text(text, body_budget, overlap_chars):
                     chunks.append(
                         _make_chunk(
@@ -233,12 +236,12 @@ def build_document_chunks(
 
             separator = 2 if pending_parts else 0
             if pending and pending_chars + separator + len(text) > body_budget:
-                flush_pending()
+                flush_pending(section_id, section_title)
             pending.append(block)
             pending_parts.append(text)
             pending_chars += (2 if len(pending_parts) > 1 else 0) + len(text)
 
-        flush_pending()
+        flush_pending(section_id, section_title)
 
     return tuple(chunks)
 

@@ -194,9 +194,7 @@ class RevenueRepository:
 
         candidates = self._read_candidates(company_name=company_name, year=year)
         primary = tuple(
-            candidate
-            for candidate in candidates
-            if is_primary_revenue_candidate(candidate.signals)
+            candidate for candidate in candidates if is_primary_revenue_candidate(candidate.signals)
         )
         ranked = tuple(
             sorted(

@@ -1,4 +1,6 @@
 from disclosure_agent.retrieval.evidence_pack import (
+    EvidenceItem,
+    build_hybrid_evidence_pack,
     build_semantic_evidence_pack,
     render_evidence_pack,
 )
@@ -27,6 +29,29 @@ def _hit(*, chunk_id: str, text: str, similarity: float = 0.7) -> RerankedSemant
     )
 
 
+def _structured_item() -> EvidenceItem:
+    return EvidenceItem(
+        evidence_id="sql:revenue:fact:1",
+        source_kind="sql_revenue",
+        rank=0,
+        score=1.0,
+        semantic_score=0.0,
+        lexical_score=0.0,
+        company_name="카카오",
+        filing_id="periodic_1",
+        report_name="사업보고서 (2025.12)",
+        document_id="periodic_1:primary_report",
+        section_id="section:9",
+        content_text="SQL 근거",
+        truncated=False,
+        matched_terms=(),
+        block_ids=("block:1",),
+        table_ids=("table:1",),
+        fact_ids=("fact:1",),
+        event_ids=(),
+    )
+
+
 def test_build_semantic_evidence_pack_preserves_lineage_and_budget() -> None:
     hits = (
         _hit(chunk_id="c1", text="A" * 20),
@@ -52,6 +77,20 @@ def test_build_semantic_evidence_pack_preserves_lineage_and_budget() -> None:
     assert pack.items[1].truncated is True
 
 
+def test_hybrid_pack_places_structured_evidence_before_semantic_hits() -> None:
+    pack = build_hybrid_evidence_pack(
+        "매출과 투자 계획",
+        structured_items=(_structured_item(),),
+        semantic_hits=(_hit(chunk_id="c1", text="semantic"),),
+    )
+
+    assert len(pack.items) == 2
+    assert pack.items[0].source_kind == "sql_revenue"
+    assert pack.items[0].rank == 1
+    assert pack.items[1].source_kind == "semantic_chunk"
+    assert pack.items[1].rank == 2
+
+
 def test_empty_hits_produce_no_match_pack() -> None:
     pack = build_semantic_evidence_pack("없는 질문", ())
 
@@ -61,12 +100,17 @@ def test_empty_hits_produce_no_match_pack() -> None:
 
 
 def test_render_evidence_pack_contains_source_identifiers() -> None:
-    pack = build_semantic_evidence_pack("투자 계획", (_hit(chunk_id="c1", text="근거 본문"),))
+    pack = build_hybrid_evidence_pack(
+        "매출",
+        structured_items=(_structured_item(),),
+        semantic_hits=(),
+    )
 
     rendered = render_evidence_pack(pack)
 
-    assert "[E1] kind=semantic_chunk" in rendered
+    assert "[E1] kind=sql_revenue" in rendered
     assert "filing_id=periodic_1" in rendered
-    assert "block_ids=block:c1" in rendered
-    assert "table_ids=table:c1" in rendered
-    assert "근거 본문" in rendered
+    assert "block_ids=block:1" in rendered
+    assert "table_ids=table:1" in rendered
+    assert "fact_ids=fact:1" in rendered
+    assert "SQL 근거" in rendered

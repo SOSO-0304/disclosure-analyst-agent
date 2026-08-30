@@ -92,12 +92,6 @@ def resolve_facility_investment_lineage(
         if ranked:
             best_score = max(score for score, _candidate in ranked)
             best_candidates = [candidate for score, candidate in ranked if score == best_score]
-            predecessor = max(
-                best_candidates,
-                key=lambda item: (item.receipt_date, item.filing_id),
-            )
-            root = root_by_filing.get(predecessor.filing_id, predecessor.filing_id)
-            status = "resolved"
             candidate_ids = tuple(
                 candidate.filing_id
                 for candidate in sorted(
@@ -105,7 +99,22 @@ def resolve_facility_investment_lineage(
                     key=lambda item: (item.receipt_date, item.filing_id),
                 )
             )
-            predecessor_id: str | None = predecessor.filing_id
+            candidate_roots = {
+                root_by_filing.get(candidate.filing_id, candidate.filing_id)
+                for candidate in best_candidates
+            }
+            if len(candidate_roots) == 1:
+                predecessor = max(
+                    best_candidates,
+                    key=lambda item: (item.receipt_date, item.filing_id),
+                )
+                predecessor_id: str | None = predecessor.filing_id
+                root = root_by_filing.get(predecessor.filing_id, predecessor.filing_id)
+                status = "resolved"
+            else:
+                predecessor_id = None
+                root = snapshot.filing_id
+                status = "ambiguous"
         else:
             predecessor_id = None
             root = snapshot.filing_id
@@ -138,7 +147,10 @@ def resolve_facility_investment_lineage(
     for root_filing_id, members in grouped.items():
         latest = max(members, key=lambda item: (item.receipt_date, item.filing_id))
         member_statuses = {status_by_filing.get(member.filing_id, "root") for member in members}
-        if "unresolved" in member_statuses:
+        if "ambiguous" in member_statuses:
+            status = "ambiguous"
+            complete = False
+        elif "unresolved" in member_statuses:
             status = "unresolved"
             complete = False
         elif "out_of_corpus_predecessor" in member_statuses:
@@ -160,11 +172,16 @@ def resolve_facility_investment_lineage(
         )
 
     return FacilityInvestmentLineageResult(
-        corrections=tuple(
-            sorted(correction_rows, key=lambda item: item.correction_filing_id)
-        ),
+        corrections=tuple(sorted(correction_rows, key=lambda item: item.correction_filing_id)),
         lifecycles=tuple(
-            sorted(lifecycles, key=lambda item: (item.corp_code, item.latest_receipt_date, item.root_filing_id))
+            sorted(
+                lifecycles,
+                key=lambda item: (
+                    item.corp_code,
+                    item.latest_receipt_date,
+                    item.root_filing_id,
+                ),
+            )
         ),
     )
 

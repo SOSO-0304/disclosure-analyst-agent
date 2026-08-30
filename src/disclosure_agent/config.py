@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://disclosure:disclosure_dev@localhost:5432/disclosure"
+    hcx_api_key: str = ""
+    clova_studio_api_key: str = ""
 
 
 @lru_cache(maxsize=1)

@@ -6,12 +6,15 @@ from __future__ import annotations
 import argparse
 import re
 import unicodedata
-from collections import defaultdict
 
 from sqlalchemy import or_, select
 
 from disclosure_agent.storage.database import get_engine, session_scope
-from disclosure_agent.storage.db_models import SourceCompanyRow, SourceFilingRow, SourceSectionRow
+from disclosure_agent.storage.db_models import (
+    SourceCompanyRow,
+    SourceFilingRow,
+    SourceSectionRow,
+)
 from disclosure_agent.storage.generic_fact_models import GenericFactRow
 
 TARGET_TOKEN = "증권의발행을통한자금조달실적"
@@ -32,7 +35,7 @@ RIGHTS_SHAPE_HEADERS = (
     "주당발행감소가액",
 )
 DATE_PATTERN = re.compile(
-    r"20\d{2}\s*(?:년|[./-])\s*\d{1,2}\s*(?:월|[./-])\s*\d{1,2}"
+    r"20\d{2}\s*(?:년|[./-])\s*\d{1,2}\s*(?:월|[./-])\s*\d{1,2}",
 )
 
 
@@ -120,11 +123,7 @@ def _has_bond_amount(facts) -> bool:
 
 def _has_rights_shape(facts) -> bool:
     headers = [_compact(fact.header_text) for fact in facts]
-    return any(
-        token in header
-        for header in headers
-        for token in RIGHTS_SHAPE_HEADERS
-    )
+    return any(token in header for header in headers for token in RIGHTS_SHAPE_HEADERS)
 
 
 def _is_structured_candidate(instrument: str, term: str, facts) -> bool:

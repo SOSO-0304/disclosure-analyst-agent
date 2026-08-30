@@ -123,6 +123,31 @@ def test_bond_matrix_applies_explicit_table_unit() -> None:
     assert event.amount_unit == "백만원"
 
 
+def test_bond_matrix_uses_unit_from_grid_when_normalized_text_omits_it() -> None:
+    unit_row = [_cell(0, 0, "(단위 : 백만원)", header=True)]
+    headers = [
+        _cell(1, 0, "종류＼구분", header=True),
+        _cell(1, 1, "회차", header=True),
+        _cell(1, 2, "발행일", header=True),
+        _cell(1, 3, "권면(전자등록)총액", header=True),
+    ]
+    data = [
+        _cell(2, 0, "무기명식 무보증사모 전환사채"),
+        _cell(2, 1, "14"),
+        _cell(2, 2, "2025.05.30"),
+        _cell(2, 3, "50,183", numeric="50183"),
+    ]
+    grid = {"header_row_indices": [0, 1], "cells": unit_row + headers + data}
+
+    occurrences = _extract(grid, "전환사채 현황")
+
+    assert len(occurrences) == 1
+    event = occurrences[0]
+    assert event.instrument_type is FundraisingInstrument.CONVERTIBLE_BOND
+    assert event.amount_krw == 50_183_000_000
+    assert event.amount_unit == "백만원"
+
+
 def test_vertical_exchangeable_bond_keeps_missing_issue_date_explicit() -> None:
     cells = [
         _cell(0, 0, "구 분", header=True),

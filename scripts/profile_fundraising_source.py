@@ -127,6 +127,7 @@ def main() -> None:
         top_headers: list[tuple[object, int]] = []
         samples: list[object] = []
         instrument_profiles: dict[str, dict[str, object]] = {}
+        missing_targets: list[object] = []
 
         if target_filing_ids:
             target_company_count = (
@@ -137,6 +138,23 @@ def main() -> None:
                 )
                 or 0
             )
+            missing_targets = session.execute(
+                select(
+                    SourceCompanyRow.listed_name,
+                    SourceFilingRow.report_name,
+                    SourceFilingRow.receipt_date,
+                    SourceFilingRow.filing_id,
+                )
+                .join(
+                    SourceCompanyRow,
+                    SourceCompanyRow.corp_code == SourceFilingRow.corp_code,
+                )
+                .where(
+                    SourceFilingRow.document_group == "periodic",
+                    SourceFilingRow.filing_id.not_in(target_filing_ids),
+                )
+                .order_by(SourceFilingRow.receipt_date, SourceFilingRow.filing_id)
+            ).all()
 
         if target_section_ids:
             target_fact_count = (
@@ -227,6 +245,7 @@ def main() -> None:
                             match,
                         )
                         .distinct()
+                        .order_by(GenericFactRow.table_id)
                         .limit(args.instrument_sample_limit)
                     ).all()
                 )
@@ -268,6 +287,15 @@ def main() -> None:
     print(f"target companies                {target_company_count}")
     print(f"target facts                    {target_fact_count}")
     print(f"target numeric facts            {target_numeric_count}")
+
+    print("\n=== periodic filings missing target section ===")
+    if not missing_targets:
+        print("none")
+    for row in missing_targets:
+        print(
+            f"{row.receipt_date} {row.listed_name} report={row.report_name} "
+            f"filing={row.filing_id}"
+        )
 
     print("\n=== periodic section titles containing 자금조달 ===")
     for title, count in broad_titles.most_common(args.top):

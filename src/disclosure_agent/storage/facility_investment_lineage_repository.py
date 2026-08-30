@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
@@ -14,6 +15,7 @@ from disclosure_agent.domain.facility_investment_lineage import (
     resolve_facility_investment_lineage,
 )
 from disclosure_agent.storage.db_models import SourceFilingRow
+from disclosure_agent.storage.generic_fact_models import GenericFactRow
 from disclosure_agent.storage.source_event_models import (
     FacilityInvestmentCorrectionLinkRow,
     FacilityInvestmentEventRow,
@@ -46,6 +48,10 @@ class FacilityInvestmentLineageRepository:
             .order_by(SourceFilingRow.receipt_date, SourceFilingRow.filing_id)
         ).all()
 
+        correction_ids = [
+            filing.filing_id for filing, _event in rows if filing.is_correction
+        ]
+        related_dates = self._read_related_filing_dates(correction_ids)
         snapshots = [
             FacilityInvestmentSnapshot(
                 filing_id=filing.filing_id,
@@ -57,6 +63,7 @@ class FacilityInvestmentLineageRepository:
                 investment_type=event.investment_type,
                 purpose=event.purpose,
                 investment_amount_krw=event.investment_amount_krw,
+                related_filing_date=related_dates.get(filing.filing_id),
             )
             for filing, event in rows
         ]
@@ -103,3 +110,47 @@ class FacilityInvestmentLineageRepository:
             lifecycle_rows=len(result.lifecycles),
             status_counts=dict(sorted(status_counts.items())),
         )
+
+    def _read_related_filing_dates(self, filing_ids: list[str]) -> dict[str, date]:
+        if not filing_ids:
+            return {}
+
+        rows = self.session.scalars(
+            select(GenericFactRow)
+            .where(GenericFactRow.filing_id.in_(filing_ids))
+            .order_by(
+                GenericFactRow.filing_id,
+                GenericFactRow.table_id,
+                GenericFactRow.row_index,
+                GenericFactRow.column_index,
+            )
+        ).all()
+        facts_by_filing: dict[str, list[GenericFactRow]] = defaultdict(list)
+        for row in rows:
+            facts_by_filing[row.filing_id].append(row)
+
+        related_dates: dict[str, date] = {}
+        for filing_id, facts in facts_by_filing.items():
+            for fact in facts:
+                if not _is_related_filing_date_label(fact.label_text):
+                    continue
+                parsed = _parse_date(fact.value_text)
+                if parsed is not None:
+                    related_dates[filing_id] = parsed
+                    break
+        return related_dates
+
+
+def _is_related_filing_date_label(label: str | None) -> bool:
+    if not label:
+        return False
+    compact = "".join(label.split())
+    return "정정관련공시서류제출일" in compact
+
+
+def _parse_date(value: str) -> date | None:
+    normalized = value.strip().replace(".", "-").replace("/", "-")
+    try:
+        return date.fromisoformat(normalized)
+    except ValueError:
+        return None

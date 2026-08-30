@@ -25,6 +25,56 @@ Retrieval chunk와 embedding 결과는 서로 다른 수명 주기로 관리합�
 Embedding v2 출력은 정규화되지 않지만 pgvector의 `vector_cosine_ops`가 cosine distance를
 계산하므로 저장 전에 벡터를 임의 정규화하지 않습니다.
 
+## 전체 적재 전 문맥 평가
+
+전체 corpus를 임베딩하기 전에 회사·공시그룹·chunk 유형별 결정론적 층화 표본으로
+입력 포맷을 비교합니다. 같은 seed와 `--sample-per-stratum`을 사용하면 v1과 v2가 정확히
+같은 chunk 집합을 대상으로 합니다.
+
+- v1: heading path + 원문
+- v2: 회사명·종목코드·보고서명·공시 세부 유형·문서 제목·정정 여부·heading path·표 제목
+  + 원문
+
+각 입력 버전은 서로 다른 embedding run ID를 사용하므로 기존 v1 결과를 수정하거나
+삭제하지 않습니다. 우선 API 호출 없는 dry-run으로 표본 수를 확인합니다.
+
+```powershell
+python scripts/load_retrieval_embeddings.py `
+  --database-url $PerfDatabaseUrl `
+  --input-version retrieval-embedding-v1 `
+  --sample-per-stratum 5 `
+  --dry-run
+
+python scripts/load_retrieval_embeddings.py `
+  --database-url $PerfDatabaseUrl `
+  --input-version retrieval-embedding-v2 `
+  --sample-per-stratum 5 `
+  --dry-run
+```
+
+표본 계약이 확인된 뒤 두 버전을 적재합니다.
+
+```powershell
+python scripts/load_retrieval_embeddings.py `
+  --database-url $PerfDatabaseUrl `
+  --input-version retrieval-embedding-v1 `
+  --sample-per-stratum 5 `
+  --workers 8 `
+  --requests-per-minute 480 `
+  --report data\quality\embedding-eval-v1.json
+
+python scripts/load_retrieval_embeddings.py `
+  --database-url $PerfDatabaseUrl `
+  --input-version retrieval-embedding-v2 `
+  --sample-per-stratum 5 `
+  --workers 8 `
+  --requests-per-minute 480 `
+  --report data\quality\embedding-eval-v2.json
+```
+
+리포트의 `scope.sample_completed=true`, `call failed=0`을 확인한 뒤 검색 평가를 수행합니다.
+입력 버전을 승인하기 전에는 `--sample-per-stratum`을 제거한 전체 적재를 실행하지 않습니다.
+
 ## 안전한 실행 순서
 
 Perf DB 외에는 loader가 실행되지 않습니다. `disclosure_perf`, port `55432`가 아니면 즉시

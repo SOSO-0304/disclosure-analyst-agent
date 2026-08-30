@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter, defaultdict
 
 from sqlalchemy import func, select
 
@@ -11,8 +12,28 @@ from disclosure_agent.storage.database import get_engine, session_scope
 from disclosure_agent.storage.db_models import SourceCompanyRow, SourceFilingRow, SourceSectionRow
 from disclosure_agent.storage.generic_fact_models import GenericFactRow
 
-TARGET_NEEDLE = "증권의 발행을 통한 자금조달"
-BROAD_NEEDLE = "자금조달"
+TARGET_TOKEN = "증권의발행을통한자금조달"
+BROAD_TOKEN = "자금조달"
+
+
+def _compact_title(value: str) -> str:
+    return "".join(value.split())
+
+
+def _collect_descendants(
+    root_ids: tuple[str, ...],
+    children: dict[str | None, list[str]],
+) -> tuple[str, ...]:
+    selected = set(root_ids)
+    pending = list(root_ids)
+    while pending:
+        section_id = pending.pop()
+        for child_id in children.get(section_id, ()):
+            if child_id in selected:
+                continue
+            selected.add(child_id)
+            pending.append(child_id)
+    return tuple(sorted(selected))
 
 
 def main() -> None:
@@ -28,11 +49,6 @@ def main() -> None:
 
     engine = get_engine(args.database_url)
     with session_scope(engine) as session:
-        title_text = func.coalesce(
-            SourceSectionRow.title_normalized,
-            SourceSectionRow.title_raw,
-            "",
-        )
         periodic_filings = (
             session.scalar(
                 select(func.count())
@@ -41,37 +57,38 @@ def main() -> None:
             )
             or 0
         )
-        broad_titles = session.execute(
-            select(title_text.label("title"), func.count())
-            .join(SourceFilingRow, SourceFilingRow.filing_id == SourceSectionRow.filing_id)
-            .where(
-                SourceFilingRow.document_group == "periodic",
-                title_text.ilike(f"%{BROAD_NEEDLE}%"),
+        section_rows = session.execute(
+            select(
+                SourceSectionRow.section_id,
+                SourceSectionRow.parent_section_id,
+                SourceSectionRow.filing_id,
+                SourceSectionRow.title_raw,
+                SourceSectionRow.title_normalized,
             )
-            .group_by(title_text)
-            .order_by(func.count().desc(), title_text)
-            .limit(args.top)
+            .join(SourceFilingRow, SourceFilingRow.filing_id == SourceSectionRow.filing_id)
+            .where(SourceFilingRow.document_group == "periodic")
+            .order_by(SourceSectionRow.filing_id, SourceSectionRow.section_order)
         ).all()
-        target_section_ids = tuple(
-            session.scalars(
-                select(SourceSectionRow.section_id)
-                .join(SourceFilingRow, SourceFilingRow.filing_id == SourceSectionRow.filing_id)
-                .where(
-                    SourceFilingRow.document_group == "periodic",
-                    title_text.ilike(f"%{TARGET_NEEDLE}%"),
-                )
-            ).all()
-        )
+
+        broad_titles: Counter[str] = Counter()
+        children: dict[str | None, list[str]] = defaultdict(list)
+        filing_by_section: dict[str, str] = {}
+        target_root_ids: list[str] = []
+
+        for row in section_rows:
+            children[row.parent_section_id].append(row.section_id)
+            filing_by_section[row.section_id] = row.filing_id
+            title = row.title_normalized or row.title_raw or ""
+            compact = _compact_title(title)
+            if BROAD_TOKEN in compact:
+                broad_titles[title] += 1
+            if TARGET_TOKEN in compact:
+                target_root_ids.append(row.section_id)
+
+        root_ids = tuple(sorted(target_root_ids))
+        target_section_ids = _collect_descendants(root_ids, children)
         target_filing_ids = tuple(
-            session.scalars(
-                select(SourceSectionRow.filing_id)
-                .join(SourceFilingRow, SourceFilingRow.filing_id == SourceSectionRow.filing_id)
-                .where(
-                    SourceFilingRow.document_group == "periodic",
-                    title_text.ilike(f"%{TARGET_NEEDLE}%"),
-                )
-                .distinct()
-            ).all()
+            sorted({filing_by_section[section_id] for section_id in root_ids})
         )
 
         target_company_count = 0
@@ -155,14 +172,15 @@ def main() -> None:
 
     print("=== fundraising source profile ===")
     print(f"periodic filings                {periodic_filings}")
-    print(f"target sections                 {len(target_section_ids)}")
+    print(f"target root sections            {len(root_ids)}")
+    print(f"target sections + descendants   {len(target_section_ids)}")
     print(f"target filings                  {len(target_filing_ids)}")
     print(f"target companies                {target_company_count}")
     print(f"target facts                    {target_fact_count}")
     print(f"target numeric facts            {target_numeric_count}")
 
     print("\n=== periodic section titles containing 자금조달 ===")
-    for title, count in broad_titles:
+    for title, count in broad_titles.most_common(args.top):
         print(f"{count:>6}  {title}")
 
     print("\n=== top labels in target sections ===")

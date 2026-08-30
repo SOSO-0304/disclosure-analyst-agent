@@ -38,6 +38,13 @@ class FacilityInvestmentCandidate:
     facts: tuple[GenericFact, ...]
 
 
+FacilityProjection = tuple[
+    FacilityInvestmentCandidate,
+    FacilityInvestmentEvent,
+    dict[str, GenericFact],
+]
+
+
 class FacilityInvestmentRepository:
     """Read facility candidates and atomically replace their typed projections."""
 
@@ -88,15 +95,13 @@ class FacilityInvestmentRepository:
             for filing, company in filing_rows
         )
 
-    def replace_events(
-        self,
-        *,
-        projections: list[tuple[FacilityInvestmentCandidate, FacilityInvestmentEvent, dict[str, GenericFact]]],
-    ) -> tuple[int, int]:
+    def replace_events(self, *, projections: list[FacilityProjection]) -> tuple[int, int]:
         """Upsert current facility events/evidence and prune stale facility projections."""
 
         event_type = EventType.FACILITY_INVESTMENT.value
-        event_ids = [f"{event_type}:{candidate.filing_id}" for candidate, _event, _evidence in projections]
+        event_ids = [
+            f"{event_type}:{candidate.filing_id}" for candidate, _event, _evidence in projections
+        ]
         filing_ids = [candidate.filing_id for candidate, _event, _evidence in projections]
 
         existing_event_ids = self.session.scalars(
@@ -104,7 +109,9 @@ class FacilityInvestmentRepository:
         ).all()
         stale_event_ids = set(existing_event_ids) - set(event_ids)
         if stale_event_ids:
-            self.session.execute(delete(SourceEventRow).where(SourceEventRow.event_id.in_(stale_event_ids)))
+            self.session.execute(
+                delete(SourceEventRow).where(SourceEventRow.event_id.in_(stale_event_ids))
+            )
 
         for candidate, event, evidence in projections:
             event_id = f"{event_type}:{candidate.filing_id}"

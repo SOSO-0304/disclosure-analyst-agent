@@ -15,6 +15,7 @@ class EventType(StrEnum):
     SUPPLY_CONTRACT = "supply_contract"
     SUPPLY_CONTRACT_TERMINATION = "supply_contract_termination"
     SUPPLY_CONTRACT_SUCCESSION = "supply_contract_succession"
+    FACILITY_INVESTMENT = "facility_investment"
 
 
 class DisclosureEvent(BaseModel):
@@ -86,3 +87,21 @@ class SupplyContractSuccessionEvent(DisclosureEvent):
     notes: str | None = None
     related_disclosures: str | None = None
     source_contract_reference_dates: tuple[date, ...] = ()
+
+
+class FacilityInvestmentEvent(DisclosureEvent):
+    """Typed representation of an Exchange 신규시설투자등 disclosure."""
+
+    event_type: EventType = EventType.FACILITY_INVESTMENT
+    investment_type: str | None = None
+    investment_subject: str | None = None
+    investment_amount_krw: int | None = None
+    equity_krw: int | None = None
+    equity_ratio: Decimal | None = None
+    purpose: str | None = None
+    investment_start_date: date | None = None
+    investment_end_date: date | None = None
+    decision_date: date | None = None
+    defer_reason: str | None = None
+    defer_until: date | None = None
+    notes: str | None = None

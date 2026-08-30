@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from sqlalchemy import delete, insert, or_, select
@@ -35,6 +36,24 @@ class DocumentContext:
 class SourceBlockText:
     """One ordered source block converted to retrieval text."""
 
+    block_id: str
+    block_order: int
+    section_id: str | None
+    section_title: str
+    table_id: str | None
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceRow:
+    """One streamed database row before document-level chunk construction."""
+
+    corp_code: str
+    company_name: str
+    filing_id: str
+    report_name: str
+    document_id: str
+    document_title: str
     block_id: str
     block_order: int
     section_id: str | None
@@ -323,9 +342,7 @@ class RetrievalChunkRepository:
             statement = statement.where(RetrievalChunkRow.corp_code.in_(corp_codes))
         self.session.execute(statement)
 
-    def _source_rows(self, companies: tuple[str, ...]):
-        block_text = SourceBlockRow.text_normalized
-        table_text = SourceTableRow.normalized_text
+    def _source_rows(self, companies: tuple[str, ...]) -> Iterator[SourceRow]:
         statement = (
             select(
                 SourceCompanyRow.corp_code.label("corp_code"),
@@ -341,9 +358,9 @@ class RetrievalChunkRepository:
                 SourceSectionRow.title_normalized.label("section_title_normalized"),
                 SourceSectionRow.title_raw.label("section_title_raw"),
                 SourceBlockRow.table_id.label("table_id"),
-                block_text.label("block_text"),
+                SourceBlockRow.text_normalized.label("block_text"),
                 SourceBlockRow.text_raw.label("block_text_raw"),
-                table_text.label("table_text"),
+                SourceTableRow.normalized_text.label("table_text"),
             )
             .join(SourceDocumentRow, SourceDocumentRow.document_id == SourceBlockRow.document_id)
             .join(SourceFilingRow, SourceFilingRow.filing_id == SourceBlockRow.filing_id)
@@ -367,28 +384,24 @@ class RetrievalChunkRepository:
             text = row.table_text if row.table_id is not None else row.block_text
             if not text:
                 text = row.block_text_raw or ""
-            yield type(
-                "SourceRow",
-                (),
-                {
-                    "corp_code": row.corp_code,
-                    "company_name": row.company_name,
-                    "filing_id": row.filing_id,
-                    "report_name": row.report_name,
-                    "document_id": row.document_id,
-                    "document_title": _normalize_text(
-                        row.document_title_normalized or row.document_title_raw
-                    ),
-                    "block_id": row.block_id,
-                    "block_order": row.block_order,
-                    "section_id": row.section_id,
-                    "section_title": _normalize_text(
-                        row.section_title_normalized or row.section_title_raw
-                    ),
-                    "table_id": row.table_id,
-                    "text": _normalize_text(text),
-                },
-            )()
+            yield SourceRow(
+                corp_code=row.corp_code,
+                company_name=row.company_name,
+                filing_id=row.filing_id,
+                report_name=row.report_name,
+                document_id=row.document_id,
+                document_title=_normalize_text(
+                    row.document_title_normalized or row.document_title_raw
+                ),
+                block_id=row.block_id,
+                block_order=row.block_order,
+                section_id=row.section_id,
+                section_title=_normalize_text(
+                    row.section_title_normalized or row.section_title_raw
+                ),
+                table_id=row.table_id,
+                text=_normalize_text(text),
+            )
 
     @staticmethod
     def _row_dict(draft: RetrievalChunkDraft) -> dict[str, object]:

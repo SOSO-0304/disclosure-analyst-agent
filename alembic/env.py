@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from disclosure_agent.config import get_settings
 from disclosure_agent.storage.fundraising_models import FundraisingEventRow
+from disclosure_agent.storage.retrieval_chunk_models import RetrievalChunkRow
 from disclosure_agent.storage.source_event_models import SourceEventRow
 
 config = context.config
@@ -14,6 +15,8 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = SourceEventRow.__table__.metadata
 if FundraisingEventRow.__table__.metadata is not target_metadata:
     raise RuntimeError("Fundraising models must use the shared SQLAlchemy metadata")
+if RetrievalChunkRow.__table__.metadata is not target_metadata:
+    raise RuntimeError("Retrieval chunk models must use the shared SQLAlchemy metadata")
 
 
 def run_migrations_offline() -> None:

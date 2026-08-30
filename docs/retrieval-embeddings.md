@@ -38,10 +38,23 @@ python scripts/load_retrieval_embeddings.py `
   --dry-run
 ```
 
-API 키는 파일이나 명령행 인자로 넘기지 않습니다.
+API 키는 파일이나 명령행 인자로 넘기지 않습니다. 승인된 서비스 앱의 서비스 API 키를
+현재 PowerShell 세션에만 주입합니다.
 
 ```powershell
-$env:CLOVASTUDIO_API_KEY = "발급받은_API_KEY"
+$SecureKey = Read-Host "CLOVA Studio Service API Key" -AsSecureString
+$KeyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureKey)
+
+try {
+  $env:CLOVASTUDIO_API_KEY = (
+    [Runtime.InteropServices.Marshal]::PtrToStringBSTR($KeyPointer)
+  )
+}
+finally {
+  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($KeyPointer)
+}
+
+Remove-Variable SecureKey, KeyPointer
 ```
 
 먼저 100건만 호출하여 인증·응답 차원·DB 저장을 확인합니다.
@@ -51,12 +64,20 @@ python scripts/load_retrieval_embeddings.py `
   --database-url $PerfDatabaseUrl `
   --limit 100 `
   --workers 4 `
+  --requests-per-minute 480 `
   --report data\quality\embedding-smoke-100.json
 ```
 
 테스트 API 키의 Embedding v2 한도는 60 QPM/40,000 TPM이고, 서비스 API 키는
 540 QPM/960,000 TPM입니다. 전체 178,822건은 서비스 API 키로 실행해야 현실적인 시간 안에
-끝납니다. Loader는 429와 응답의 `Retry-After`를 처리하지만, 낮은 한도를 우회하지 않습니다.
+끝납니다. Loader는 모든 worker가 공유하는 전역 limiter를 사용합니다. 첫 요청은 테스트
+키에서도 안전한 54 QPM으로 시작하고, 응답 헤더에서 서비스 한도 540 QPM을 확인한 뒤
+설정한 상한 480 QPM까지 자동으로 높입니다. 반대로 테스트 키가 감지되면 54 QPM을
+유지합니다.
+
+429가 반환되면 `Retry-After` 또는 `x-ratelimit-reset-requests`만큼 전체 worker를 함께
+대기시켜 재시도 폭주를 막습니다. 리포트에는 이번 실행의 성공·실패 수, HTTP 상태별 개수,
+재시도 수, 관측된 QPM과 대표 오류가 기록됩니다.
 
 같은 명령에서 `--limit`만 제거하면 저장된 100건을 건너뛰고 나머지를 이어서 처리합니다.
 
@@ -64,6 +85,7 @@ python scripts/load_retrieval_embeddings.py `
 python scripts/load_retrieval_embeddings.py `
   --database-url $PerfDatabaseUrl `
   --workers 4 `
+  --requests-per-minute 480 `
   --report data\quality\embedding-full.json
 ```
 

@@ -24,6 +24,7 @@ class FacilityInvestmentSnapshot:
     investment_type: str | None
     purpose: str | None
     investment_amount_krw: int | None
+    related_filing_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +65,11 @@ def resolve_facility_investment_lineage(
 ) -> FacilityInvestmentLineageResult:
     """Resolve corrections using only earlier same-company typed disclosures.
 
-    Decision date is the strongest signal because Exchange correction filings keep the
-    original board-decision date. Subject, amount, purpose and investment type are used
-    as supporting signals. If the predecessor predates the supplied corpus, the chain is
-    kept but explicitly marked incomplete rather than guessed.
+    Decision date is the strongest in-corpus matching signal. When no predecessor can
+    be matched, the correction-table reference filing date is preferred for deciding
+    whether the predecessor predates the supplied corpus because a correction can also
+    change the decision date itself. Subject, amount, purpose and investment type are
+    supporting signals. External predecessor chains remain explicit rather than guessed.
     """
 
     ordered = sorted(snapshots, key=lambda item: (item.receipt_date, item.filing_id))
@@ -120,7 +122,8 @@ def resolve_facility_investment_lineage(
             root = snapshot.filing_id
             best_score = None
             candidate_ids = ()
-            if snapshot.decision_date is not None and snapshot.decision_date < CORPUS_START_DATE:
+            reference_date = snapshot.related_filing_date or snapshot.decision_date
+            if reference_date is not None and reference_date < CORPUS_START_DATE:
                 status = "out_of_corpus_predecessor"
             else:
                 status = "unresolved"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import httpx
@@ -54,6 +55,45 @@ def parse_embedding_payload(payload: object) -> EmbeddingResult:
         raise RuntimeError("CLOVA embedding response contains a non-numeric value") from exc
 
     return EmbeddingResult(vector=vector, input_tokens=input_tokens)
+
+
+def parse_rate_limit_reset(value: str | None) -> float | None:
+    """Parse CLOVA reset headers such as ``23s`` into seconds."""
+
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+
+    scale = 1.0
+    if normalized.endswith("ms"):
+        normalized = normalized[:-2]
+        scale = 0.001
+    elif normalized.endswith("s"):
+        normalized = normalized[:-1]
+
+    try:
+        seconds = float(normalized) * scale
+    except ValueError:
+        return None
+    return max(seconds, 0.0)
+
+
+def retry_delay_seconds(headers: Mapping[str, str], attempt: int) -> float:
+    """Prefer CLOVA's documented reset window, else use exponential backoff."""
+
+    if attempt < 0:
+        raise ValueError("attempt must be non-negative")
+
+    reset_values = (
+        parse_rate_limit_reset(headers.get("x-ratelimit-reset-requests")),
+        parse_rate_limit_reset(headers.get("x-ratelimit-reset-tokens")),
+    )
+    documented = tuple(value for value in reset_values if value is not None)
+    if documented:
+        return max(documented) + 1.0
+    return min(float(2**attempt), 30.0)
 
 
 class ClovaEmbeddingClient:
@@ -108,7 +148,16 @@ class ClovaEmbeddingClient:
                 self._sleep_before_retry(attempt)
                 continue
 
-            if response.status_code == 429 or response.status_code >= 500:
+            if response.status_code == 429:
+                if attempt >= self.max_retries:
+                    raise RuntimeError(
+                        "CLOVA embedding transient failure: "
+                        f"status={response.status_code} body={response.text[:300]!r}"
+                    )
+                self._sleep_before_retry(attempt, response.headers)
+                continue
+
+            if response.status_code >= 500:
                 if attempt >= self.max_retries:
                     raise RuntimeError(
                         "CLOVA embedding transient failure: "
@@ -128,5 +177,8 @@ class ClovaEmbeddingClient:
         raise RuntimeError("CLOVA embedding retry loop ended unexpectedly")
 
     @staticmethod
-    def _sleep_before_retry(attempt: int) -> None:
-        time.sleep(min(2**attempt, 8))
+    def _sleep_before_retry(
+        attempt: int,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        time.sleep(retry_delay_seconds(headers or {}, attempt))

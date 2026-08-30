@@ -75,11 +75,13 @@ def build_benchmark_cases(
 ) -> list[BenchmarkCase]:
     """Build company-routing, topic, and semantic-preservation proxy cases."""
 
-    relevant: dict[tuple[str, str], list[str]] = defaultdict(list)
+    company_relevant: dict[str, list[str]] = defaultdict(list)
+    topic_relevant: dict[tuple[str, str], list[str]] = defaultdict(list)
     for row in sample_rows:
-        relevant[(str(row["corp_code"]), _relevance_key(row))].append(
-            str(row["chunk_id"])
-        )
+        corp_code = str(row["corp_code"])
+        chunk_id = str(row["chunk_id"])
+        company_relevant[corp_code].append(chunk_id)
+        topic_relevant[(corp_code, _topic_relevance_key(row))].append(chunk_id)
 
     cases: list[BenchmarkCase] = []
     for row in targets:
@@ -88,8 +90,9 @@ def build_benchmark_cases(
         topic = topic_from_row(row)
         probe = content_probe(str(row.get("content") or ""))
         target_chunk_id = str(row["chunk_id"])
-        relevant_ids = tuple(
-            sorted(set(relevant[(corp_code, _relevance_key(row))]))
+        company_ids = tuple(sorted(set(company_relevant[corp_code])))
+        topic_ids = tuple(
+            sorted(set(topic_relevant[(corp_code, _topic_relevance_key(row))]))
         ) or (target_chunk_id,)
         common = {
             "target_chunk_id": target_chunk_id,
@@ -102,7 +105,7 @@ def build_benchmark_cases(
                 case_id=_case_id("company_context", target_chunk_id),
                 suite="company_context",
                 query=f"{company}의 {topic} 관련 공시",
-                relevant_chunk_ids=relevant_ids,
+                relevant_chunk_ids=company_ids,
                 filter_corp_code=False,
                 **common,
             )
@@ -112,21 +115,22 @@ def build_benchmark_cases(
                 case_id=_case_id("topic_filtered", target_chunk_id),
                 suite="topic_filtered",
                 query=f"{topic} 관련 내용",
-                relevant_chunk_ids=relevant_ids,
+                relevant_chunk_ids=topic_ids,
                 filter_corp_code=True,
                 **common,
             )
         )
-        cases.append(
-            BenchmarkCase(
-                case_id=_case_id("content_anchor", target_chunk_id),
-                suite="content_anchor",
-                query=probe or topic,
-                relevant_chunk_ids=(target_chunk_id,),
-                filter_corp_code=True,
-                **common,
+        if is_informative_probe(probe):
+            cases.append(
+                BenchmarkCase(
+                    case_id=_case_id("content_anchor", target_chunk_id),
+                    suite="content_anchor",
+                    query=probe,
+                    relevant_chunk_ids=(target_chunk_id,),
+                    filter_corp_code=True,
+                    **common,
+                )
             )
-        )
     return cases
 
 
@@ -161,6 +165,13 @@ def content_probe(value: str, *, maximum: int = 140) -> str:
     compact = re.sub(r"\s*\|\s*", " ", value)
     compact = re.sub(r"\s+", " ", compact).strip()
     return compact[:maximum].rstrip()
+
+
+def is_informative_probe(value: str) -> bool:
+    """Reject punctuation-only and placeholder anchors from quality metrics."""
+
+    informative = re.findall(r"[0-9A-Za-z가-힣]", value)
+    return len(informative) >= 8 and len(set(informative)) >= 3
 
 
 def score_ranking(
@@ -310,13 +321,23 @@ def automated_recommendation(
     }
 
 
-def _relevance_key(row: Mapping[str, Any]) -> str:
+def _topic_relevance_key(row: Mapping[str, Any]) -> str:
+    metadata = dict(row.get("metadata") or {})
+    caption = str(metadata.get("caption") or "").strip()
     table_id = str(row.get("source_table_id") or "").strip()
-    if table_id:
+    if caption and table_id:
         return f"table:{table_id}"
+    headings = [
+        str(value).strip()
+        for value in (row.get("heading_path") or [])
+        if str(value).strip()
+    ]
     section_id = str(row.get("section_id") or "").strip()
-    if section_id:
+    if headings and section_id:
         return f"section:{section_id}"
+    filing_id = str(row.get("filing_id") or "").strip()
+    if filing_id:
+        return f"filing:{filing_id}:{row['chunk_type']}"
     return f"document:{row['document_id']}:{row['chunk_type']}"
 
 

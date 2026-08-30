@@ -46,22 +46,18 @@ class Candidate:
     signals: tuple[str, ...]
 
 
-
 def _normalize(value: str | None) -> str:
     text = unicodedata.normalize("NFKC", value or "")
     return re.sub(r"\s+", " ", text).strip()
-
 
 
 def _compact(value: str | None) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]", "", _normalize(value))
 
 
-
 def _contains_compact(text: str, terms: tuple[str, ...]) -> bool:
     compact = _compact(text)
     return any(_compact(term) in compact for term in terms)
-
 
 
 def _score_fact(fact: GenericFactRow, year: int) -> tuple[int, tuple[str, ...]]:
@@ -117,7 +113,6 @@ def _score_fact(fact: GenericFactRow, year: int) -> tuple[int, tuple[str, ...]]:
         signals.append("notes_context")
 
     return score, tuple(signals)
-
 
 
 def _read_candidates(
@@ -191,7 +186,6 @@ def _read_candidates(
     return tuple(candidates)
 
 
-
 def _print_candidate(candidate: Candidate) -> None:
     print(
         f"score={candidate.score:>4} company={candidate.company_name} "
@@ -211,14 +205,12 @@ def _print_candidate(candidate: Candidate) -> None:
     print(f"  signals={','.join(candidate.signals) or '-'}")
 
 
-
 def _is_primary_statement(candidate: Candidate) -> bool:
     return (
         "primary_consolidated_statement" in candidate.signals
         and "notes_context" not in candidate.signals
         and "separate_context" not in candidate.signals
     )
-
 
 
 def main() -> None:

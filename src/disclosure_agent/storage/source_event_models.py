@@ -5,7 +5,16 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from disclosure_agent.storage.db_models import Base

@@ -292,7 +292,8 @@ def main() -> None:
     if not missing_targets:
         print("none")
     for row in missing_targets:
-        print(f"{row.receipt_date} {row.listed_name} report={row.report_name} filing={row.filing_id}")
+        summary = f"{row.receipt_date} {row.listed_name} report={row.report_name}"
+        print(f"{summary} filing={row.filing_id}")
 
     print("\n=== periodic section titles containing 자금조달 ===")
     for title, count in broad_titles.most_common(args.top):

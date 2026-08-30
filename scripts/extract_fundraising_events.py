@@ -55,7 +55,7 @@ def _target_section_ids(session: Session) -> tuple[str, ...]:
 def _candidate_tables(session: Session, section_ids: tuple[str, ...], companies: list[str]):
     term_filters = [SourceTableRow.normalized_text.ilike(f"%{term}%") for term in SEARCH_TERMS]
     statement = (
-        select(SourceTableRow, SourceFilingRow, SourceCompanyRow)
+        select(SourceTableRow, SourceBlockRow, SourceFilingRow, SourceCompanyRow)
         .join(SourceBlockRow, SourceBlockRow.block_id == SourceTableRow.block_id)
         .join(SourceFilingRow, SourceFilingRow.filing_id == SourceTableRow.filing_id)
         .join(SourceCompanyRow, SourceCompanyRow.corp_code == SourceFilingRow.corp_code)
@@ -70,6 +70,36 @@ def _candidate_tables(session: Session, section_ids: tuple[str, ...], companies:
             )
         )
     return session.execute(statement).all()
+
+
+def _table_context_text(
+    session: Session,
+    table: SourceTableRow,
+    block: SourceBlockRow,
+) -> str:
+    previous_blocks = session.scalars(
+        select(SourceBlockRow)
+        .where(
+            SourceBlockRow.document_id == block.document_id,
+            SourceBlockRow.section_id == block.section_id,
+            SourceBlockRow.block_order < block.block_order,
+        )
+        .order_by(SourceBlockRow.block_order.desc())
+        .limit(12)
+    ).all()
+
+    preceding_text = []
+    for previous in previous_blocks:
+        if previous.block_type == "table":
+            break
+        text = previous.text_normalized or previous.text_raw or ""
+        if text.strip():
+            preceding_text.append(text.strip())
+    preceding_text.reverse()
+
+    caption = table.caption_normalized or table.caption_raw or ""
+    parts = [*preceding_text, caption, table.normalized_text]
+    return " ".join(part for part in parts if part)
 
 
 def _event_sort_key(event: FundraisingEvent):
@@ -128,7 +158,8 @@ def main() -> None:
         section_ids = _target_section_ids(session)
         tables = _candidate_tables(session, section_ids, args.company)
         occurrences = []
-        for table, filing, company in tables:
+        for table, block, filing, company in tables:
+            context_text = _table_context_text(session, table, block)
             occurrences.extend(
                 extract_fundraising_occurrences(
                     filing_id=filing.filing_id,
@@ -137,7 +168,7 @@ def main() -> None:
                     receipt_date=filing.receipt_date,
                     table_id=table.table_id,
                     grid=table.grid,
-                    normalized_text=table.normalized_text,
+                    normalized_text=context_text,
                 )
             )
 

@@ -10,6 +10,7 @@ from disclosure_agent.config import get_settings
 from disclosure_agent.llm.clova_embedding_client import ClovaEmbeddingClient
 from disclosure_agent.llm.hcx_client import HCX_MODEL, HcxClient
 from disclosure_agent.llm.prompts import GROUNDING_SYSTEM_PROMPT, build_grounded_answer_prompt
+from disclosure_agent.retrieval.company_resolver import resolve_company
 from disclosure_agent.retrieval.evidence_pack import (
     build_hybrid_evidence_pack,
     render_evidence_pack,
@@ -84,11 +85,13 @@ def main() -> None:
 
     engine = get_engine(args.database_url)
     with session_scope(engine) as session:
+        company = resolve_company(session, args.company)
+        resolved_company = company.listed_name if company is not None else args.company
         result = HybridRetriever(session).retrieve(
             query=args.query,
             route=route,
             query_vector=query_vector,
-            company_name=args.company,
+            company_name=resolved_company,
             year=year,
             filing_id=args.filing_id,
             report_name=args.report_name,
@@ -106,6 +109,7 @@ def main() -> None:
 
     print("=== GROUNDED ANSWER ===")
     print(f"company                         {args.company}")
+    print(f"resolved company                {resolved_company}")
     print(f"year                            {year or 'unresolved'}")
     print(f"model                           {HCX_MODEL}")
     print(f"rails                           {','.join(rail.value for rail in route.rails)}")

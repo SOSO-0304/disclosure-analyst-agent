@@ -358,9 +358,7 @@ class HybridRetriever:
                 row.termination_filing_id,
             )
             event_ids = tuple(
-                event.event_id
-                for event in (formation, termination)
-                if event is not None
+                event.event_id for event in (formation, termination) if event is not None
             )
             evidence = []
             for event_id in event_ids:

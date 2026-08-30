@@ -164,6 +164,7 @@ def main() -> None:
 
     with engine.connect() as connection, connection.begin():
         connection.execute(text("SET TRANSACTION READ ONLY"))
+        print("[1/3] Reading accepted load metadata...", flush=True)
         load = dict(
             connection.execute(
                 text(
@@ -178,13 +179,14 @@ def main() -> None:
             ).mappings().one()
         )
         block_counts = _rows(connection, BLOCK_COUNTS_SQL)
+        print("[2/3] Classifying table candidates...", flush=True)
         table_buckets = _rows(
             connection,
             TABLE_BUCKETS_SQL,
             table_max_chars=args.table_max_chars,
         )
 
-        print("Streaming ordered blocks for narrative planning...", flush=True)
+        print("[3/3] Streaming ordered blocks for narrative planning...", flush=True)
         result = connection.execution_options(stream_results=True).execute(
             text(BLOCK_STREAM_SQL)
         ).mappings().yield_per(args.fetch_size)

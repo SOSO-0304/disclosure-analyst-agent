@@ -61,7 +61,8 @@ def test_extracts_rights_issue_amount_from_quantity_and_price() -> None:
         _cell(1, 5, "14,681", numeric="14681"),
     ]
 
-    occurrences = _extract({"header_row_indices": [0], "cells": headers + data})
+    grid = {"header_row_indices": [0, 1], "cells": headers + data}
+    occurrences = _extract(grid)
 
     assert len(occurrences) == 1
     event = occurrences[0]
@@ -139,6 +140,18 @@ def test_vertical_exchangeable_bond_keeps_missing_issue_date_explicit() -> None:
     assert event.instrument_type is FundraisingInstrument.EXCHANGEABLE_BOND
     assert event.issue_date is None
     assert event.amount_krw == 100_000_000_000
+
+
+def test_vertical_bond_rejects_single_cell_narrative_note() -> None:
+    text = (
+        "제17회 사모전환사채(발행일자: 25.04.30) 권면총액은 "
+        "5월 6일 10억원이 전환청구되어 감소하였습니다."
+    )
+    cells = [_cell(0, 0, text)]
+
+    occurrences = _extract({"header_row_indices": [], "cells": cells}, text)
+
+    assert occurrences == ()
 
 
 def test_deduplication_collapses_repeated_periodic_report_occurrences() -> None:

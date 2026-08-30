@@ -75,11 +75,7 @@ class FundraisingOccurrence:
                 series_key,
             )
             if not self.issue_date and not series_key:
-                amount_key = (
-                    str(self.amount_krw)
-                    if self.amount_krw is not None
-                    else self.amount_raw or ""
-                )
+                amount_key = str(self.amount_krw) if self.amount_krw is not None else self.amount_raw or ""
                 identity = (*identity, _compact(amount_key))
         digest = hashlib.sha256("\x1f".join(identity).encode()).hexdigest()[:32]
         return f"fundraising:{digest}"

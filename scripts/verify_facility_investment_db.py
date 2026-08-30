@@ -26,34 +26,49 @@ def main() -> None:
 
     engine = get_engine(args.database_url)
     with session_scope(engine) as session:
-        candidate_count = session.scalar(
-            select(func.count())
-            .select_from(SourceFilingRow)
-            .where(
-                SourceFilingRow.document_group == "exchange",
-                SourceFilingRow.document_subtype == "신규시설투자등",
+        candidate_count = (
+            session.scalar(
+                select(func.count())
+                .select_from(SourceFilingRow)
+                .where(
+                    SourceFilingRow.document_group == "exchange",
+                    SourceFilingRow.document_subtype == "신규시설투자등",
+                )
             )
-        ) or 0
-        event_count = session.scalar(
-            select(func.count()).select_from(FacilityInvestmentEventRow)
-        ) or 0
-        envelope_count = session.scalar(
-            select(func.count())
-            .select_from(SourceEventRow)
-            .where(SourceEventRow.event_type == EventType.FACILITY_INVESTMENT.value)
-        ) or 0
-        evidence_count = session.scalar(
-            select(func.count())
-            .select_from(SourceEventEvidenceRow)
-            .join(SourceEventRow, SourceEventRow.event_id == SourceEventEvidenceRow.event_id)
-            .where(SourceEventRow.event_type == EventType.FACILITY_INVESTMENT.value)
-        ) or 0
-        orphan_typed = session.scalar(
-            select(func.count())
-            .select_from(FacilityInvestmentEventRow)
-            .outerjoin(SourceEventRow, SourceEventRow.event_id == FacilityInvestmentEventRow.event_id)
-            .where(SourceEventRow.event_id.is_(None))
-        ) or 0
+            or 0
+        )
+        event_count = (
+            session.scalar(select(func.count()).select_from(FacilityInvestmentEventRow)) or 0
+        )
+        envelope_count = (
+            session.scalar(
+                select(func.count())
+                .select_from(SourceEventRow)
+                .where(SourceEventRow.event_type == EventType.FACILITY_INVESTMENT.value)
+            )
+            or 0
+        )
+        evidence_count = (
+            session.scalar(
+                select(func.count())
+                .select_from(SourceEventEvidenceRow)
+                .join(SourceEventRow, SourceEventRow.event_id == SourceEventEvidenceRow.event_id)
+                .where(SourceEventRow.event_type == EventType.FACILITY_INVESTMENT.value)
+            )
+            or 0
+        )
+        orphan_typed = (
+            session.scalar(
+                select(func.count())
+                .select_from(FacilityInvestmentEventRow)
+                .outerjoin(
+                    SourceEventRow,
+                    SourceEventRow.event_id == FacilityInvestmentEventRow.event_id,
+                )
+                .where(SourceEventRow.event_id.is_(None))
+            )
+            or 0
+        )
 
         coverage = {
             "investment_type": session.scalar(
@@ -68,7 +83,9 @@ def main() -> None:
                 select(func.count(FacilityInvestmentEventRow.investment_amount_krw))
             )
             or 0,
-            "equity_krw": session.scalar(select(func.count(FacilityInvestmentEventRow.equity_krw)))
+            "equity_krw": session.scalar(
+                select(func.count(FacilityInvestmentEventRow.equity_krw))
+            )
             or 0,
             "equity_ratio": session.scalar(
                 select(func.count(FacilityInvestmentEventRow.equity_ratio))

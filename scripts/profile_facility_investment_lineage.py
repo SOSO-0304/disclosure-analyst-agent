@@ -54,11 +54,7 @@ def main() -> None:
     print("=== facility investment lineage diagnostics ===")
     print(f"rows                            {len(rows)}")
     for link, filing, company, event in rows:
-        amount = (
-            f"{event.investment_amount_krw:,}"
-            if event.investment_amount_krw is not None
-            else "-"
-        )
+        amount = f"{event.investment_amount_krw:,}" if event.investment_amount_krw is not None else "-"
         print(
             f"{filing.receipt_date} {company.listed_name} status={link.status} "
             f"score={link.match_score}"
@@ -68,10 +64,7 @@ def main() -> None:
             f"predecessor={link.predecessor_filing_id} root={link.root_filing_id}"
         )
         print(f"  candidates={link.candidate_filing_ids}")
-        print(
-            f"  decision={event.decision_date} amount={amount} "
-            f"type={event.investment_type!r}"
-        )
+        print(f"  decision={event.decision_date} amount={amount} type={event.investment_type!r}")
         print(f"  subject={event.investment_subject!r}")
         print(f"  purpose={event.purpose!r}")
 

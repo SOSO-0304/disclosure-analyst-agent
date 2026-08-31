@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from disclosure_agent.retrieval.embeddings import (
+    EMBEDDING_INPUT_VERSION_V1,
     EMBEDDING_INPUT_VERSION_V2,
     EMBEDDING_INPUT_VERSION_V3,
     ClovaStudioEmbeddingClient,
@@ -104,10 +105,13 @@ def test_compose_v3_embedding_input_keeps_only_discriminative_context() -> None:
 
 
 def test_embedding_run_identity_changes_with_input_contract() -> None:
-    left = embedding_run_id("chunk-run", EmbeddingConfig())
+    left = embedding_run_id(
+        "chunk-run",
+        EmbeddingConfig(input_version=EMBEDDING_INPUT_VERSION_V1),
+    )
     right = embedding_run_id(
         "chunk-run",
-        EmbeddingConfig(input_version="retrieval-embedding-v2"),
+        EmbeddingConfig(input_version=EMBEDDING_INPUT_VERSION_V2),
     )
 
     assert left != right

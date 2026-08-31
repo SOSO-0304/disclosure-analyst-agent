@@ -19,6 +19,10 @@ from disclosure_agent.retrieval.embeddings import (
 )
 
 
+def test_approved_embedding_input_defaults_to_v2() -> None:
+    assert EmbeddingConfig().input_version == EMBEDDING_INPUT_VERSION_V2
+
+
 def test_compose_embedding_input_adds_provenance_context() -> None:
     value = compose_embedding_input(
         "계약금액은 100억원입니다.",

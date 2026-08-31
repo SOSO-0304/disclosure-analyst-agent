@@ -20,6 +20,7 @@ from sqlalchemy.engine import make_url
 
 from disclosure_agent.retrieval.embeddings import (
     DEFAULT_TARGET_QPM,
+    EMBEDDING_INPUT_VERSION,
     EMBEDDING_INPUT_VERSION_V1,
     EMBEDDING_INPUT_VERSION_V2,
     EMBEDDING_INPUT_VERSION_V3,
@@ -719,7 +720,7 @@ def main() -> None:
             EMBEDDING_INPUT_VERSION_V2,
             EMBEDDING_INPUT_VERSION_V3,
         ),
-        default=EMBEDDING_INPUT_VERSION_V1,
+        default=EMBEDDING_INPUT_VERSION,
     )
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--page-size", type=int, default=64)

@@ -14,7 +14,7 @@ Retrieval chunk와 embedding 결과는 서로 다른 수명 주기로 관리합�
 | Dimensions | 1,024 |
 | Distance | cosine |
 | Maximum input | 8,192 tokens |
-| Input format | `retrieval-embedding-v1` |
+| Input format | `retrieval-embedding-v2` |
 
 공식 문서:
 
@@ -24,6 +24,14 @@ Retrieval chunk와 embedding 결과는 서로 다른 수명 주기로 관리합�
 
 Embedding v2 출력은 정규화되지 않지만 pgvector의 `vector_cosine_ops`가 cosine distance를
 계산하므로 저장 전에 벡터를 임의 정규화하지 않습니다.
+
+## 최종 입력 포맷 결정
+
+동일한 1,772개 층화 표본에서 v1, v2, v3를 비교한 결과 v2를 최종 승인했습니다.
+v2는 회사 문맥 검색에서 회사 Top-1 정확도 1.000과 wrong-company@1 0.000을 기록했고,
+v3는 각각 0.950과 0.050으로 회귀했습니다. v3의 topic R@5는 0.833으로 v2의 0.783보다
+높았지만, company·content·topic의 R@1과 MRR이 모두 v2보다 낮아 최종 후보에서
+제외했습니다. v1과 v3의 부분 embedding은 최종 v2 적재가 검증될 때까지 보존합니다.
 
 ## 전체 적재 전 문맥 평가
 

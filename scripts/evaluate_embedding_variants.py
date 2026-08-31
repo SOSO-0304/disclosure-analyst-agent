@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare v1/v2 embeddings on the exact same deterministic chunk sample."""
+"""Compare two embedding inputs on the same deterministic chunk sample."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from disclosure_agent.retrieval.embeddings import (
     DEFAULT_TARGET_QPM,
     EMBEDDING_INPUT_VERSION_V1,
     EMBEDDING_INPUT_VERSION_V2,
+    SUPPORTED_INPUT_VERSIONS,
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
     EmbeddingResult,
@@ -78,7 +79,7 @@ SAMPLE_SQL = """
 RUNS_SQL = """
     SELECT *
     FROM public.embedding_runs
-    WHERE embedding_run_id IN (:v1_run_id, :v2_run_id)
+    WHERE embedding_run_id = ANY(CAST(:run_ids AS varchar[]))
 """
 
 COVERAGE_SQL = """
@@ -92,7 +93,7 @@ COVERAGE_SQL = """
     JOIN public.retrieval_chunks c
       ON c.chunk_run_id = e.chunk_run_id
      AND c.chunk_id = e.chunk_id
-    WHERE e.embedding_run_id IN (:v1_run_id, :v2_run_id)
+    WHERE e.embedding_run_id = ANY(CAST(:run_ids AS varchar[]))
       AND e.chunk_id = ANY(CAST(:sample_chunk_ids AS varchar[]))
     GROUP BY e.embedding_run_id
 """
@@ -174,23 +175,21 @@ def _validate_runs(
     *,
     chunk_run_id: str,
     sample_ids: list[str],
+    versions: tuple[str, str] = (
+        EMBEDDING_INPUT_VERSION_V1,
+        EMBEDDING_INPUT_VERSION_V2,
+    ),
 ) -> tuple[dict[str, str], dict[str, dict[str, int]]]:
     run_ids = {
-        EMBEDDING_INPUT_VERSION_V1: embedding_run_id(
+        version: embedding_run_id(
             chunk_run_id,
-            EmbeddingConfig(input_version=EMBEDDING_INPUT_VERSION_V1),
-        ),
-        EMBEDDING_INPUT_VERSION_V2: embedding_run_id(
-            chunk_run_id,
-            EmbeddingConfig(input_version=EMBEDDING_INPUT_VERSION_V2),
-        ),
+            EmbeddingConfig(input_version=version),
+        )
+        for version in versions
     }
     rows = connection.execute(
         text(RUNS_SQL),
-        {
-            "v1_run_id": run_ids[EMBEDDING_INPUT_VERSION_V1],
-            "v2_run_id": run_ids[EMBEDDING_INPUT_VERSION_V2],
-        },
+        {"run_ids": list(run_ids.values())},
     ).mappings()
     by_version = {str(row["input_version"]): dict(row) for row in rows}
     missing = sorted(set(run_ids) - set(by_version))
@@ -208,8 +207,7 @@ def _validate_runs(
     coverage_rows = connection.execute(
         text(COVERAGE_SQL),
         {
-            "v1_run_id": run_ids[EMBEDDING_INPUT_VERSION_V1],
-            "v2_run_id": run_ids[EMBEDDING_INPUT_VERSION_V2],
+            "run_ids": list(run_ids.values()),
             "sample_chunk_ids": sample_ids,
         },
     ).mappings()
@@ -316,10 +314,13 @@ def _comparison(
 def _examples(
     cases: list[BenchmarkCase],
     outcomes: dict[str, list[dict[str, Any]]],
+    *,
+    left_version: str,
+    right_version: str,
 ) -> dict[str, Any]:
     case_by_id = {case.case_id: case for case in cases}
-    left = {row["case_id"]: row for row in outcomes[EMBEDDING_INPUT_VERSION_V1]}
-    right = {row["case_id"]: row for row in outcomes[EMBEDDING_INPUT_VERSION_V2]}
+    left = {row["case_id"]: row for row in outcomes[left_version]}
+    right = {row["case_id"]: row for row in outcomes[right_version]}
     rows: list[dict[str, Any]] = []
     for case_id, v1 in left.items():
         v2 = right[case_id]
@@ -334,21 +335,23 @@ def _examples(
                 "corp_code": case.corp_code,
                 "document_group": case.document_group,
                 "chunk_type": case.chunk_type,
-                "v1_rank": None if v1_rank == 11 else v1_rank,
-                "v2_rank": None if v2_rank == 11 else v2_rank,
+                "left_version": left_version,
+                "right_version": right_version,
+                "left_rank": None if v1_rank == 11 else v1_rank,
+                "right_rank": None if v2_rank == 11 else v2_rank,
                 "rank_gain": v1_rank - v2_rank,
-                "v1_top_corp": v1["top_corp_code"],
-                "v2_top_corp": v2["top_corp_code"],
-                "v1_top_chunk": v1["top_chunk_id"],
-                "v2_top_chunk": v2["top_chunk_id"],
+                "left_top_corp": v1["top_corp_code"],
+                "right_top_corp": v2["top_corp_code"],
+                "left_top_chunk": v1["top_chunk_id"],
+                "right_top_chunk": v2["top_chunk_id"],
             }
         )
     return {
-        "largest_v2_gains": sorted(
+        "largest_right_gains": sorted(
             rows,
             key=lambda row: (-int(row["rank_gain"]), str(row["case_id"])),
         )[:10],
-        "largest_v2_regressions": sorted(
+        "largest_right_regressions": sorted(
             rows,
             key=lambda row: (int(row["rank_gain"]), str(row["case_id"])),
         )[:10],
@@ -360,6 +363,16 @@ def main() -> None:
     parser.add_argument("--database-url", required=True)
     parser.add_argument("--api-key-env", default="CLOVASTUDIO_API_KEY")
     parser.add_argument("--sample-per-stratum", type=int, default=5)
+    parser.add_argument(
+        "--left-input-version",
+        choices=sorted(SUPPORTED_INPUT_VERSIONS),
+        default=EMBEDDING_INPUT_VERSION_V1,
+    )
+    parser.add_argument(
+        "--right-input-version",
+        choices=sorted(SUPPORTED_INPUT_VERSIONS),
+        default=EMBEDDING_INPUT_VERSION_V2,
+    )
     parser.add_argument(
         "--sample-seed",
         default="embedding-context-eval-20260830",
@@ -389,7 +402,10 @@ def main() -> None:
         parser.error("numeric arguments must be positive")
     if args.top_k < 10:
         parser.error("--top-k must be at least 10 for Recall@10")
+    if args.left_input_version == args.right_input_version:
+        parser.error("left and right input versions must be different")
     _assert_perf_database(args.database_url)
+    versions = (args.left_input_version, args.right_input_version)
 
     engine = get_engine(args.database_url)
     with engine.connect() as connection, connection.begin():
@@ -406,6 +422,7 @@ def main() -> None:
             connection,
             chunk_run_id=chunk_run_id,
             sample_ids=sample_ids,
+            versions=versions,
         )
     targets = select_balanced_targets(
         sample_rows,
@@ -421,7 +438,7 @@ def main() -> None:
     print(f"targets                         {len(targets)}")
     print(f"benchmark cases                 {len(cases)}")
     print(f"unique query calls              {len(unique_queries)}")
-    for version in (EMBEDDING_INPUT_VERSION_V1, EMBEDDING_INPUT_VERSION_V2):
+    for version in versions:
         print(f"{version} run      {run_ids[version]}")
         print(
             f"{version} coverage {coverage[version]['current_chunks']}/"
@@ -443,8 +460,7 @@ def main() -> None:
     )
 
     outcomes: dict[str, list[dict[str, Any]]] = {
-        EMBEDDING_INPUT_VERSION_V1: [],
-        EMBEDDING_INPUT_VERSION_V2: [],
+        version: [] for version in versions
     }
     with engine.connect() as connection, connection.begin():
         connection.execute(text("SET TRANSACTION READ ONLY"))
@@ -473,9 +489,15 @@ def main() -> None:
         version: values["by_suite"] for version, values in metrics.items()
     }
     decision = automated_recommendation(
-        suite_metrics[EMBEDDING_INPUT_VERSION_V1],
-        suite_metrics[EMBEDDING_INPUT_VERSION_V2],
+        suite_metrics[versions[0]],
+        suite_metrics[versions[1]],
     )
+    if decision["recommendation"] == "v2_candidate":
+        decision["recommendation"] = f"{versions[1]}_candidate"
+    elif decision["recommendation"] == "retain_v1_or_revise_v2":
+        decision["recommendation"] = (
+            f"retain_{versions[0]}_or_revise_{versions[1]}"
+        )
     report = {
         "contract": {
             "benchmark_version": "retrieval-proxy-v2",
@@ -489,15 +511,22 @@ def main() -> None:
             "top_k": args.top_k,
             "run_ids": run_ids,
             "coverage": coverage,
+            "left_input_version": versions[0],
+            "right_input_version": versions[1],
         },
         "query_embedding": query_telemetry,
         "metrics": metrics,
         "comparison": _comparison(
-            suite_metrics[EMBEDDING_INPUT_VERSION_V1],
-            suite_metrics[EMBEDDING_INPUT_VERSION_V2],
+            suite_metrics[versions[0]],
+            suite_metrics[versions[1]],
         ),
         "decision": decision,
-        "examples": _examples(cases, outcomes),
+        "examples": _examples(
+            cases,
+            outcomes,
+            left_version=versions[0],
+            right_version=versions[1],
+        ),
     }
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
@@ -506,7 +535,7 @@ def main() -> None:
         )
 
     print("\n=== embedding variant evaluation ===")
-    for version in (EMBEDDING_INPUT_VERSION_V1, EMBEDDING_INPUT_VERSION_V2):
+    for version in versions:
         print(f"\n{version}")
         for suite, values in metrics[version]["by_suite"].items():
             print(

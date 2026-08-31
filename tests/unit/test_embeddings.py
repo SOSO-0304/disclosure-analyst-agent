@@ -7,6 +7,7 @@ import pytest
 
 from disclosure_agent.retrieval.embeddings import (
     EMBEDDING_INPUT_VERSION_V2,
+    EMBEDDING_INPUT_VERSION_V3,
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
     EmbeddingDocumentContext,
@@ -67,6 +68,35 @@ def test_compose_v2_embedding_input_requires_metadata() -> None:
             [],
             input_version=EMBEDDING_INPUT_VERSION_V2,
         )
+
+
+def test_compose_v3_embedding_input_keeps_only_discriminative_context() -> None:
+    value = compose_embedding_input(
+        "매출액은 100억원입니다.",
+        ["II. 사업의 내용", "매출 및 수주상황"],
+        input_version=EMBEDDING_INPUT_VERSION_V3,
+        context=EmbeddingDocumentContext(
+            corp_name="테스트주식회사",
+            listed_name="테스트",
+            stock_code="123456",
+            report_name="2026년 반기보고서",
+            document_subtype="반기보고서",
+            document_title="반기보고서 본문",
+            is_correction=True,
+            table_caption="부문별 매출액",
+        ),
+    )
+
+    assert value == (
+        "[기업] 테스트 (123456)\n"
+        "[상태] 정정공시\n"
+        "[문맥] II. 사업의 내용 > 매출 및 수주상황\n"
+        "[표제목] 부문별 매출액\n\n"
+        "매출액은 100억원입니다."
+    )
+    assert "[공시]" not in value
+    assert "[유형]" not in value
+    assert "[문서]" not in value
 
 
 def test_embedding_run_identity_changes_with_input_contract() -> None:

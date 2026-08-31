@@ -22,6 +22,7 @@ from disclosure_agent.retrieval.embeddings import (
     DEFAULT_TARGET_QPM,
     EMBEDDING_INPUT_VERSION_V1,
     EMBEDDING_INPUT_VERSION_V2,
+    EMBEDDING_INPUT_VERSION_V3,
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
     EmbeddingDocumentContext,
@@ -713,7 +714,11 @@ def main() -> None:
     parser.add_argument("--endpoint", default=EmbeddingConfig().endpoint)
     parser.add_argument(
         "--input-version",
-        choices=(EMBEDDING_INPUT_VERSION_V1, EMBEDDING_INPUT_VERSION_V2),
+        choices=(
+            EMBEDDING_INPUT_VERSION_V1,
+            EMBEDDING_INPUT_VERSION_V2,
+            EMBEDDING_INPUT_VERSION_V3,
+        ),
         default=EMBEDDING_INPUT_VERSION_V1,
     )
     parser.add_argument("--workers", type=int, default=4)

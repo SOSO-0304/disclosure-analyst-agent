@@ -16,10 +16,12 @@ import httpx
 
 EMBEDDING_INPUT_VERSION_V1 = "retrieval-embedding-v1"
 EMBEDDING_INPUT_VERSION_V2 = "retrieval-embedding-v2"
+EMBEDDING_INPUT_VERSION_V3 = "retrieval-embedding-v3"
 EMBEDDING_INPUT_VERSION = EMBEDDING_INPUT_VERSION_V1
 SUPPORTED_INPUT_VERSIONS = {
     EMBEDDING_INPUT_VERSION_V1,
     EMBEDDING_INPUT_VERSION_V2,
+    EMBEDDING_INPUT_VERSION_V3,
 }
 DEFAULT_PROVIDER = "clova-studio"
 DEFAULT_MODEL = "bge-m3"
@@ -235,8 +237,12 @@ def compose_embedding_input(
         value = f"[문맥] {' > '.join(headings)}\n\n{body}" if headings else body
     else:
         if context is None:
-            raise ValueError("v2 embedding input requires document context")
-        prefix = _context_prefix(context, headings)
+            raise ValueError("Contextual embedding input requires document context")
+        prefix = _context_prefix(
+            context,
+            headings,
+            include_document_metadata=input_version == EMBEDDING_INPUT_VERSION_V2,
+        )
         value = f"{prefix}\n\n{body}" if prefix else body
     if not value:
         raise ValueError("Embedding input must not be empty")
@@ -250,6 +256,8 @@ def compose_embedding_input(
 def _context_prefix(
     context: EmbeddingDocumentContext,
     headings: list[str],
+    *,
+    include_document_metadata: bool,
 ) -> str:
     lines: list[str] = []
     company = context.listed_name.strip() or context.corp_name.strip()
@@ -257,12 +265,13 @@ def _context_prefix(
         stock_code = context.stock_code.strip()
         suffix = f" ({stock_code})" if stock_code else ""
         lines.append(f"[기업] {company}{suffix}")
-    if context.report_name.strip():
-        lines.append(f"[공시] {context.report_name.strip()}")
-    if context.document_subtype.strip():
-        lines.append(f"[유형] {context.document_subtype.strip()}")
-    if context.document_title.strip():
-        lines.append(f"[문서] {context.document_title.strip()}")
+    if include_document_metadata:
+        if context.report_name.strip():
+            lines.append(f"[공시] {context.report_name.strip()}")
+        if context.document_subtype.strip():
+            lines.append(f"[유형] {context.document_subtype.strip()}")
+        if context.document_title.strip():
+            lines.append(f"[문서] {context.document_title.strip()}")
     if context.is_correction:
         lines.append("[상태] 정정공시")
     if headings:

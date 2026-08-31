@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Produce a finite 24-question side-by-side v1/v2 retrieval review."""
+"""Produce a finite 24-question side-by-side embedding retrieval review."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from disclosure_agent.retrieval.embeddings import (
     DEFAULT_TARGET_QPM,
     EMBEDDING_INPUT_VERSION_V1,
     EMBEDDING_INPUT_VERSION_V2,
+    SUPPORTED_INPUT_VERSIONS,
 )
 from disclosure_agent.retrieval.evaluation import (
     BenchmarkCase,
@@ -113,9 +114,9 @@ def _automatic_verdict(
     left_rank = int(left["first_relevant_rank"] or 6)
     right_rank = int(right["first_relevant_rank"] or 6)
     if right_rank + 1 < left_rank:
-        return "v2_proxy_win"
+        return "right_proxy_win"
     if left_rank + 1 < right_rank:
-        return "v1_proxy_win"
+        return "left_proxy_win"
     return "proxy_tie"
 
 
@@ -128,14 +129,15 @@ def _markdown(
     hits: dict[str, dict[str, list[dict[str, Any]]]],
     details: dict[str, dict[str, Any]],
     query_telemetry: dict[str, Any],
+    versions: tuple[str, str],
 ) -> str:
-    versions = (EMBEDDING_INPUT_VERSION_V1, EMBEDDING_INPUT_VERSION_V2)
+    left_version, right_version = versions
     outcome_by_version = {
         version: {row["case_id"]: row for row in outcomes[version]}
         for version in versions
     }
     lines = [
-        "# Embedding v1/v2 manual review",
+        f"# Embedding {left_version} / {right_version} manual review",
         "",
         "이 문서는 전체 임베딩 전 마지막 24문항 판정표입니다. 자동 proxy 정답은 참고만 하고,",
         "실제 질문에 답할 근거가 Top-5 안에 있는지 원문 preview와 provenance로 확인합니다.",
@@ -143,8 +145,8 @@ def _markdown(
         "## Contract",
         "",
         f"- Chunk run: `{chunk_run_id}`",
-        f"- v1 run: `{run_ids[EMBEDDING_INPUT_VERSION_V1]}`",
-        f"- v2 run: `{run_ids[EMBEDDING_INPUT_VERSION_V2]}`",
+        f"- Left run ({left_version}): `{run_ids[left_version]}`",
+        f"- Right run ({right_version}): `{run_ids[right_version]}`",
         f"- Questions: {len(cases)}",
         f"- Unique query calls: {query_telemetry['unique_queries']}",
         f"- Provider failures: {sum(query_telemetry['transport_errors'].values())}",
@@ -154,17 +156,17 @@ def _markdown(
         "",
         "- 잘못된 회사 Top-1은 허용하지 않습니다.",
         "- 실제 답의 근거가 Top-5에 없으면 critical miss입니다.",
-        "- v2의 명백한 패배가 2건 이하면 v2를 승인합니다.",
+        "- 오른쪽 후보의 명백한 패배가 2건 이하면 오른쪽 후보를 승인합니다.",
         "- `Relevant`는 자동 proxy 표시이며 최종 사람 판정을 대신하지 않습니다.",
         "",
         "## Summary",
         "",
-        "| # | Lane | Suite | Query | v1 rank | v2 rank | Proxy | Human |",
+        "| # | Lane | Suite | Query | Left rank | Right rank | Proxy | Human |",
         "|---:|---|---|---|---:|---:|---|---|",
     ]
     for index, case in enumerate(cases, 1):
-        left = outcome_by_version[EMBEDDING_INPUT_VERSION_V1][case.case_id]
-        right = outcome_by_version[EMBEDDING_INPUT_VERSION_V2][case.case_id]
+        left = outcome_by_version[left_version][case.case_id]
+        right = outcome_by_version[right_version][case.case_id]
         lines.append(
             "| "
             f"{index} | {case.document_group}/{case.chunk_type} | {case.suite} | "
@@ -232,6 +234,16 @@ def main() -> None:
     parser.add_argument("--api-key-env", default="CLOVASTUDIO_API_KEY")
     parser.add_argument("--sample-per-stratum", type=int, default=5)
     parser.add_argument(
+        "--left-input-version",
+        choices=sorted(SUPPORTED_INPUT_VERSIONS),
+        default=EMBEDDING_INPUT_VERSION_V1,
+    )
+    parser.add_argument(
+        "--right-input-version",
+        choices=sorted(SUPPORTED_INPUT_VERSIONS),
+        default=EMBEDDING_INPUT_VERSION_V2,
+    )
+    parser.add_argument(
         "--sample-seed",
         default="embedding-context-eval-20260830",
     )
@@ -263,7 +275,10 @@ def main() -> None:
         parser.error("numeric arguments must be positive")
     if args.top_k < 5:
         parser.error("--top-k must be at least 5")
+    if args.left_input_version == args.right_input_version:
+        parser.error("left and right input versions must be different")
     proxy._assert_perf_database(args.database_url)
+    versions = (args.left_input_version, args.right_input_version)
 
     engine = get_engine(args.database_url)
     with engine.connect() as connection, connection.begin():
@@ -280,6 +295,7 @@ def main() -> None:
             connection,
             chunk_run_id=chunk_run_id,
             sample_ids=sample_ids,
+            versions=versions,
         )
     cases = _review_cases(sample_rows)
     unique_queries = sorted({case.query for case in cases})
@@ -289,7 +305,7 @@ def main() -> None:
     print(f"sample chunks                   {len(sample_ids)}")
     print(f"review questions                {len(cases)}")
     print(f"unique query calls              {len(unique_queries)}")
-    for version in (EMBEDDING_INPUT_VERSION_V1, EMBEDDING_INPUT_VERSION_V2):
+    for version in versions:
         print(f"{version} coverage {coverage[version]['current_chunks']}/{len(sample_ids)}")
     if args.dry_run:
         print("provider calls                  0")
@@ -307,12 +323,10 @@ def main() -> None:
     )
 
     outcomes: dict[str, list[dict[str, Any]]] = {
-        EMBEDDING_INPUT_VERSION_V1: [],
-        EMBEDDING_INPUT_VERSION_V2: [],
+        version: [] for version in versions
     }
     all_hits: dict[str, dict[str, list[dict[str, Any]]]] = {
-        EMBEDDING_INPUT_VERSION_V1: {},
-        EMBEDDING_INPUT_VERSION_V2: {},
+        version: {} for version in versions
     }
     hit_ids: set[str] = set()
     with engine.connect() as connection, connection.begin():
@@ -344,6 +358,7 @@ def main() -> None:
         hits=all_hits,
         details=details,
         query_telemetry=query_telemetry,
+        versions=versions,
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(markdown, encoding="utf-8")
@@ -355,6 +370,8 @@ def main() -> None:
             "sample_chunks": len(sample_ids),
             "run_ids": run_ids,
             "coverage": coverage,
+            "left_input_version": versions[0],
+            "right_input_version": versions[1],
         },
         "query_embedding": query_telemetry,
         "cases": [

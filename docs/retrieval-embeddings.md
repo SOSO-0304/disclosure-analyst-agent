@@ -34,6 +34,9 @@ Embedding v2 출력은 정규화되지 않지만 pgvector의 `vector_cosine_ops`
 - v1: heading path + 원문
 - v2: 회사명·종목코드·보고서명·공시 세부 유형·문서 제목·정정 여부·heading path·표 제목
   + 원문
+- v3: 회사명·종목코드·정정 여부·heading path·표 제목 + 원문. v2에서 반복성이 큰
+  보고서명·공시 세부 유형·문서 제목을 제외하여 회사 식별력은 유지하고 주제 검색 희석을
+  줄이는 마지막 후보입니다.
 
 각 입력 버전은 서로 다른 embedding run ID를 사용하므로 기존 v1 결과를 수정하거나
 삭제하지 않습니다. 우선 API 호출 없는 dry-run으로 표본 수를 확인합니다.
@@ -115,6 +118,18 @@ python scripts/evaluate_embedding_variants.py `
 수동 검토 전에는 항상 `full_embedding_allowed=false`를 유지합니다. 이 평가는 chunk
 메타데이터로 만든 재현 가능한 proxy benchmark이므로 실제 사용자 질문 품질을 대신하지
 않습니다.
+
+v2와 v3를 비교할 때는 동일 평가기에 버전을 명시합니다.
+
+```powershell
+python scripts/evaluate_embedding_variants.py `
+  --database-url $PerfDatabaseUrl `
+  --left-input-version retrieval-embedding-v2 `
+  --right-input-version retrieval-embedding-v3 `
+  --workers 24 `
+  --requests-per-minute 480 `
+  --report data\quality\embedding-variant-eval-v2-v3.json
+```
 
 자동 proxy를 통과한 후보는 6개 corpus lane에서 4문항씩, 총 24개의 유한한 Top-5 검토로
 마지막 승인합니다. 먼저 계약을 확인합니다.

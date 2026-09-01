@@ -52,7 +52,10 @@ def _event_content(result: FundraisingAnalysisResult, event) -> str:
     lines.extend(
         (
             f"반복 출처 수: {event.source_count}",
-            "해석 기준: 같은 경제 이벤트가 여러 정기공시에 반복 기재된 경우 canonical 이벤트 1건으로 중복 제거한 결과임",
+            (
+                "해석 기준: 같은 경제 이벤트가 여러 정기공시에 반복 기재된 경우 "
+                "canonical 이벤트 1건으로 중복 제거한 결과임"
+            ),
         )
     )
     return "\n".join(lines)
@@ -85,7 +88,10 @@ def render_deterministic_fundraising_analysis(
     ]
 
     if result.status == "ANSWERABLE" and result.total_amount_krw is not None:
-        lines.append(f"전체 확인 금액 합계: {format_krw(result.total_amount_krw)} {_refs(all_labels)}")
+        lines.append(
+            f"전체 확인 금액 합계: {format_krw(result.total_amount_krw)} "
+            f"{_refs(all_labels)}"
+        )
     elif result.status == "PARTIAL":
         lines.append(
             f"전체 합계: 확정 불가; 확인된 금액 합계 {format_krw(result.known_amount_sum_krw)}, "
@@ -189,7 +195,10 @@ def build_fundraising_evidence_pack(
         max_total_chars=max_total_chars,
     )
 
-    if result.status in {"ANSWERABLE", "PARTIAL"} and len(pack.items) != result.event_count:
+    if (
+        result.status in {"ANSWERABLE", "PARTIAL"}
+        and len(pack.items) != result.event_count
+    ):
         raise ValueError("fundraising analysis requires evidence for every canonical event")
 
     labels_by_event_id: dict[str, str] = {}

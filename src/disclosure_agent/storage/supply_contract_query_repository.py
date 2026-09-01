@@ -39,6 +39,7 @@ class TerminatedContractRecord:
     correction_lineage_complete: bool
     termination_filing_id: str
     termination_receipt_number: str
+    termination_link_status: str
     termination_date: date | None
     termination_reason: str | None
 
@@ -191,6 +192,7 @@ def _terminated_contracts_statement(
             ),
             SupplyContractTerminationLinkRow.termination_filing_id.label("termination_filing_id"),
             termination_disclosure.receipt_number.label("termination_receipt_number"),
+            SupplyContractTerminationLinkRow.status.label("termination_link_status"),
             SupplyContractTerminationEventRow.termination_date.label("termination_date"),
             SupplyContractTerminationEventRow.termination_reason.label("termination_reason"),
         )

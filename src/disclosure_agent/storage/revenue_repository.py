@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
@@ -28,6 +28,7 @@ UNIT_MULTIPLIERS = {
     "억원": Decimal(100_000_000),
 }
 UNIT_PATTERN = re.compile(r"단위\s*[:：]?\s*(억원|백만원|천원|원)")
+FISCAL_PERIOD_PATTERN = re.compile(r"제\s*(\d+)\s*(?:\([^)]*\)\s*)?기")
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,12 +152,74 @@ def is_primary_revenue_candidate(signals: tuple[str, ...]) -> bool:
         "primary_consolidated_statement",
         "audited_consolidated_financial_statements",
     }
-    period_signals = {"target_year_header", "current_period_header"}
+    period_signals = {
+        "target_year_header",
+        "current_period_header",
+        "current_fiscal_period_header",
+    }
     blocked_signals = {"notes_context", "separate_context", "prior_period_header"}
     has_statement = bool(signal_set & statement_signals)
     has_period = bool(signal_set & period_signals)
     has_blocker = bool(signal_set & blocked_signals)
     return has_statement and has_period and not has_blocker
+
+
+def _fiscal_period_number(value: str | None) -> int | None:
+    """Extract the numeric fiscal term from headers such as '제58기'."""
+
+    match = FISCAL_PERIOD_PATTERN.search(_normalize(value))
+    return int(match.group(1)) if match is not None else None
+
+
+def _mark_current_fiscal_periods(
+    candidates: tuple[RevenueCandidate, ...],
+) -> tuple[RevenueCandidate, ...]:
+    """Mark the highest fiscal term only within the same consolidated statement table."""
+
+    statement_signals = {
+        "primary_consolidated_statement",
+        "audited_consolidated_financial_statements",
+    }
+    blocked_signals = {"notes_context", "separate_context", "prior_period_header"}
+    explicit_period_signals = {"target_year_header", "current_period_header"}
+    grouped: dict[tuple[str, str], list[tuple[str, int]]] = {}
+
+    for candidate in candidates:
+        signals = set(candidate.signals)
+        if not signals & statement_signals:
+            continue
+        if signals & blocked_signals:
+            continue
+        if signals & explicit_period_signals:
+            continue
+
+        fiscal_period = _fiscal_period_number(candidate.header_text)
+        if fiscal_period is None:
+            continue
+        grouped.setdefault((candidate.filing_id, candidate.table_id), []).append(
+            (candidate.fact_id, fiscal_period)
+        )
+
+    current_fact_ids: set[str] = set()
+    for rows in grouped.values():
+        periods = {period for _, period in rows}
+        if len(periods) < 2:
+            continue
+        current_period = max(periods)
+        current_fact_ids.update(
+            fact_id for fact_id, period in rows if period == current_period
+        )
+
+    return tuple(
+        replace(
+            candidate,
+            score=candidate.score + 40,
+            signals=(*candidate.signals, "current_fiscal_period_header"),
+        )
+        if candidate.fact_id in current_fact_ids
+        else candidate
+        for candidate in candidates
+    )
 
 
 def extract_monetary_unit(text: str | None) -> str | None:
@@ -313,7 +376,7 @@ class RevenueRepository:
                     signals=signals,
                 )
             )
-        return tuple(candidates)
+        return _mark_current_fiscal_periods(tuple(candidates))
 
     def _resolve_unit(self, candidate: RevenueCandidate) -> str | None:
         direct_unit = extract_monetary_unit(candidate.unit_raw)

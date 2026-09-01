@@ -170,3 +170,65 @@ def test_table_body_unit_is_not_used_for_revenue_resolution() -> None:
     repository = TestRevenueRepository(FakeSession())
 
     assert repository._resolve_unit(candidate) is None
+
+
+def test_matching_summary_fact_can_corroborate_revenue_unit() -> None:
+    chosen = _fiscal_term_candidate(
+        fact_id="primary",
+        table_id="table:primary",
+        header_text="제 57 (당) 기",
+        raw_value="333,605,938",
+    )
+    summary = replace(
+        chosen,
+        fact_id="summary",
+        block_id="block:summary",
+        table_id="table:summary",
+        path_text="사업보고서 | III. 재무에 관한 사항 | 1. 요약재무정보 | 제57기 | 매출액",
+        signals=("exact_revenue_label", "summary_financial_context"),
+    )
+
+    class TestRevenueRepository(RevenueRepository):
+        def _resolve_local_unit(self, candidate):
+            if candidate.fact_id == "summary":
+                return "백만원"
+            return None
+
+    repository = TestRevenueRepository(SimpleNamespace())
+
+    assert repository._resolve_corroborated_unit(chosen, (chosen, summary)) == "백만원"
+
+
+def test_conflicting_summary_units_do_not_resolve_revenue_unit() -> None:
+    chosen = _fiscal_term_candidate(
+        fact_id="primary",
+        table_id="table:primary",
+        header_text="제 57 (당) 기",
+        raw_value="333,605,938",
+    )
+    summary_a = replace(
+        chosen,
+        fact_id="summary-a",
+        block_id="block:summary-a",
+        table_id="table:summary-a",
+        signals=("exact_revenue_label", "summary_financial_context"),
+    )
+    summary_b = replace(
+        chosen,
+        fact_id="summary-b",
+        block_id="block:summary-b",
+        table_id="table:summary-b",
+        signals=("exact_revenue_label", "summary_financial_context"),
+    )
+
+    class TestRevenueRepository(RevenueRepository):
+        def _resolve_local_unit(self, candidate):
+            if candidate.fact_id == "summary-a":
+                return "백만원"
+            if candidate.fact_id == "summary-b":
+                return "원"
+            return None
+
+    repository = TestRevenueRepository(SimpleNamespace())
+
+    assert repository._resolve_corroborated_unit(chosen, (chosen, summary_a, summary_b)) is None

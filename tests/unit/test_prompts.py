@@ -34,6 +34,10 @@ def test_grounding_prompt_requires_explicit_insufficient_evidence_phrase() -> No
     assert "제공된 공시에서 확인되지 않는다." in GROUNDING_SYSTEM_PROMPT
 
 
+def test_grounding_prompt_prefers_normalized_final_values() -> None:
+    assert "정규화된 최종 값" in GROUNDING_SYSTEM_PROMPT
+
+
 def test_build_grounded_answer_prompt_contains_question_and_evidence() -> None:
     prompt = build_grounded_answer_prompt("카카오의 매출액은 얼마인가?", _pack())
 
@@ -41,3 +45,4 @@ def test_build_grounded_answer_prompt_contains_question_and_evidence() -> None:
     assert "[E1] kind=sql_revenue" in prompt
     assert "연결기준 매출액: 100원" in prompt
     assert "fact_ids=fact:1" in prompt
+    assert "정규화된 최종 금액" in prompt

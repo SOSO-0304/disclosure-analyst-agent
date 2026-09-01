@@ -39,6 +39,7 @@ class EvidencePack:
     retrieval_status: str
     items: tuple[EvidenceItem, ...]
     total_chars: int
+    deterministic_analysis: str | None = None
 
 
 def _semantic_items(
@@ -192,6 +193,15 @@ def render_evidence_pack(pack: EvidencePack) -> str:
                 f"truncated={str(item.truncated).lower()}",
                 "text:",
                 item.content_text,
+            ]
+        )
+
+    if pack.deterministic_analysis:
+        lines.extend(
+            [
+                "",
+                "=== DETERMINISTIC ANALYSIS ===",
+                pack.deterministic_analysis,
             ]
         )
 

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -139,12 +140,7 @@ def test_table_body_unit_is_not_used_for_revenue_resolution() -> None:
         header_text="제 57 (당) 기",
         raw_value="333,605,938",
     )
-    candidate = RevenueCandidate(
-        **{
-            **candidate.__dict__,
-            "block_id": "block:income-statement",
-        }
-    )
+    candidate = replace(candidate, block_id="block:income-statement")
 
     block = SimpleNamespace()
     table = SimpleNamespace(

@@ -52,3 +52,9 @@ def test_years_are_extracted_in_query_order_without_duplicates() -> None:
     years = extract_query_years("2024년과 2025년을 비교하고 2024년도 다시 보여줘")
 
     assert years == (2024, 2025)
+
+
+def test_years_are_not_extracted_from_longer_digit_sequences() -> None:
+    years = extract_query_years("접수번호 120251과 2025년 공시를 확인해줘")
+
+    assert years == (2025,)

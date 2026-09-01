@@ -24,6 +24,7 @@ from disclosure_agent.retrieval.source_references import (
 from disclosure_agent.storage.database import get_engine, session_scope
 
 NO_MATCH_ANSWER = "제공된 공시에서 확인되지 않는다."
+_YEAR_PATTERN = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
 
 
 def _api_key() -> str:
@@ -44,7 +45,7 @@ def _infer_year(
         return explicit_year
 
     for text in (report_name or "", query):
-        match = re.search(r"\b(20\d{2})\b", text)
+        match = _YEAR_PATTERN.search(text)
         if match is not None:
             return int(match.group(1))
     return None

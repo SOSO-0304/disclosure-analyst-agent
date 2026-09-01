@@ -35,15 +35,18 @@ def main() -> None:
 
     for index, finding in enumerate(result.findings, start=1):
         contract = finding.contract
+        contract_amount = (
+            format_krw(contract.contract_amount)
+            if contract.contract_amount is not None
+            else "-"
+        )
+
         print()
         print(f"[{index}] {contract.company_name}")
         print(f"contract_date            {contract.contract_date.isoformat()}")
         print(f"contract_name            {contract.contract_name or '-'}")
         print(f"counterparty             {contract.counterparty or '-'}")
-        print(
-            "contract_amount          "
-            f"{format_krw(contract.contract_amount) if contract.contract_amount is not None else '-'}"
-        )
+        print(f"contract_amount          {contract_amount}")
         print(f"root_receipt             {contract.root_receipt_number}")
         print(f"latest_receipt           {contract.latest_formation_receipt_number}")
         print(f"correction_count         {contract.correction_count}")
@@ -59,6 +62,11 @@ def main() -> None:
         print("formation chain")
         for step_index, step in enumerate(finding.formation_steps, start=1):
             formation = step.formation
+            formation_amount = (
+                format_krw(formation.contract_amount)
+                if formation.contract_amount is not None
+                else "-"
+            )
             stage = "root" if not formation.is_correction else f"correction_{step_index - 1}"
             if formation.is_latest_for_root:
                 stage += "_latest"
@@ -67,10 +75,7 @@ def main() -> None:
                 f"receipt_date={formation.receipt_date.isoformat()}"
             )
             print(f"      contract_name       {formation.contract_name or '-'}")
-            print(
-                "      contract_amount     "
-                f"{format_krw(formation.contract_amount) if formation.contract_amount is not None else '-'}"
-            )
+            print(f"      contract_amount     {formation_amount}")
             print(f"      counterparty        {formation.counterparty or '-'}")
             print(f"      lineage_status      {formation.lineage_status or '-'}")
 

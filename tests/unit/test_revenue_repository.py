@@ -166,6 +166,20 @@ def test_five_row_income_statement_heading_can_supply_unit() -> None:
     assert unit == "원"
 
 
+def test_split_income_statement_title_can_supply_unit() -> None:
+    unit = extract_income_statement_heading_unit(
+        (
+            "제58기 2025년 1월 1일부터 2025년 12월 31일까지 "
+            "현대자동차주식회사와 그 종속기업 (단위 : 백만원)"
+        ),
+        row_count=4,
+        column_count=2,
+        title_text="연 결 손 익 계 산 서",
+    )
+
+    assert unit == "백만원"
+
+
 def test_non_income_statement_heading_does_not_supply_revenue_unit() -> None:
     unit = extract_income_statement_heading_unit(
         "연 결 재 무 상 태 표 제 31 기 주식회사 카카오와 그 종속기업 (단위 : 원)",
@@ -174,6 +188,51 @@ def test_non_income_statement_heading_does_not_supply_revenue_unit() -> None:
     )
 
     assert unit is None
+
+
+def test_immediate_previous_unit_uses_split_income_statement_title() -> None:
+    target_block = SimpleNamespace(
+        document_id="document:1",
+        section_id="section:1",
+        block_order=74,
+    )
+    unit_block = SimpleNamespace(
+        block_type="table",
+        table_id="table:heading",
+        text_normalized=None,
+        text_raw=None,
+    )
+    title_block = SimpleNamespace(
+        block_type="paragraph",
+        table_id=None,
+        text_normalized="연 결 손 익 계 산 서",
+        text_raw=None,
+    )
+    heading_table = SimpleNamespace(
+        normalized_text=(
+            "제58기 2025년 1월 1일부터 2025년 12월 31일까지 "
+            "현대자동차주식회사와 그 종속기업 (단위 : 백만원)"
+        ),
+        row_count=4,
+        column_count=2,
+    )
+
+    class FakeSession:
+        def __init__(self):
+            self.scalar_calls = 0
+
+        def scalar(self, statement):
+            self.scalar_calls += 1
+            return unit_block if self.scalar_calls == 1 else title_block
+
+        def get(self, model, key):
+            if model is SourceTableRow and key == "table:heading":
+                return heading_table
+            return None
+
+    repository = RevenueRepository(FakeSession())
+
+    assert repository._immediate_previous_table_unit(target_block) == "백만원"
 
 
 def test_table_body_unit_is_not_used_for_revenue_resolution() -> None:

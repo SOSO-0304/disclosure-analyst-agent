@@ -173,6 +173,8 @@ def test_facility_investment_observation_preserves_all_source_filings() -> None:
     assert pack.items[0].event_ids == ("event:1",)
     assert pack.items[1].event_ids == ("event:2",)
     assert pack.items[2].event_ids == ("event:3",)
+    assert "해당 연도 의사결정·공시 기준 신규시설투자 결정 금액 합계" in rendered
+    assert "실제 집행액을 의미하지 않음" in rendered
     assert "derived_from: [E1],[E2],[E3]" in rendered
     assert "1위: A 2025 300 원 [E1],[E2]" in rendered
     assert "2위: B 2025 50 원 [E3]" in rendered

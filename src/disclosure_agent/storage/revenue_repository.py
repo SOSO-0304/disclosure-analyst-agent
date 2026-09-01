@@ -386,14 +386,10 @@ class RevenueRepository:
         if block is None or table is None:
             return None
 
-        table_texts = (
-            table.caption_normalized or table.caption_raw or "",
-            table.normalized_text,
-        )
-        for text in table_texts:
-            unit = extract_monetary_unit(text)
-            if unit is not None:
-                return unit
+        caption_text = table.caption_normalized or table.caption_raw or ""
+        caption_unit = extract_monetary_unit(caption_text)
+        if caption_unit is not None:
+            return caption_unit
 
         previous_unit = self._immediate_previous_table_unit(block)
         if previous_unit is not None:
@@ -419,13 +415,9 @@ class RevenueRepository:
                 SourceBlockRow.block_order == block.block_order - 1,
             )
         )
-        if previous is None or previous.table_id is None:
+        if previous is None:
             return None
-
-        table = self.session.get(SourceTableRow, previous.table_id)
-        if table is None:
-            return None
-        return extract_monetary_unit(table.normalized_text)
+        return extract_monetary_unit(self._unit_text_from_block(previous))
 
     def _nearby_blocks(
         self,

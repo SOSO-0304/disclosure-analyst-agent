@@ -76,15 +76,64 @@ No relative-date inference or global "latest filing" guarantee is provided.
    materialized candidate set and exact vector ranking to avoid ANN post-filter underfill.
    Unfiltered ANN candidate underfill triggers exact fallback, never removal of filters.
    A full ANN candidate list does not prove exact recall.
-3. The independent lexical lane ranks substring term coverage over chunk content. It is a
+3. The independent lexical lane scores substring term coverage over chunk content. It is a
    deterministic baseline, **not BM25 or Korean morphological analysis**. It scans eligible
    content and adds no disk-heavy index. Broad queries may be slower; timings are printed.
-4. Reciprocal-rank fusion (RRF, k=60) combines two independently retrieved top-100 lists.
-   RRF/cosine scores are not answer confidence or probabilities.
+   Equal coverage scores get the same **midrank over the entire filtered eligible scope**,
+   calculated before the candidate limit. For example, 1,000 equally highest-scoring chunks
+   occupy positions 1..1,000, so every one gets rank 500.5, not arbitrary ranks 1..100 for
+   the returned subset. Lower score groups start after all better-scoring matches.
+   This keeps a large weakly differentiated group from receiving a false first-place boost.
+   Candidate ties are selected by a deterministic chunk-ID hash, not chronological ID order.
+   There is no implicit newest/oldest preference. Hashes are not relevance signals.
+4. Reciprocal-rank fusion (RRF, k=60) combines the independent top-100 candidate lists, using
+   the scoped midranks for the lexical contribution. `lexical_rank` may be fractional or
+   larger than 100; it describes the full scoped score group, not returned-list position.
+   Final equal RRF scores also use a deterministic hash tie-breaker. The chosen lexical
+   subset still omits members of large tie groups; this does not guarantee improved recall
+   or overlap. RRF/cosine scores are not answer confidence or probabilities.
 5. Default selection permits one chunk per filing and one fragment per source table. A soft
    two-results-per-company limit promotes diversity for unfiltered queries, then backfills if
    other companies have insufficient candidates. This does not guarantee company balance.
    `--max-per-filing`, `--company-cap` and `--candidates` expose these limits.
+
+## Per-stage timing and short comparison
+
+The CLI prints `search breakdown` in seconds:
+
+| Field | Measured work |
+|---|---|
+| `dense_initial` | Initial ANN or exact vector SQL, including row fetch and HNSW setting |
+| `dense_fallback` | Additional exact SQL after ANN underfill; zero when not used |
+| `lexical` | Keyword SQL, scoped tie-group ranks and candidate row fetch |
+| `fusion` | Rank fusion and candidate diagnostics |
+| `hydration` | Candidate content/provenance SQL and row fetch |
+| `selection` | Deduplication, diversity selection and citation construction |
+| `total` | Retrieval function wall time, including small unassigned overhead |
+
+The existing `timing seconds` line still separates query API time, whole search phase and
+whole CLI operation. Its `search` includes connection/transaction overhead and can exceed
+the breakdown's `total`. Skipped stages are zero; these measurements are sequential,
+not concurrent. Candidate counts now include `overlap`, and `lexical ties` reports whether
+the candidate boundary cuts a larger equal-score group. Each result shows matched-term
+count and full scoped tie count.
+
+Run the same query twice to distinguish a cold run from a warm one. Do not infer a sustained
+speedup from one measurement or compare different query texts as a controlled benchmark.
+Both calls reuse the existing vectors and each embeds only its query:
+
+```powershell
+1..2 | ForEach-Object {
+    python scripts/search_retrieval.py `
+      "단일판매 공급계약의 계약상대방과 계약금액, 계약기간" `
+      --top-k 5
+}
+```
+
+No new migration, corpus embedding, or index is needed for this ranking change. It fixes
+ID-order bias and adds diagnostics; production latency and relevance must still be checked
+against actual results. `--json` continues to emit only the results list (now including tied
+lexical ranks/counts); timing and candidate-level diagnostics are console-mode output.
 
 ## Citations and correction boundary
 

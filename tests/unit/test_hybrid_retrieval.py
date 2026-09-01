@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
+from hashlib import sha256
 
 import pytest
 
@@ -247,3 +249,107 @@ def test_run_lookup_only_accepts_completed_active_chunk_snapshot():
     sql, params = connection.calls[0]
     assert "e.status = 'completed'" in sql and "c.is_active" in sql
     assert params["run_id"] == "partial-run"
+
+
+def test_lexical_rrf_uses_global_midrank_not_returned_list_position():
+    lexical = [
+        {
+            "chunk_id": name,
+            "lexical_score": 3,
+            "lexical_rank": Decimal("500.5"),
+            "lexical_tie_count": 1000,
+        }
+        for name in ("exchange_20230101", "exchange_20260101")
+    ]
+    rows = fuse_rankings([], lexical)
+    assert {row["lexical_rank"] for row in rows} == {500.5}
+    assert all(row["rrf_score"] == pytest.approx(1 / 560.5) for row in rows)
+    assert fuse_rankings([], list(reversed(lexical))) == rows
+    assert [r["chunk_id"] for r in rows] == sorted(
+        [r["chunk_id"] for r in rows], key=lambda value: sha256(value.encode()).hexdigest()
+    )
+
+
+@pytest.mark.parametrize("rank", [0, -1, float("inf"), float("nan")])
+def test_invalid_lexical_rank_is_rejected(rank):
+    with pytest.raises(ValueError, match="Candidate rank"):
+        fuse_rankings([], [{"chunk_id": "a", "lexical_score": 1, "lexical_rank": rank}])
+
+
+def test_midrank_fusion_still_rewards_independent_agreement():
+    rows = fuse_rankings(
+        [{"chunk_id": "a", "similarity": 0.9}, {"chunk_id": "b", "similarity": 0.8}],
+        [
+            {"chunk_id": "b", "lexical_score": 2, "lexical_rank": 2.5},
+            {"chunk_id": "c", "lexical_score": 2, "lexical_rank": 2.5},
+        ],
+    )
+    assert rows[0]["chunk_id"] == "b"
+    assert rows[0]["rrf_score"] == pytest.approx(1 / 62 + 1 / 62.5)
+
+
+def test_timing_breakdown_includes_fetch_and_separates_exact_fallback(monkeypatch):
+    import disclosure_agent.retrieval.search as search
+
+    clock = [0.0]
+    monkeypatch.setattr(search, "perf_counter", lambda: clock[0])
+
+    class TimedResult(Result):
+        def mappings(self):
+            clock[0] += 0.25
+            return super().mappings()
+
+    class TimedConnection(Connection):
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            result = super().execute(statement, params)
+            if sql.lstrip().startswith("SET"):
+                return result
+            if "WITH lexical AS" in sql:
+                clock[0] += 3
+            elif "c.content_sha256, c.filing_id" in sql:
+                clock[0] += 4
+            elif "MATERIALIZED" in sql:
+                clock[0] += 2
+            else:
+                clock[0] += 1
+            return TimedResult(result.rows)
+
+    connection = TimedConnection(
+        ann=[],
+        dense=[{"chunk_id": "a", "similarity": 0.9}],
+        lexical=[
+            {"chunk_id": "a", "lexical_score": 2, "lexical_rank": 5.5, "lexical_tie_count": 10}
+        ],
+        details=[evidence("a", "f1")],
+    )
+    payload = retrieve(connection, run=RUN, query="계약금액", vector="[0]", top_k=1)
+    assert payload["timing_seconds"] == {
+        "dense_initial": 1.25,
+        "dense_fallback": 2.25,
+        "lexical": 3.25,
+        "hydration": 4.25,
+        "fusion": 0,
+        "selection": 0,
+        "total": 11,
+    }
+    assert payload["candidate_counts"] == {"dense": 1, "lexical": 1, "overlap": 1, "fused": 1}
+    assert payload["lexical_diagnostics"]["boundary_tie_truncated"] is True
+    assert payload["results"][0]["lexical_tie_count"] == 10
+
+
+@pytest.mark.parametrize("mode", ["lexical", "dense"])
+def test_skipped_phases_have_zero_time(mode):
+    payload = retrieve(Connection(), run=RUN, query="계약", vector="[0]", mode=mode)
+    if mode == "lexical":
+        assert payload["timing_seconds"]["dense_initial"] == 0
+        assert payload["timing_seconds"]["dense_fallback"] == 0
+    else:
+        assert payload["timing_seconds"]["lexical"] == 0
+    assert payload["timing_seconds"]["hydration"] == 0
+    assert payload["lexical_diagnostics"]["boundary_tie_truncated"] is False
+
+
+def test_explicit_unfiltered_exact_strategy_has_correct_label():
+    payload = retrieve(Connection(), run=RUN, query="계약", vector="[0]", mode="dense", exact=True)
+    assert payload["dense_strategy"] == "exact"

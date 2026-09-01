@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy import Connection, text
@@ -126,11 +127,24 @@ def lexical_sql(where: str, terms: Sequence[str]) -> str:
         for i in range(len(terms))
     )
     return f"""
-        WITH lexical AS (
+        WITH lexical AS MATERIALIZED (
             SELECT e.chunk_id, ({score}) AS lexical_score {JOINS} WHERE {where}
+        ), score_counts AS (
+            SELECT lexical_score, count(*) AS tie_count
+            FROM lexical WHERE lexical_score > 0 GROUP BY lexical_score
+        ), ranked_scores AS (
+            SELECT lexical_score, tie_count,
+                COALESCE(SUM(tie_count) OVER (
+                    ORDER BY lexical_score DESC
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ), 0) + (tie_count + 1) / 2.0 AS lexical_rank
+            FROM score_counts
         )
-        SELECT chunk_id, lexical_score FROM lexical WHERE lexical_score > 0
-        ORDER BY lexical_score DESC, chunk_id LIMIT :candidate_limit
+        SELECT l.chunk_id, l.lexical_score, r.lexical_rank,
+            r.tie_count AS lexical_tie_count
+        FROM lexical l JOIN ranked_scores r USING (lexical_score)
+        ORDER BY l.lexical_score DESC, md5(l.chunk_id), l.chunk_id
+        LIMIT :candidate_limit
     """
 
 
@@ -148,6 +162,10 @@ def retrieve(
     exact: bool = False,
     filters: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    started = perf_counter()
+    timings = dict.fromkeys(
+        ("dense_initial", "dense_fallback", "lexical", "fusion", "hydration", "selection"), 0.0
+    )
     if mode not in {"hybrid", "dense", "lexical"}:
         raise ValueError("Unknown retrieval mode")
     if not 1 <= top_k <= candidate_limit <= 1000:
@@ -167,30 +185,53 @@ def retrieve(
     use_exact = exact or narrowed
     strategy = "not_used"
     if mode != "lexical":
-        strategy = "exact_filtered" if use_exact else "ann"
+        strategy = "exact_filtered" if narrowed else "exact" if exact else "ann"
+        phase_start = perf_counter()
         connection.execute(text("SET LOCAL hnsw.ef_search = 200"))
         dense = [
             dict(r)
             for r in connection.execute(text(dense_sql(where, exact=use_exact)), params).mappings()
         ]
+        timings["dense_initial"] = perf_counter() - phase_start
         if not use_exact and len(dense) < candidate_limit:
+            phase_start = perf_counter()
             dense = [
                 dict(r)
                 for r in connection.execute(text(dense_sql(where, exact=True)), params).mappings()
             ]
+            timings["dense_fallback"] = perf_counter() - phase_start
             strategy = "exact_fallback"
             warnings.append("ANN candidate underfill: exact search used for this query")
     if mode != "dense" and terms:
         lexical_params = {**params, **{f"term_{i}": t for i, t in enumerate(terms)}}
+        phase_start = perf_counter()
         lexical = [
             dict(r)
             for r in connection.execute(text(lexical_sql(where, terms)), lexical_params).mappings()
         ]
+        timings["lexical"] = perf_counter() - phase_start
     elif mode != "dense":
         warnings.append("No lexical terms were extracted")
+    phase_start = perf_counter()
     ranked = fuse_rankings(dense, lexical)
+    overlap = len({r["chunk_id"] for r in dense} & {r["chunk_id"] for r in lexical})
+    boundary_ties = int(lexical[-1].get("lexical_tie_count", 1)) if lexical else 0
+    boundary_returned = sum(r["lexical_score"] == lexical[-1]["lexical_score"] for r in lexical)
+    lexical_diagnostics = {
+        "rank_policy": "scope_midrank",
+        "boundary_tie_count": boundary_ties,
+        "boundary_tie_returned": boundary_returned,
+        "boundary_tie_truncated": boundary_ties > boundary_returned,
+    }
+    if lexical_diagnostics["boundary_tie_truncated"]:
+        warnings.append(
+            "Lexical cutoff intersects a tie group; hash-selected candidates share "
+            "the full scoped group's midrank (which can exceed the candidate limit)"
+        )
+    timings["fusion"] = perf_counter() - phase_start
     details: dict[str, dict[str, Any]] = {}
     if ranked:
+        phase_start = perf_counter()
         rows = connection.execute(
             text(f"""
             SELECT c.chunk_id, c.chunk_type, c.document_group, c.content,
@@ -205,6 +246,8 @@ def retrieve(
             {**params, "ids": [r["chunk_id"] for r in ranked]},
         ).mappings()
         details = {str(r["chunk_id"]): dict(r) for r in rows}
+        timings["hydration"] = perf_counter() - phase_start
+    phase_start = perf_counter()
     combined = [{**details[r["chunk_id"]], **r} for r in ranked if r["chunk_id"] in details]
     selected = select_evidence(
         combined,
@@ -218,11 +261,20 @@ def retrieve(
         row["citation"] = citation(row)
         row["embedding_run_id"] = run["embedding_run_id"]
     warnings.append("Correction status is available; original/correction lineage is not resolved")
+    timings["selection"] = perf_counter() - phase_start
+    timings["total"] = perf_counter() - started
     return {
         "mode": mode,
         "dense_strategy": strategy,
         "lexical_terms": terms,
-        "candidate_counts": {"dense": len(dense), "lexical": len(lexical), "fused": len(ranked)},
+        "candidate_counts": {
+            "dense": len(dense),
+            "lexical": len(lexical),
+            "overlap": overlap,
+            "fused": len(ranked),
+        },
+        "lexical_diagnostics": lexical_diagnostics,
+        "timing_seconds": timings,
         "filters": filters,
         "warnings": warnings,
         "results": selected,

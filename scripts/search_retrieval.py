@@ -136,6 +136,12 @@ def main() -> None:
     print(f"corrections       {args.corrections}")
     print(f"query tokens      {query_tokens}")
     print(f"candidate counts  {payload['candidate_counts']}")
+    print(f"lexical terms     {payload['lexical_terms']}")
+    print(f"lexical ties      {payload['lexical_diagnostics']}")
+    print(
+        "search breakdown  "
+        + " ".join(f"{name}={seconds:.3f}s" for name, seconds in payload["timing_seconds"].items())
+    )
     print(
         f"timing seconds    api={api_seconds:.2f} search={search_seconds:.2f} "
         f"total={time.monotonic() - started:.2f}"
@@ -149,6 +155,10 @@ def main() -> None:
         print(f"\n{index}. {row['company_name']} ({row['corp_code']}) / {status}")
         print(f"   RRF      : {row['rrf_score']:.6f} (not a probability)")
         print(f"   ranks    : dense={row['dense_rank']} lexical={row['lexical_rank']}")
+        print(
+            f"   lexical  : matched_terms={row['lexical_score']} "
+            f"scope_ties={row['lexical_tie_count']}"
+        )
         print(f"   report   : {row['report_name']} / {row['receipt_date']}")
         print(f"   source   : {row['citation']['url']}")
         print(f"   chunk    : {row['chunk_id']}")

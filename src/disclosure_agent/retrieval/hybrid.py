@@ -6,6 +6,8 @@ No correction lineage is inferred from report titles or publication dates.
 
 from __future__ import annotations
 
+import hashlib
+import math
 import re
 import unicodedata
 from collections import Counter
@@ -118,11 +120,16 @@ def fuse_rankings(
     values: dict[str, dict[str, Any]] = {}
     for lane, rows in (("dense", dense), ("lexical", lexical)):
         seen = set()
-        for rank, row in enumerate(rows, 1):
+        for position, row in enumerate(rows, 1):
             key = str(row["chunk_id"])
             if key in seen:
                 continue
             seen.add(key)
+            # SQL computes lexical midranks over the full filtered scope, before LIMIT.
+            # Positional fallback preserves the standalone helper's existing interface.
+            rank = float(row.get("lexical_rank", position)) if lane == "lexical" else position
+            if not math.isfinite(rank) or rank < 1:
+                raise ValueError("Candidate rank must be finite and at least one")
             item = values.setdefault(
                 key,
                 {
@@ -132,13 +139,24 @@ def fuse_rankings(
                     "lexical_rank": None,
                     "similarity": None,
                     "lexical_score": None,
+                    "lexical_tie_count": None,
                 },
             )
             item["rrf_score"] += 1.0 / (k + rank)
             item[f"{lane}_rank"] = rank
             metric = "similarity" if lane == "dense" else "lexical_score"
             item[metric] = row.get(metric)
-    return sorted(values.values(), key=lambda r: (-r["rrf_score"], r["chunk_id"]))
+            if lane == "lexical":
+                item["lexical_tie_count"] = row.get("lexical_tie_count")
+    # IDs contain receipt dates. Hashes are only stable tie-breakers, not relevance scores.
+    return sorted(
+        values.values(),
+        key=lambda r: (
+            -r["rrf_score"],
+            hashlib.sha256(r["chunk_id"].encode()).hexdigest(),
+            r["chunk_id"],
+        ),
+    )
 
 
 def select_evidence(

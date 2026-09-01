@@ -81,6 +81,9 @@ def setup_cli(tmp_path, monkeypatch):
             "results": [],
             "warnings": [],
             "candidate_counts": {},
+            "lexical_terms": ["매출"],
+            "lexical_diagnostics": {"rank_policy": "scope_midrank"},
+            "timing_seconds": {"dense_initial": 0.1, "lexical": 0.2, "hydration": 0.03},
             "dense_strategy": "not_used" if kwargs["mode"] == "lexical" else "exact_filtered",
         }
 
@@ -141,7 +144,10 @@ def test_cli_hybrid_reads_file_key_and_embeds_only_query(setup_cli, monkeypatch,
     cli.main()
     assert provider_calls == ["매출"]
     assert captured["mode"] == "hybrid" and captured["vector"].startswith("[")
-    assert "file-key" not in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "file-key" not in output and "secret" not in output
+    assert "dense_initial=0.100s" in output and "lexical=0.200s" in output
+    assert "hydration=0.030s" in output and "scope_midrank" in output
 
 
 def test_cli_unknown_explicit_company_fails_before_provider(setup_cli, monkeypatch):

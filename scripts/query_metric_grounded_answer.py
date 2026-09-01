@@ -56,7 +56,8 @@ def main() -> None:
             fallback_year=args.year,
         )
         if resolution.status != "RESOLVED":
-            raise SystemExit(f"Metric target resolution failed: {resolution.reason or resolution.status}")
+            reason = resolution.reason or resolution.status
+            raise SystemExit(f"Metric target resolution failed: {reason}")
 
         result = MetricAnalysisService(session).analyze(
             metric=intent.metric,

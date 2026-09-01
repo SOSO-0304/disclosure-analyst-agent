@@ -47,13 +47,16 @@ def _formation_content(
     else:
         stage = "중간 정정"
 
+    contract_date = (
+        formation.contract_date.isoformat() if formation.contract_date else "확인되지 않음"
+    )
     return "\n".join(
         (
             f"회사: {finding.contract.company_name}",
             f"원계약 체결 연도: {result.year}",
             f"lifecycle 단계: {stage} ({step_index}/{step_count})",
             f"공시일: {formation.receipt_date.isoformat()}",
-            f"계약일: {formation.contract_date.isoformat() if formation.contract_date else '확인되지 않음'}",
+            f"계약일: {contract_date}",
             f"계약명: {formation.contract_name or '확인되지 않음'}",
             f"계약금액: {_amount(formation.contract_amount)}",
             f"거래상대방: {formation.counterparty or '확인되지 않음'}",
@@ -71,13 +74,16 @@ def _termination_content(
     finding: TerminatedContractFinding,
 ) -> str:
     contract = finding.contract
+    termination_date = (
+        contract.termination_date.isoformat() if contract.termination_date else "확인되지 않음"
+    )
     return "\n".join(
         (
             f"회사: {contract.company_name}",
             f"원계약 체결 연도: {result.year}",
             "lifecycle 단계: 계약 해지",
             f"계약명: {contract.contract_name or '확인되지 않음'}",
-            f"해지일: {contract.termination_date.isoformat() if contract.termination_date else '확인되지 않음'}",
+            f"해지일: {termination_date}",
             f"해지 사유: {contract.termination_reason or '확인되지 않음'}",
             f"해지 연결 상태: {contract.termination_link_status}",
             (
@@ -186,7 +192,8 @@ def render_deterministic_supply_contract_analysis(
             if step.formation.filing_id in evidence_labels_by_filing_id
         )
         termination_label = evidence_labels_by_filing_id.get(contract.termination_filing_id)
-        finding_labels = (*chain_labels, *((termination_label,) if termination_label else ()))
+        termination_labels = (termination_label,) if termination_label else ()
+        finding_labels = chain_labels + termination_labels
         lines.append(
             f"계약 {index}: {contract.contract_name or '계약명 확인 불가'} | "
             f"원계약일 {contract.contract_date.isoformat()} | "
@@ -221,8 +228,11 @@ def render_deterministic_supply_contract_analysis(
                 "관측 최신 공시 값을 최종값으로 단정하지 않음"
             )
         termination_suffix = f" [{termination_label}]" if termination_label else ""
+        termination_date = (
+            contract.termination_date.isoformat() if contract.termination_date else "일자 확인 불가"
+        )
         lines.append(
-            f"해지: {contract.termination_date.isoformat() if contract.termination_date else '일자 확인 불가'} | "
+            f"해지: {termination_date} | "
             f"사유 {contract.termination_reason or '확인 불가'}{termination_suffix}"
         )
 

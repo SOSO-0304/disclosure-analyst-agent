@@ -27,11 +27,15 @@ class MetricQueryIntent:
 
 
 _REVENUE_TERMS = ("매출액", "영업수익", "연결매출", "매출")
+_FACILITY_INVESTMENT_TERMS = ("설비투자", "신규시설투자", "시설투자")
 _OPERATION_TERMS: tuple[tuple[MetricOperation, tuple[str, ...]], ...] = (
     (MetricOperation.GROWTH_RATE, ("증감률", "증가율", "성장률", "증감율")),
     (MetricOperation.AVERAGE, ("평균",)),
     (MetricOperation.SUM, ("합계", "총합", "합산", "더한 값", "더하면")),
-    (MetricOperation.RANKING, ("순위", "상위", "가장 큰", "가장 높은", "최대")),
+    (
+        MetricOperation.RANKING,
+        ("순위", "상위", "가장 큰", "가장 높은", "최대", "더 큰", "더 높은"),
+    ),
     (MetricOperation.DIFFERENCE, ("차이", "비교", "얼마나 더", "격차")),
 )
 
@@ -47,17 +51,23 @@ def plan_metric_query(query: str) -> MetricQueryIntent:
     normalized = _normalize(query)
     matched_terms: list[str] = []
 
-    metric = None
     revenue_matches = [term for term in _REVENUE_TERMS if term in normalized]
-    if revenue_matches:
+    facility_matches = [term for term in _FACILITY_INVESTMENT_TERMS if term in normalized]
+    matched_terms.extend(revenue_matches)
+    matched_terms.extend(facility_matches)
+
+    metric = None
+    if revenue_matches and not facility_matches:
         metric = MetricName.REVENUE
-        matched_terms.extend(revenue_matches)
+    elif facility_matches and not revenue_matches:
+        metric = MetricName.FACILITY_INVESTMENT
 
     operation = MetricOperation.VALUES if metric is not None else None
     for candidate_operation, terms in _OPERATION_TERMS:
         matches = [term for term in terms if term in normalized]
         if matches:
-            operation = candidate_operation
+            if metric is not None:
+                operation = candidate_operation
             matched_terms.extend(matches)
             break
 

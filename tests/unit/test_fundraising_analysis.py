@@ -10,13 +10,13 @@ def _event(
     event_id: str,
     instrument_type: FundraisingInstrument,
     amount_krw: int | None,
-    issue_date: date = date(2025, 1, 2),
+    issue_date: date | None = None,
 ) -> FundraisingQueryResult:
     return FundraisingQueryResult(
         event_id=event_id,
         company_name="우리기술",
         instrument_type=instrument_type.value,
-        issue_date=issue_date,
+        issue_date=issue_date or date(2025, 1, 2),
         amount_krw=amount_krw,
         issuer_name="우리기술",
         security_name="제1회 사모 전환사채",

@@ -84,7 +84,7 @@ def analyze_metric_observations(
         )
 
     if operation is MetricOperation.DIFFERENCE:
-        derived_value = values[1] - values[0]
+        derived_value = abs(values[1] - values[0])
         return MetricAnalysisResult(
             status="ANSWERABLE",
             metric=metric,

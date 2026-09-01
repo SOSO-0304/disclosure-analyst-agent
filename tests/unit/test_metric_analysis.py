@@ -51,10 +51,10 @@ def test_average_is_decimal_and_not_llm_calculated() -> None:
     assert result.derived_value == Decimal("10.5")
 
 
-def test_difference_is_second_value_minus_first_value() -> None:
+def test_difference_is_absolute() -> None:
     observations = (
-        _observation("현대차", 2024, 175_000_000_000_000),
-        _observation("현대차", 2025, 186_000_000_000_000),
+        _observation("삼성전자", 2025, 333_605_938_000_000),
+        _observation("현대차", 2025, 186_254_472_000_000),
     )
 
     result = analyze_metric_observations(
@@ -64,7 +64,7 @@ def test_difference_is_second_value_minus_first_value() -> None:
     )
 
     assert result.status == "ANSWERABLE"
-    assert result.derived_value == Decimal(11_000_000_000_000)
+    assert result.derived_value == Decimal(147_351_466_000_000)
 
 
 def test_growth_rate_uses_first_value_as_baseline() -> None:

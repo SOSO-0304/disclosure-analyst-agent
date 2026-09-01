@@ -255,18 +255,19 @@ def extract_income_statement_heading_unit(
     *,
     row_count: int,
     column_count: int,
+    title_text: str | None = None,
 ) -> str | None:
     """Extract a unit from a compact income-statement heading table only.
 
-    DART often stores the statement title, reporting periods, company name, and
-    statement-wide unit in a small table immediately before the numeric table.
-    Restricting this fallback to a <=5x2 income-statement heading avoids reusing
-    unrelated table-body units such as per-share amounts.
+    DART may keep the statement title in the unit table itself or in the paragraph
+    immediately before it. The unit table must still be compact so unrelated
+    table-body units such as per-share amounts cannot be reused.
     """
 
     if row_count > 5 or column_count > 2:
         return None
-    if "손익계산서" not in _compact(text):
+    title_context = f"{_compact(title_text)}{_compact(text)}"
+    if "손익계산서" not in title_context:
         return None
     return extract_monetary_unit(text)
 
@@ -519,10 +520,23 @@ class RevenueRepository:
             table = self.session.get(SourceTableRow, previous.table_id)
             if table is None:
                 return None
+
+            title_text = None
+            before_previous = self.session.scalar(
+                select(SourceBlockRow).where(
+                    SourceBlockRow.document_id == block.document_id,
+                    SourceBlockRow.section_id == block.section_id,
+                    SourceBlockRow.block_order == block.block_order - 2,
+                )
+            )
+            if before_previous is not None:
+                title_text = before_previous.text_normalized or before_previous.text_raw
+
             return extract_income_statement_heading_unit(
                 table.normalized_text,
                 row_count=table.row_count,
                 column_count=table.column_count,
+                title_text=title_text,
             )
 
         text = previous.text_normalized or previous.text_raw or ""

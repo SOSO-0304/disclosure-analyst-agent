@@ -45,4 +45,5 @@ def test_build_grounded_answer_prompt_contains_question_and_evidence() -> None:
     assert "[E1] kind=sql_revenue" in prompt
     assert "연결기준 매출액: 100원" in prompt
     assert "fact_ids=fact:1" in prompt
-    assert "정규화된 최종 금액" in prompt
+    assert "사용자 표시 금액: X" in prompt
+    assert "유효한 인용은 Evidence 번호인 [E숫자]뿐" in prompt

@@ -28,6 +28,25 @@ def test_audited_consolidated_current_period_is_primary() -> None:
     assert is_primary_revenue_candidate(signals)
 
 
+def test_spaced_audited_consolidated_revenue_is_primary() -> None:
+    score, signals = score_revenue_fields(
+        label_text="Ⅰ. 매 출 액 > 30",
+        header_text="제 57 (당) 기",
+        path_text=(
+            "사업보고서 (2025.12) - 연결감사보고서 | "
+            "(첨부)연 결 재 무 제 표 | 제 57 (당) 기 | Ⅰ. 매 출 액 > 30"
+        ),
+        year=2025,
+    )
+
+    assert score > 0
+    assert "revenue_label" in signals
+    assert "audited_consolidated_financial_statements" in signals
+    assert "consolidated_context" in signals
+    assert "current_period_header" in signals
+    assert is_primary_revenue_candidate(signals)
+
+
 def _fiscal_term_candidate(
     *,
     fact_id: str,

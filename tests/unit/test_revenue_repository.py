@@ -9,6 +9,7 @@ from disclosure_agent.storage.revenue_repository import (
     RevenueRepository,
     _mark_current_fiscal_periods,
     extract_monetary_unit,
+    extract_monetary_unit_before_value,
     is_primary_revenue_candidate,
     scale_to_krw,
     score_revenue_fields,
@@ -131,6 +132,24 @@ def test_extract_and_scale_million_won_unit() -> None:
 
     assert unit == "백만원"
     assert scale_to_krw(Decimal("8099148"), unit) == 8_099_148_000_000
+
+
+def test_statement_unit_before_revenue_value_is_usable() -> None:
+    unit = extract_monetary_unit_before_value(
+        "연결손익계산서 (단위 : 원) I. 영업수익 8,099,147,815,086",
+        "8,099,147,815,086",
+    )
+
+    assert unit == "원"
+
+
+def test_row_specific_unit_after_revenue_value_is_not_usable() -> None:
+    unit = extract_monetary_unit_before_value(
+        "I. 매 출 액 333,605,938 ... 기본주당이익(단위 : 원) 6,605",
+        "333,605,938",
+    )
+
+    assert unit is None
 
 
 def test_table_body_unit_is_not_used_for_revenue_resolution() -> None:

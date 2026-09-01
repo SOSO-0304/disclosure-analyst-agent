@@ -227,6 +227,29 @@ def extract_monetary_unit(text: str | None) -> str | None:
     return match.group(1) if match is not None else None
 
 
+def extract_monetary_unit_before_value(text: str | None, raw_value: str | None) -> str | None:
+    """Return one unambiguous monetary unit that appears before the target value.
+
+    Statement-wide units are normally printed in the header area before numeric rows.
+    Row-specific units that appear later in the statement, such as EPS '(단위: 원)',
+    must not be applied retroactively to an earlier revenue value.
+    """
+
+    normalized_text = _normalize(text)
+    normalized_value = _normalize(raw_value)
+    if not normalized_text or not normalized_value:
+        return None
+
+    value_index = normalized_text.find(normalized_value)
+    if value_index < 0:
+        return None
+
+    units = {match.group(1) for match in UNIT_PATTERN.finditer(normalized_text[:value_index])}
+    if len(units) != 1:
+        return None
+    return next(iter(units))
+
+
 def scale_to_krw(value: Decimal, unit: str | None) -> int | None:
     """Scale a numeric source value to KRW only when the monetary unit is explicit."""
 
@@ -415,6 +438,10 @@ class RevenueRepository:
         caption_unit = extract_monetary_unit(caption_text)
         if caption_unit is not None:
             return caption_unit
+
+        statement_unit = extract_monetary_unit_before_value(table.normalized_text, candidate.raw_value)
+        if statement_unit is not None:
+            return statement_unit
 
         return self._immediate_previous_table_unit(block)
 

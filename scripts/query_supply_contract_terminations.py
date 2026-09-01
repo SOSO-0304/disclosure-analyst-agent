@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 
+from disclosure_agent.rendering.money import format_krw
 from disclosure_agent.services.supply_contract_analysis import (
     find_terminated_contracts_formed_in_year,
 )
@@ -28,6 +29,7 @@ def main() -> None:
     print("=== terminated contracts formed in year ===")
     print(f"year                     {result.year}")
     print(f"company                  {result.company_name or '-'}")
+    print(f"status                   {result.status}")
     print(f"exists                   {result.exists}")
     print(f"findings                 {len(result.findings)}")
 
@@ -38,16 +40,40 @@ def main() -> None:
         print(f"contract_date            {contract.contract_date.isoformat()}")
         print(f"contract_name            {contract.contract_name or '-'}")
         print(f"counterparty             {contract.counterparty or '-'}")
-        print(f"contract_amount          {contract.contract_amount or '-'}")
+        print(
+            "contract_amount          "
+            f"{format_krw(contract.contract_amount) if contract.contract_amount else '-'}"
+        )
         print(f"root_receipt             {contract.root_receipt_number}")
         print(f"latest_receipt           {contract.latest_formation_receipt_number}")
+        print(f"correction_count         {contract.correction_count}")
         print(f"lineage_complete         {contract.correction_lineage_complete}")
+        print(f"termination_link         {contract.termination_link_status}")
         print(
             "termination_date         "
             f"{contract.termination_date.isoformat() if contract.termination_date else '-'}"
         )
         print(f"termination_reason       {contract.termination_reason or '-'}")
         print(f"termination_receipt      {contract.termination_receipt_number}")
+
+        print("formation chain")
+        for step_index, step in enumerate(finding.formation_steps, start=1):
+            formation = step.formation
+            stage = "root" if not formation.is_correction else f"correction_{step_index - 1}"
+            if formation.is_latest_for_root:
+                stage += "_latest"
+            print(
+                f"  [{step_index}] {stage} filing={formation.receipt_number} "
+                f"receipt_date={formation.receipt_date.isoformat()}"
+            )
+            print(f"      contract_name       {formation.contract_name or '-'}")
+            print(
+                "      contract_amount     "
+                f"{format_krw(formation.contract_amount) if formation.contract_amount else '-'}"
+            )
+            print(f"      counterparty        {formation.counterparty or '-'}")
+            print(f"      lineage_status      {formation.lineage_status or '-'}")
+
         print("root formation evidence")
         for evidence in finding.root_formation_evidence:
             print(

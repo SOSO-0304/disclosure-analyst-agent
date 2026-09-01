@@ -64,21 +64,21 @@ def main() -> None:
         print(f"events                          {category.event_count}")
         print(f"amount                          {_category_amount(category)}")
         for index, event in enumerate(category.events, start=1):
+            amount = (
+                format_krw(event.amount_krw)
+                if event.amount_krw is not None
+                else "확인되지 않음"
+            )
             print(f"  event[{index}] id              {event.event_id}")
             print(f"  event[{index}] date            {event.issue_date.isoformat()}")
-            print(
-                f"  event[{index}] amount          "
-                f"{format_krw(event.amount_krw) if event.amount_krw is not None else '확인되지 않음'}"
-            )
+            print(f"  event[{index}] amount          {amount}")
             if event.security_name:
                 print(f"  event[{index}] security        {event.security_name}")
             if event.series:
                 print(f"  event[{index}] series          {event.series}")
             if event.issuance_method:
                 print(f"  event[{index}] method          {event.issuance_method}")
-            print(
-                f"  event[{index}] filing          {event.representative_filing_id}"
-            )
+            print(f"  event[{index}] filing          {event.representative_filing_id}")
             print(f"  event[{index}] sources         {event.source_count}")
 
 

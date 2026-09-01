@@ -77,10 +77,29 @@ def main() -> None:
         print(f"[{index}] {observation.target.company_name} {observation.target.year}")
         print(f"    status                      {observation.status}")
         print(f"    amount                      {format_krw(observation.amount_krw)}")
-        print(f"    filing                      {observation.filing_id or '-'}")
-        print(f"    fact                        {observation.fact_id or '-'}")
-        print(f"    raw                         {observation.raw_value or '-'}")
-        print(f"    unit                        {observation.resolved_unit or '-'}")
+        print(f"    sources                     {len(observation.sources)}")
+        if observation.sources:
+            for source_index, source in enumerate(observation.sources, start=1):
+                print(f"    source[{source_index}] filing           {source.filing_id}")
+                print(
+                    f"    source[{source_index}] amount           "
+                    f"{format_krw(source.amount_krw)}"
+                )
+                print(
+                    f"    source[{source_index}] facts            "
+                    f"{','.join(source.fact_ids) or '-'}"
+                )
+                print(
+                    f"    source[{source_index}] events           "
+                    f"{','.join(source.event_ids) or '-'}"
+                )
+                if source.description:
+                    print(f"    source[{source_index}] description      {source.description}")
+        else:
+            print(f"    filing                      {observation.filing_id or '-'}")
+            print(f"    fact                        {observation.fact_id or '-'}")
+            print(f"    raw                         {observation.raw_value or '-'}")
+            print(f"    unit                        {observation.resolved_unit or '-'}")
 
     print("\n=== ANALYSIS RESULT ===")
     print(f"status                          {result.status}")

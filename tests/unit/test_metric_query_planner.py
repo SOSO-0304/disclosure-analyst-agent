@@ -39,6 +39,28 @@ def test_ranking_query_is_detected() -> None:
     assert intent.operation is MetricOperation.RANKING
 
 
+def test_facility_investment_comparison_uses_ranking() -> None:
+    intent = plan_metric_query("A와 B 중 2025년 설비투자 규모가 더 큰 기업은 어디인가?")
+
+    assert intent.metric is MetricName.FACILITY_INVESTMENT
+    assert intent.operation is MetricOperation.RANKING
+    assert intent.is_analysis_query
+
+
+def test_new_facility_investment_term_is_detected() -> None:
+    intent = plan_metric_query("A기업의 2025년 신규시설투자 합계는?")
+
+    assert intent.metric is MetricName.FACILITY_INVESTMENT
+    assert intent.operation is MetricOperation.SUM
+
+
+def test_multiple_metric_families_fall_back_instead_of_guessing() -> None:
+    intent = plan_metric_query("2025년 매출액 대비 설비투자 비중은?")
+
+    assert intent.metric is None
+    assert intent.operation is None
+
+
 def test_unknown_metric_stays_unplanned_for_semantic_fallback() -> None:
     intent = plan_metric_query("삼성전자의 AI 반도체 사업 전략은?")
 

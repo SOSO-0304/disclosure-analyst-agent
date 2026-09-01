@@ -10,7 +10,9 @@ from disclosure_agent.llm.hcx_client import HCX_MODEL, HcxClient
 from disclosure_agent.llm.prompts import GROUNDING_SYSTEM_PROMPT, build_grounded_answer_prompt
 from disclosure_agent.retrieval.evidence_pack import render_evidence_pack
 from disclosure_agent.retrieval.fundraising_evidence import build_fundraising_evidence_pack
-from disclosure_agent.retrieval.fundraising_query_resolver import resolve_fundraising_query_target
+from disclosure_agent.retrieval.fundraising_query_resolver import (
+    resolve_fundraising_query_target,
+)
 from disclosure_agent.retrieval.source_references import (
     build_source_references,
     render_source_references,

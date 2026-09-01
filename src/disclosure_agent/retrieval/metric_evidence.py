@@ -70,10 +70,30 @@ def _source_content(
     lines = [
         f"회사: {observation.target.company_name}",
         f"연도: {observation.target.year}",
-        f"{_metric_label(metric)}: {format_krw(observation.amount_krw)}",
-        f"사용자 표시 금액: {format_krw(observation.amount_krw)}",
         f"근거 공시: {source_index}/{source_count}",
     ]
+
+    if metric is MetricName.FACILITY_INVESTMENT:
+        if source.amount_krw is not None:
+            lines.append(f"이 공시의 신규시설투자 결정 금액: {format_krw(source.amount_krw)}")
+        if source.description:
+            lines.append(f"대상: {source.description}")
+        if source.resolved_unit is not None:
+            lines.append(f"확정 단위: {source.resolved_unit}")
+        lines.append(
+            "해석 기준: 이 Evidence의 금액은 이 공시 한 건의 신규시설투자 결정 금액이며, "
+            "회사·연도 합계는 DETERMINISTIC ANALYSIS의 관측값을 사용해야 함. "
+            "실제 집행액을 의미하지 않음"
+        )
+        lines.append(f"조회 상태: {observation.status}")
+        return "\n".join(lines)
+
+    lines.extend(
+        (
+            f"{_metric_label(metric)}: {format_krw(observation.amount_krw)}",
+            f"사용자 표시 금액: {format_krw(observation.amount_krw)}",
+        )
+    )
     if source.amount_krw is not None:
         lines.append(f"이 공시의 기여 금액: {format_krw(source.amount_krw)}")
     if source.description:
@@ -85,11 +105,6 @@ def _source_content(
         lines.append(f"공시 원문 값: {source_value}")
     if source.resolved_unit is not None:
         lines.append(f"확정 단위: {source.resolved_unit}")
-    if metric is MetricName.FACILITY_INVESTMENT:
-        lines.append(
-            "해석 기준: 해당 연도에 의사결정일이 속하는 신규시설투자등 공시의 "
-            "최종 정정 반영 금액 합계이며 실제 집행액을 의미하지 않음"
-        )
     lines.append(f"조회 상태: {observation.status}")
     return "\n".join(lines)
 
@@ -103,11 +118,9 @@ def render_deterministic_metric_analysis(
     *,
     evidence_labels_by_observation: tuple[tuple[str, ...], ...],
 ) -> str:
-    """Render a calculation result that the LLM must use without recalculation."""
+    """Render calculation results that the LLM must use without recalculation."""
 
-    all_labels = tuple(
-        label for labels in evidence_labels_by_observation for label in labels
-    )
+    all_labels = tuple(label for labels in evidence_labels_by_observation for label in labels)
     lines = [
         f"metric: {result.metric.value}",
         f"operation: {result.operation.value}",
@@ -117,8 +130,19 @@ def render_deterministic_metric_analysis(
     if result.reason is not None:
         lines.append(f"reason: {result.reason}")
 
+    for index, observation in enumerate(result.observations):
+        labels = (
+            evidence_labels_by_observation[index]
+            if index < len(evidence_labels_by_observation)
+            else ()
+        )
+        lines.append(
+            f"관측값: {observation.target.company_name} {observation.target.year} "
+            f"{format_krw(observation.amount_krw)} {_refs(labels)}"
+        )
+
     if result.operation is MetricOperation.VALUES:
-        lines.append("계산 없음: 원본 관측값을 그대로 사용")
+        lines.append("계산 결과: 위 관측값을 그대로 사용")
     elif result.operation is MetricOperation.RANKING:
         for item in result.ranking:
             observation = item.observation
@@ -221,9 +245,7 @@ def build_metric_evidence_pack(
         if observation_index is not None:
             labels_by_observation[observation_index].append(f"E{item.rank}")
 
-    if result.status == "ANSWERABLE" and any(
-        not labels for labels in labels_by_observation
-    ):
+    if result.status == "ANSWERABLE" and any(not labels for labels in labels_by_observation):
         raise ValueError("answerable metric analysis requires evidence for every observation")
 
     analysis = render_deterministic_metric_analysis(

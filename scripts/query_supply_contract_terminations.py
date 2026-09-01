@@ -42,7 +42,7 @@ def main() -> None:
         print(f"counterparty             {contract.counterparty or '-'}")
         print(
             "contract_amount          "
-            f"{format_krw(contract.contract_amount) if contract.contract_amount else '-'}"
+            f"{format_krw(contract.contract_amount) if contract.contract_amount is not None else '-'}"
         )
         print(f"root_receipt             {contract.root_receipt_number}")
         print(f"latest_receipt           {contract.latest_formation_receipt_number}")
@@ -69,7 +69,7 @@ def main() -> None:
             print(f"      contract_name       {formation.contract_name or '-'}")
             print(
                 "      contract_amount     "
-                f"{format_krw(formation.contract_amount) if formation.contract_amount else '-'}"
+                f"{format_krw(formation.contract_amount) if formation.contract_amount is not None else '-'}"
             )
             print(f"      counterparty        {formation.counterparty or '-'}")
             print(f"      lineage_status      {formation.lineage_status or '-'}")

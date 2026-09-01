@@ -42,7 +42,7 @@ def _formula(operation: MetricOperation) -> str:
         MetricOperation.VALUES: "grounded values only",
         MetricOperation.SUM: "sum(values)",
         MetricOperation.AVERAGE: "sum(values) / count(values)",
-        MetricOperation.DIFFERENCE: "second - first",
+        MetricOperation.DIFFERENCE: "abs(second - first)",
         MetricOperation.GROWTH_RATE: "(second - first) / first * 100",
         MetricOperation.RANKING: "sort values descending",
     }
@@ -106,7 +106,8 @@ def main() -> None:
 
     if result.derived_value is not None:
         print("\n=== DERIVED RESULT ===")
-        print(f"value                           {_display_decimal(result.derived_value, operation)}")
+        displayed = _display_decimal(result.derived_value, operation)
+        print(f"value                           {displayed}")
 
     if result.ranking:
         print("\n=== RANKING ===")

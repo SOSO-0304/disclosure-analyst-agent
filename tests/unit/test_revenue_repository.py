@@ -1,8 +1,11 @@
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
+from disclosure_agent.storage.db_models import SourceBlockRow, SourceTableRow
 from disclosure_agent.storage.revenue_repository import (
     RevenueCandidate,
+    RevenueRepository,
     _mark_current_fiscal_periods,
     extract_monetary_unit,
     is_primary_revenue_candidate,
@@ -127,3 +130,47 @@ def test_extract_and_scale_million_won_unit() -> None:
 
     assert unit == "백만원"
     assert scale_to_krw(Decimal("8099148"), unit) == 8_099_148_000_000
+
+
+def test_table_body_unit_is_not_used_for_revenue_resolution() -> None:
+    candidate = _fiscal_term_candidate(
+        fact_id="samsung-revenue",
+        table_id="table:income-statement",
+        header_text="제 57 (당) 기",
+        raw_value="333,605,938",
+    )
+    candidate = RevenueCandidate(
+        **{
+            **candidate.__dict__,
+            "block_id": "block:income-statement",
+        }
+    )
+
+    block = SimpleNamespace()
+    table = SimpleNamespace(
+        caption_normalized=None,
+        caption_raw=None,
+        normalized_text=(
+            "Ⅰ. 매 출 액 333,605,938 ... "
+            "기본주당이익(단위 : 원) 6,605"
+        ),
+    )
+
+    class FakeSession:
+        def get(self, model, key):
+            if model is SourceBlockRow and key == candidate.block_id:
+                return block
+            if model is SourceTableRow and key == candidate.table_id:
+                return table
+            return None
+
+    class TestRevenueRepository(RevenueRepository):
+        def _immediate_previous_table_unit(self, block):
+            return None
+
+        def _nearby_blocks(self, block, *, same_section):
+            return ()
+
+    repository = TestRevenueRepository(FakeSession())
+
+    assert repository._resolve_unit(candidate) is None

@@ -1,6 +1,9 @@
+from datetime import date
 from decimal import Decimal
 
 from disclosure_agent.storage.revenue_repository import (
+    RevenueCandidate,
+    _mark_current_fiscal_periods,
     extract_monetary_unit,
     is_primary_revenue_candidate,
     scale_to_krw,
@@ -23,6 +26,69 @@ def test_audited_consolidated_current_period_is_primary() -> None:
     assert "audited_consolidated_financial_statements" in signals
     assert "current_period_header" in signals
     assert is_primary_revenue_candidate(signals)
+
+
+def _fiscal_term_candidate(
+    *,
+    fact_id: str,
+    table_id: str,
+    header_text: str,
+    raw_value: str,
+) -> RevenueCandidate:
+    return RevenueCandidate(
+        score=270,
+        company_name="현대차",
+        filing_id="periodic_20260310000000",
+        receipt_date=date(2026, 3, 10),
+        report_name="사업보고서 (2025.12)",
+        fact_id=fact_id,
+        block_id=f"block:{fact_id}",
+        table_id=table_id,
+        row_index=0,
+        column_index=0,
+        label_text="I. 매출액",
+        header_text=header_text,
+        path_text="사업보고서 - 연결감사보고서 | (첨부)연 결 재 무 제 표 | I. 매출액",
+        raw_value=raw_value,
+        numeric_value=Decimal(raw_value.replace(",", "")),
+        unit_raw=None,
+        currency=None,
+        signals=(
+            "revenue_label",
+            "audited_consolidated_financial_statements",
+            "consolidated_context",
+        ),
+    )
+
+
+def test_highest_fiscal_term_in_same_statement_table_is_current_period() -> None:
+    current = _fiscal_term_candidate(
+        fact_id="current",
+        table_id="table:1",
+        header_text="제58기",
+        raw_value="186,254,472",
+    )
+    prior = _fiscal_term_candidate(
+        fact_id="prior",
+        table_id="table:1",
+        header_text="제57기",
+        raw_value="175,231,153",
+    )
+    unrelated = _fiscal_term_candidate(
+        fact_id="unrelated",
+        table_id="table:2",
+        header_text="제99기",
+        raw_value="1",
+    )
+
+    marked = _mark_current_fiscal_periods((current, prior, unrelated))
+    by_fact_id = {candidate.fact_id: candidate for candidate in marked}
+
+    assert "current_fiscal_period_header" in by_fact_id["current"].signals
+    assert is_primary_revenue_candidate(by_fact_id["current"].signals)
+    assert "current_fiscal_period_header" not in by_fact_id["prior"].signals
+    assert not is_primary_revenue_candidate(by_fact_id["prior"].signals)
+    assert "current_fiscal_period_header" not in by_fact_id["unrelated"].signals
 
 
 def test_notes_candidate_is_not_primary() -> None:

@@ -7,8 +7,10 @@ from disclosure_agent.domain.fundraising_analysis import (
     FundraisingEventObservation,
 )
 from disclosure_agent.extractors.fundraising import FundraisingInstrument
+from disclosure_agent.llm.prompts import GROUNDING_SYSTEM_PROMPT, build_grounded_answer_prompt
 from disclosure_agent.retrieval import fundraising_query_resolver
 from disclosure_agent.retrieval.company_resolver import CompanyIdentity
+from disclosure_agent.retrieval.evidence_pack import EvidencePack
 from disclosure_agent.retrieval.fundraising_evidence import (
     render_deterministic_fundraising_analysis,
 )
@@ -150,3 +152,21 @@ def test_rendered_analysis_keeps_empty_types_distinct_from_zero_amount() -> None
     assert "유형: 유상증자 | 확인된 이벤트 0건 | 금액 0원으로 해석하지 않음" in rendered
     assert "유형: 신주인수권부사채(BW) | 확인된 이벤트 0건" in rendered
     assert "유형: 교환사채(EB) | 확인된 이벤트 0건" in rendered
+
+
+def test_fundraising_prompt_requires_local_citations() -> None:
+    assert "자금조달 유형별 건수나 합계를 말할 때" in GROUNDING_SYSTEM_PROMPT
+    assert "자금조달 개별 이벤트의 날짜, 금액, 회차를 말할 때" in GROUNDING_SYSTEM_PROMPT
+    assert "포괄 문장에만 몰아서 인용하지 마세요" in GROUNDING_SYSTEM_PROMPT
+
+    pack = EvidencePack(
+        query="우리기술 2025년 자금조달",
+        retrieval_status="NO_MATCH",
+        items=(),
+        total_chars=0,
+    )
+    prompt = build_grounded_answer_prompt(pack.query, pack)
+
+    assert "자금조달 유형별 건수와 합계 문장에는 해당 유형의 모든 Evidence" in prompt
+    assert "자금조달 개별 이벤트의 날짜·금액·회차 항목에는 해당 이벤트 Evidence" in prompt
+    assert "답변 끝의 포괄 문장 하나에 몰아 넣어 로컬 인용을 대체하지 마세요" in prompt

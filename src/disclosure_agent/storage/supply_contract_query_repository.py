@@ -35,11 +35,29 @@ class TerminatedContractRecord:
     contract_name: str | None
     contract_amount: int | None
     counterparty: str | None
+    correction_count: int
     correction_lineage_complete: bool
     termination_filing_id: str
     termination_receipt_number: str
     termination_date: date | None
     termination_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SupplyContractFormationRecord:
+    """One formation/correction filing in an in-corpus contract chain."""
+
+    filing_id: str
+    receipt_number: str
+    receipt_date: date
+    is_correction: bool
+    predecessor_filing_id: str | None
+    lineage_status: str | None
+    is_latest_for_root: bool
+    contract_date: date | None
+    contract_name: str | None
+    contract_amount: int | None
+    counterparty: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +96,17 @@ class SupplyContractQueryRepository:
         rows = self.session.execute(statement).mappings().all()
         return tuple(TerminatedContractRecord(**dict(row)) for row in rows)
 
+    def formation_chain_for_root(
+        self,
+        root_filing_id: str,
+    ) -> tuple[SupplyContractFormationRecord, ...]:
+        """Return every persisted formation/correction step for one contract root."""
+
+        rows = self.session.execute(
+            _formation_chain_statement(root_filing_id=root_filing_id)
+        ).mappings().all()
+        return tuple(SupplyContractFormationRecord(**dict(row)) for row in rows)
+
     def evidence_for_event(
         self,
         event_id: str,
@@ -105,6 +134,27 @@ class SupplyContractQueryRepository:
         statement = statement.order_by(EventEvidenceRow.attribute)
         rows = self.session.execute(statement).mappings().all()
         return tuple(EvidenceRecord(**dict(row)) for row in rows)
+
+
+def _formation_chain_statement(*, root_filing_id: str) -> Select[tuple[object, ...]]:
+    return (
+        select(
+            SupplyContractEventRow.filing_id.label("filing_id"),
+            DisclosureRow.receipt_number.label("receipt_number"),
+            DisclosureRow.receipt_date.label("receipt_date"),
+            DisclosureRow.is_correction.label("is_correction"),
+            SupplyContractEventRow.predecessor_filing_id.label("predecessor_filing_id"),
+            SupplyContractEventRow.lineage_status.label("lineage_status"),
+            SupplyContractEventRow.is_latest_for_root.label("is_latest_for_root"),
+            SupplyContractEventRow.contract_date.label("contract_date"),
+            SupplyContractEventRow.contract_name.label("contract_name"),
+            SupplyContractEventRow.contract_amount.label("contract_amount"),
+            SupplyContractEventRow.counterparty.label("counterparty"),
+        )
+        .join(DisclosureRow, DisclosureRow.filing_id == SupplyContractEventRow.filing_id)
+        .where(SupplyContractEventRow.root_filing_id == root_filing_id)
+        .order_by(DisclosureRow.receipt_date, DisclosureRow.receipt_number)
+    )
 
 
 def _terminated_contracts_statement(
@@ -135,6 +185,7 @@ def _terminated_contracts_statement(
             latest_event.contract_name.label("contract_name"),
             latest_event.contract_amount.label("contract_amount"),
             latest_event.counterparty.label("counterparty"),
+            SupplyContractLifecycleRow.correction_count.label("correction_count"),
             SupplyContractLifecycleRow.correction_lineage_complete.label(
                 "correction_lineage_complete"
             ),

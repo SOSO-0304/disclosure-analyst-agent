@@ -206,9 +206,7 @@ def _mark_current_fiscal_periods(
         if len(periods) < 2:
             continue
         current_period = max(periods)
-        current_fact_ids.update(
-            fact_id for fact_id, period in rows if period == current_period
-        )
+        current_fact_ids.update(fact_id for fact_id, period in rows if period == current_period)
 
     return tuple(
         replace(

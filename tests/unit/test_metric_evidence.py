@@ -88,6 +88,8 @@ def test_sum_pack_keeps_source_items_and_separate_deterministic_result() -> None
     assert pack.items[1].fact_ids == ("fact:2",)
     assert "=== DETERMINISTIC ANALYSIS ===" in rendered
     assert "derived_from: [E1],[E2]" in rendered
+    assert "관측값: A 2025 100 원 [E1]" in rendered
+    assert "관측값: B 2025 200 원 [E2]" in rendered
     assert "deterministic_result: 300 원" in rendered
 
 
@@ -173,8 +175,14 @@ def test_facility_investment_observation_preserves_all_source_filings() -> None:
     assert pack.items[0].event_ids == ("event:1",)
     assert pack.items[1].event_ids == ("event:2",)
     assert pack.items[2].event_ids == ("event:3",)
-    assert "해당 연도 의사결정·공시 기준 신규시설투자 결정 금액 합계" in rendered
+    assert "이 공시의 신규시설투자 결정 금액: 100 원" in pack.items[0].content_text
+    assert "이 공시의 신규시설투자 결정 금액: 200 원" in pack.items[1].content_text
+    assert "300 원" not in pack.items[0].content_text
+    assert "300 원" not in pack.items[1].content_text
+    assert "회사·연도 합계는 DETERMINISTIC ANALYSIS의 관측값을 사용해야 함" in rendered
     assert "실제 집행액을 의미하지 않음" in rendered
     assert "derived_from: [E1],[E2],[E3]" in rendered
+    assert "관측값: A 2025 300 원 [E1],[E2]" in rendered
+    assert "관측값: B 2025 50 원 [E3]" in rendered
     assert "1위: A 2025 300 원 [E1],[E2]" in rendered
     assert "2위: B 2025 50 원 [E3]" in rendered

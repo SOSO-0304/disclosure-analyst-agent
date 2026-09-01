@@ -7,6 +7,7 @@ from disclosure_agent.domain.metrics import (
     MetricObservation,
     MetricOperation,
     MetricRank,
+    MetricSource,
     MetricTarget,
 )
 from disclosure_agent.retrieval.evidence_pack import render_evidence_pack
@@ -44,10 +45,18 @@ class FakeSession:
                 block_id="block:2",
                 table_id="table:2",
             ),
+            "fact:3": SimpleNamespace(
+                fact_id="fact:3",
+                document_id="doc:3",
+                section_id="section:3",
+                block_id="block:3",
+                table_id="table:3",
+            ),
         }
         self.filings = {
             "filing:1": SimpleNamespace(report_name="사업보고서 (2025.12)"),
-            "filing:2": SimpleNamespace(report_name="사업보고서 (2025.12)"),
+            "filing:2": SimpleNamespace(report_name="신규시설투자등"),
+            "filing:3": SimpleNamespace(report_name="신규시설투자등"),
         }
 
     def get(self, model, key):
@@ -101,3 +110,69 @@ def test_ranking_analysis_points_each_rank_to_its_source_evidence() -> None:
 
     assert "1위: B 2025 200 원 [E2]" in rendered
     assert "2위: A 2025 100 원 [E1]" in rendered
+
+
+def test_facility_investment_observation_preserves_all_source_filings() -> None:
+    first = MetricObservation(
+        target=MetricTarget(company_name="A", year=2025),
+        status="ANSWERABLE",
+        amount_krw=300,
+        sources=(
+            MetricSource(
+                filing_id="filing:1",
+                fact_ids=("fact:1",),
+                event_ids=("event:1",),
+                amount_krw=100,
+                resolved_unit="원",
+                description="1공장 증설",
+            ),
+            MetricSource(
+                filing_id="filing:2",
+                fact_ids=("fact:2",),
+                event_ids=("event:2",),
+                amount_krw=200,
+                resolved_unit="원",
+                description="2공장 증설",
+            ),
+        ),
+    )
+    second = MetricObservation(
+        target=MetricTarget(company_name="B", year=2025),
+        status="ANSWERABLE",
+        amount_krw=50,
+        sources=(
+            MetricSource(
+                filing_id="filing:3",
+                fact_ids=("fact:3",),
+                event_ids=("event:3",),
+                amount_krw=50,
+                resolved_unit="원",
+                description="신규 설비",
+            ),
+        ),
+    )
+    result = MetricAnalysisResult(
+        status="ANSWERABLE",
+        metric=MetricName.FACILITY_INVESTMENT,
+        operation=MetricOperation.RANKING,
+        observations=(first, second),
+        ranking=(
+            MetricRank(position=1, observation=first),
+            MetricRank(position=2, observation=second),
+        ),
+    )
+
+    pack = build_metric_evidence_pack(
+        FakeSession(),
+        query="A와 B 중 2025년 설비투자 규모가 더 큰 기업은?",
+        result=result,
+    )
+    rendered = render_evidence_pack(pack)
+
+    assert len(pack.items) == 3
+    assert pack.items[0].event_ids == ("event:1",)
+    assert pack.items[1].event_ids == ("event:2",)
+    assert pack.items[2].event_ids == ("event:3",)
+    assert "derived_from: [E1],[E2],[E3]" in rendered
+    assert "1위: A 2025 300 원 [E1],[E2]" in rendered
+    assert "2위: B 2025 50 원 [E3]" in rendered

@@ -17,6 +17,10 @@ from disclosure_agent.retrieval.company_resolver import (
 from disclosure_agent.storage.db_models import SourceCompanyRow
 
 _YEAR_PATTERN = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
+_COMPANY_PLACEHOLDER_PATTERNS = (
+    re.compile(r"(?:회사|기업)\s*[A-Z](?![A-Za-z0-9])", re.IGNORECASE),
+    re.compile(r"(?<![A-Za-z0-9])[A-Z]\s*사(?![A-Za-z0-9])", re.IGNORECASE),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +123,12 @@ def extract_query_years(query: str) -> tuple[int, ...]:
     return tuple(dict.fromkeys(years))
 
 
+def has_company_placeholders(query: str) -> bool:
+    """Return whether the query contains unresolved example-style company placeholders."""
+
+    return any(pattern.search(query) is not None for pattern in _COMPANY_PLACEHOLDER_PATTERNS)
+
+
 def resolve_metric_targets(
     session: Session,
     *,
@@ -132,15 +142,21 @@ def resolve_metric_targets(
     source_companies = _source_companies(session)
     companies = list(match_company_mentions(query, source_companies))
     years = list(extract_query_years(query))
+    contains_placeholders = has_company_placeholders(query)
 
-    if not companies and fallback_company:
+    if not companies and fallback_company and not contains_placeholders:
         company = resolve_company(session, fallback_company)
         if company is not None:
             companies.append(company)
     if not years and fallback_year is not None:
         years.append(fallback_year)
 
-    if operation is MetricOperation.RANKING and not companies and len(years) == 1:
+    if (
+        operation is MetricOperation.RANKING
+        and not companies
+        and len(years) == 1
+        and not contains_placeholders
+    ):
         companies = list(source_companies)
 
     company_names = tuple(company.listed_name for company in companies)
@@ -152,7 +168,11 @@ def resolve_metric_targets(
             targets=(),
             companies=company_names,
             years=year_values,
-            reason="company_unresolved",
+            reason=(
+                "company_placeholder_unresolved"
+                if contains_placeholders
+                else "company_unresolved"
+            ),
         )
     if not years:
         return MetricTargetResolution(

@@ -17,6 +17,9 @@ GROUNDING_SYSTEM_PROMPT = """당신은 공시 문서만을 근거로 답하는 �
 9. Evidence에 '사용자 표시 금액: X'가 있으면 최종 답변에는 X만 사용하세요. '사용자 표시 금액'이라는 항목명은 절대 쓰지 마세요.
 10. '사용자 표시 금액', '정규화된 최종 금액', '정규화 원화 금액', 'status' 같은 Evidence 항목명이나 내부 필드명은 최종 답변 문장에 절대 노출하지 마세요.
 11. 답변을 제출하기 전에 내부 필드명이 문장에 포함되어 있는지 검사하고, 있으면 해당 필드명만 제거한 자연스러운 문장으로 고치세요.
+12. DETERMINISTIC ANALYSIS가 있으면 계산을 다시 하지 말고 deterministic_result 또는 순위 결과를 그대로 사용하세요.
+13. DETERMINISTIC ANALYSIS의 derived_from에 여러 Evidence가 있으면 계산 결과를 말할 때 해당 Evidence를 모두 인용하세요.
+14. 'metric', 'operation', 'derived_from', 'deterministic_result' 같은 내부 계산 필드명은 최종 답변에 노출하지 마세요.
 
 금액 답변 예시:
 - 잘못된 답변: '삼성전자의 매출액은 사용자 표시 금액으로 333조 6,059억 3,800만 원입니다 [E1].'
@@ -45,7 +48,9 @@ def build_grounded_answer_prompt(query: str, pack: EvidencePack) -> str:
             "- '사용자 표시 금액: X'가 있으면 X만 최종 금액으로 사용하세요.",
             "- '사용자 표시 금액'이라는 표현 자체는 답변에 쓰지 마세요.",
             "- 원문 값과 단위는 근거 확인용이며, 둘을 직접 이어 붙여 최종 금액 표현을 만들지 마세요.",
+            "- DETERMINISTIC ANALYSIS가 있으면 해당 계산 결과를 그대로 사용하고 직접 재계산하지 마세요.",
+            "- derived_from에 표시된 모든 Evidence를 계산 결과의 근거로 인용하세요.",
             "- Evidence의 항목명이나 내부 필드명을 답변 문장에 그대로 쓰지 마세요.",
-            "- 최종 문장에 '사용자 표시 금액', '정규화', 'status'가 들어가면 제거하고 자연스럽게 다시 쓰세요.",
+            "- 최종 문장에 '사용자 표시 금액', '정규화', 'status', 'derived_from', 'deterministic_result'가 들어가면 제거하고 자연스럽게 다시 쓰세요.",
         )
     )

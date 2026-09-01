@@ -297,6 +297,8 @@ class RevenueRepository:
 
         chosen = top[0]
         unit = self._resolve_unit(chosen)
+        if unit is None:
+            unit = self._resolve_corroborated_unit(chosen, candidates)
         amount_krw = scale_to_krw(chosen.numeric_value, unit)
         status = "ANSWERABLE" if amount_krw is not None else "PARTIAL"
         return RevenueQueryResult(
@@ -377,6 +379,29 @@ class RevenueRepository:
         return _mark_current_fiscal_periods(tuple(candidates))
 
     def _resolve_unit(self, candidate: RevenueCandidate) -> str | None:
+        local_unit = self._resolve_local_unit(candidate)
+        if local_unit is not None:
+            return local_unit
+
+        block = self.session.get(SourceBlockRow, candidate.block_id)
+        if block is None:
+            return None
+
+        for nearby in self._nearby_blocks(block, same_section=True):
+            unit = extract_monetary_unit(self._unit_text_from_block(nearby))
+            if unit is not None:
+                return unit
+
+        for nearby in self._nearby_blocks(block, same_section=False):
+            unit = extract_monetary_unit(self._unit_text_from_block(nearby))
+            if unit is not None:
+                return unit
+
+        return None
+
+    def _resolve_local_unit(self, candidate: RevenueCandidate) -> str | None:
+        """Resolve a unit only from context tightly attached to one fact/table."""
+
         direct_unit = extract_monetary_unit(candidate.unit_raw)
         if direct_unit is not None:
             return direct_unit
@@ -391,21 +416,43 @@ class RevenueRepository:
         if caption_unit is not None:
             return caption_unit
 
-        previous_unit = self._immediate_previous_table_unit(block)
-        if previous_unit is not None:
-            return previous_unit
+        return self._immediate_previous_table_unit(block)
 
-        for nearby in self._nearby_blocks(block, same_section=True):
-            unit = extract_monetary_unit(self._unit_text_from_block(nearby))
+    def _resolve_corroborated_unit(
+        self,
+        chosen: RevenueCandidate,
+        candidates: tuple[RevenueCandidate, ...],
+    ) -> str | None:
+        """Use one consistently grounded unit from matching summary revenue facts."""
+
+        revenue_signals = {
+            "exact_revenue_label",
+            "statement_revenue_label",
+            "revenue_label",
+        }
+        units: set[str] = set()
+
+        for candidate in candidates:
+            if candidate.fact_id == chosen.fact_id:
+                continue
+            if candidate.filing_id != chosen.filing_id:
+                continue
+            if candidate.numeric_value != chosen.numeric_value:
+                continue
+
+            signals = set(candidate.signals)
+            if "summary_financial_context" not in signals:
+                continue
+            if not signals & revenue_signals:
+                continue
+
+            unit = self._resolve_local_unit(candidate)
             if unit is not None:
-                return unit
+                units.add(unit)
 
-        for nearby in self._nearby_blocks(block, same_section=False):
-            unit = extract_monetary_unit(self._unit_text_from_block(nearby))
-            if unit is not None:
-                return unit
-
-        return None
+        if len(units) != 1:
+            return None
+        return next(iter(units))
 
     def _immediate_previous_table_unit(self, block: SourceBlockRow) -> str | None:
         previous = self.session.scalar(

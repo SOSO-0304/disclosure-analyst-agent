@@ -11,6 +11,7 @@ class MetricName(StrEnum):
     """Structured metrics supported by the generic analysis layer."""
 
     REVENUE = "revenue"
+    FACILITY_INVESTMENT = "facility_investment"
 
 
 class MetricOperation(StrEnum):
@@ -33,12 +34,26 @@ class MetricTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricSource:
+    """One public-disclosure source contributing to a metric observation."""
+
+    filing_id: str
+    fact_ids: tuple[str, ...] = ()
+    event_ids: tuple[str, ...] = ()
+    amount_krw: int | None = None
+    raw_value: str | None = None
+    resolved_unit: str | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MetricObservation:
-    """One grounded metric value plus its source lineage."""
+    """One grounded metric value plus all source lineage used to derive it."""
 
     target: MetricTarget
     status: str
     amount_krw: int | None
+    sources: tuple[MetricSource, ...] = ()
     filing_id: str | None = None
     fact_id: str | None = None
     raw_value: str | None = None

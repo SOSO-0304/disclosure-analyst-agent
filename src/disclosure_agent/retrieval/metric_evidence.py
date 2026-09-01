@@ -39,7 +39,7 @@ def _metric_label(metric: MetricName) -> str:
     if metric is MetricName.REVENUE:
         return "연결기준 매출액"
     if metric is MetricName.FACILITY_INVESTMENT:
-        return "연간 설비투자 규모"
+        return "해당 연도 의사결정·공시 기준 신규시설투자 결정 금액 합계"
     return metric.value
 
 
@@ -85,6 +85,11 @@ def _source_content(
         lines.append(f"공시 원문 값: {source_value}")
     if source.resolved_unit is not None:
         lines.append(f"확정 단위: {source.resolved_unit}")
+    if metric is MetricName.FACILITY_INVESTMENT:
+        lines.append(
+            "해석 기준: 해당 연도에 의사결정일이 속하는 신규시설투자등 공시의 "
+            "최종 정정 반영 금액 합계이며 실제 집행액을 의미하지 않음"
+        )
     lines.append(f"조회 상태: {observation.status}")
     return "\n".join(lines)
 

@@ -8,6 +8,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from disclosure_agent.rendering.money import format_krw
 from disclosure_agent.retrieval.evidence_pack import EvidenceItem
 from disclosure_agent.retrieval.query_router import QueryRoute, RetrievalRail
 from disclosure_agent.retrieval.reranker import RerankedSemanticHit, rerank_semantic_hits
@@ -173,11 +174,15 @@ class HybridRetriever:
         fact = self.session.get(GenericFactRow, candidate.fact_id)
         document_id = fact.document_id if fact is not None else None
         section_id = fact.section_id if fact is not None else None
+        source_value = candidate.raw_value
+        if result.resolved_unit is not None:
+            source_value = f"{source_value}{result.resolved_unit}"
         content = "\n".join(
             (
                 f"status: {result.status}",
                 f"연결기준 매출액: {_money(result.amount_krw)}",
-                f"원문 값: {candidate.raw_value}",
+                f"사용자 표시 금액: {format_krw(result.amount_krw)}",
+                f"공시 원문 값: {source_value}",
                 f"확정 단위: {result.resolved_unit or '확인되지 않음'}",
                 f"항목: {candidate.label_text}",
                 f"헤더: {candidate.header_text}",

@@ -8,6 +8,7 @@ import re
 
 from disclosure_agent.config import get_settings
 from disclosure_agent.llm.clova_embedding_client import ClovaEmbeddingClient
+from disclosure_agent.llm.grounded_generation import generate_grounded_answer
 from disclosure_agent.llm.hcx_client import HCX_MODEL, HcxClient
 from disclosure_agent.llm.prompts import GROUNDING_SYSTEM_PROMPT, build_grounded_answer_prompt
 from disclosure_agent.retrieval.company_resolver import resolve_company
@@ -126,9 +127,11 @@ def main() -> None:
 
     prompt = build_grounded_answer_prompt(args.query, pack)
     with HcxClient(api_key) as client:
-        answer = client.answer(
+        answer = generate_grounded_answer(
+            client,
             system_prompt=GROUNDING_SYSTEM_PROMPT,
             user_prompt=prompt,
+            evidence_count=len(pack.items),
             max_completion_tokens=args.max_completion_tokens,
         )
 

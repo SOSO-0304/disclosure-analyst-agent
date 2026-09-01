@@ -1,7 +1,13 @@
+from types import SimpleNamespace
+
+from disclosure_agent.domain.metrics import MetricOperation
+from disclosure_agent.retrieval import metric_target_resolver
 from disclosure_agent.retrieval.company_resolver import CompanyIdentity
 from disclosure_agent.retrieval.metric_target_resolver import (
     extract_query_years,
+    has_company_placeholders,
     match_company_mentions,
+    resolve_metric_targets,
 )
 
 
@@ -58,3 +64,45 @@ def test_years_are_not_extracted_from_longer_digit_sequences() -> None:
     years = extract_query_years("접수번호 120251과 2025년 공시를 확인해줘")
 
     assert years == (2025,)
+
+
+def test_example_style_company_placeholders_are_detected() -> None:
+    assert has_company_placeholders("회사A와 회사B 중 2025년 설비투자 규모가 더 큰 기업은?")
+    assert has_company_placeholders("기업 A와 기업 B를 비교해줘")
+    assert has_company_placeholders("A사와 B사 중 어디가 더 큰가?")
+    assert not has_company_placeholders("HMM과 한화오션의 2025년 설비투자를 비교해줘")
+
+
+def test_placeholder_ranking_does_not_expand_to_all_companies(monkeypatch) -> None:
+    companies = (
+        _company("1", "HMM", "에이치엠엠"),
+        _company("2", "한화오션", "한화오션"),
+    )
+    monkeypatch.setattr(metric_target_resolver, "_source_companies", lambda session: companies)
+
+    resolution = resolve_metric_targets(
+        SimpleNamespace(),
+        query="회사A와 회사B 중 2025년 설비투자 규모가 더 큰 기업은 어디인가?",
+        operation=MetricOperation.RANKING,
+    )
+
+    assert resolution.status == "UNRESOLVED"
+    assert resolution.targets == ()
+    assert resolution.reason == "company_placeholder_unresolved"
+
+
+def test_global_ranking_without_named_companies_still_expands(monkeypatch) -> None:
+    companies = (
+        _company("1", "HMM", "에이치엠엠"),
+        _company("2", "한화오션", "한화오션"),
+    )
+    monkeypatch.setattr(metric_target_resolver, "_source_companies", lambda session: companies)
+
+    resolution = resolve_metric_targets(
+        SimpleNamespace(),
+        query="2025년 설비투자 규모가 가장 큰 기업 순위는?",
+        operation=MetricOperation.RANKING,
+    )
+
+    assert resolution.status == "RESOLVED"
+    assert [target.company_name for target in resolution.targets] == ["HMM", "한화오션"]

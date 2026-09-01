@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from disclosure_agent.storage.db_models import (
@@ -101,7 +101,7 @@ def score_revenue_fields(
     elif compact_label.startswith("I영업수익"):
         score += 110
         signals.append("statement_revenue_label")
-    elif "매출액" in label or "영업수익" in label:
+    elif "매출액" in compact_label or "영업수익" in compact_label:
         score += 80
         signals.append("revenue_label")
 
@@ -312,7 +312,7 @@ class RevenueRepository:
     def _read_candidates(self, *, company_name: str, year: int) -> tuple[RevenueCandidate, ...]:
         text_filter = or_(
             *[
-                column.ilike(f"%{term}%")
+                func.replace(column, " ", "").ilike(f"%{term}%")
                 for column in (
                     GenericFactRow.label_text,
                     GenericFactRow.header_text,

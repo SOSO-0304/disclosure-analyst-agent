@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from disclosure_agent.domain.metrics import (
@@ -12,9 +14,17 @@ from disclosure_agent.domain.metrics import (
     MetricObservation,
     MetricOperation,
     MetricRank,
+    MetricSource,
     MetricTarget,
 )
+from disclosure_agent.storage.facility_investment_query_repository import (
+    FacilityInvestmentQueryRepository,
+)
 from disclosure_agent.storage.revenue_repository import RevenueRepository
+from disclosure_agent.storage.source_event_models import (
+    FacilityInvestmentEventRow,
+    SourceEventEvidenceRow,
+)
 
 
 def analyze_metric_observations(
@@ -164,6 +174,8 @@ class MetricAnalysisService:
     def _read_metric(self, *, metric: MetricName, target: MetricTarget) -> MetricObservation:
         if metric is MetricName.REVENUE:
             return self._read_revenue(target)
+        if metric is MetricName.FACILITY_INVESTMENT:
+            return self._read_facility_investment(target)
         raise ValueError(f"unsupported metric: {metric}")
 
     def _read_revenue(self, target: MetricTarget) -> MetricObservation:
@@ -172,12 +184,86 @@ class MetricAnalysisService:
             year=target.year,
         )
         candidate = result.candidate
+        sources = ()
+        if candidate is not None:
+            sources = (
+                MetricSource(
+                    filing_id=candidate.filing_id,
+                    fact_ids=(candidate.fact_id,),
+                    amount_krw=result.amount_krw,
+                    raw_value=candidate.raw_value,
+                    resolved_unit=result.resolved_unit,
+                    description=candidate.label_text,
+                ),
+            )
         return MetricObservation(
             target=target,
             status=result.status,
             amount_krw=result.amount_krw,
+            sources=sources,
             filing_id=candidate.filing_id if candidate is not None else None,
             fact_id=candidate.fact_id if candidate is not None else None,
             raw_value=candidate.raw_value if candidate is not None else None,
             resolved_unit=result.resolved_unit,
+        )
+
+    def _read_facility_investment(self, target: MetricTarget) -> MetricObservation:
+        rows = FacilityInvestmentQueryRepository(self.session).list_latest(
+            company_names=(target.company_name,),
+            decision_date_from=date(target.year, 1, 1),
+            decision_date_to=date(target.year, 12, 31),
+            limit=1000,
+        )
+        if not rows:
+            return MetricObservation(
+                target=target,
+                status="NO_MATCH",
+                amount_krw=None,
+            )
+
+        sources: list[MetricSource] = []
+        complete = True
+        total_krw = 0
+
+        for row in rows:
+            event = self.session.get(FacilityInvestmentEventRow, row.latest_filing_id)
+            if event is None:
+                complete = False
+                event_ids: tuple[str, ...] = ()
+                fact_ids: tuple[str, ...] = ()
+            else:
+                event_ids = (event.event_id,)
+                fact_ids = tuple(
+                    self.session.scalars(
+                        select(SourceEventEvidenceRow.fact_id)
+                        .where(SourceEventEvidenceRow.event_id == event.event_id)
+                        .order_by(SourceEventEvidenceRow.attribute)
+                    ).all()
+                )
+
+            amount = row.investment_amount_krw
+            if not row.lineage_complete or amount is None or event is None:
+                complete = False
+            if amount is not None:
+                total_krw += amount
+
+            sources.append(
+                MetricSource(
+                    filing_id=row.latest_filing_id,
+                    fact_ids=fact_ids,
+                    event_ids=event_ids,
+                    amount_krw=amount,
+                    resolved_unit="원" if amount is not None else None,
+                    description=row.investment_subject or row.investment_type,
+                )
+            )
+
+        return MetricObservation(
+            target=target,
+            status="ANSWERABLE" if complete else "PARTIAL",
+            amount_krw=total_krw if complete else None,
+            sources=tuple(sources),
+            filing_id=sources[0].filing_id if len(sources) == 1 else None,
+            fact_id=sources[0].fact_ids[0] if len(sources) == 1 and sources[0].fact_ids else None,
+            resolved_unit="원" if complete else None,
         )

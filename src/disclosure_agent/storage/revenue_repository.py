@@ -250,6 +250,27 @@ def extract_monetary_unit_before_value(text: str | None, raw_value: str | None) 
     return next(iter(units))
 
 
+def extract_income_statement_heading_unit(
+    text: str | None,
+    *,
+    row_count: int,
+    column_count: int,
+) -> str | None:
+    """Extract a unit from a compact income-statement heading table only.
+
+    DART often stores the statement title, reporting periods, company name, and
+    statement-wide unit in a small table immediately before the numeric table.
+    Restricting this fallback to a <=5x2 income-statement heading avoids reusing
+    unrelated table-body units such as per-share amounts.
+    """
+
+    if row_count > 5 or column_count > 2:
+        return None
+    if "손익계산서" not in _compact(text):
+        return None
+    return extract_monetary_unit(text)
+
+
 def scale_to_krw(value: Decimal, unit: str | None) -> int | None:
     """Scale a numeric source value to KRW only when the monetary unit is explicit."""
 
@@ -491,7 +512,21 @@ class RevenueRepository:
         )
         if previous is None:
             return None
-        return extract_monetary_unit(self._unit_text_from_block(previous))
+
+        if previous.block_type == "table":
+            if previous.table_id is None:
+                return None
+            table = self.session.get(SourceTableRow, previous.table_id)
+            if table is None:
+                return None
+            return extract_income_statement_heading_unit(
+                table.normalized_text,
+                row_count=table.row_count,
+                column_count=table.column_count,
+            )
+
+        text = previous.text_normalized or previous.text_raw or ""
+        return extract_monetary_unit(text)
 
     def _nearby_blocks(
         self,

@@ -8,6 +8,7 @@ from disclosure_agent.storage.revenue_repository import (
     RevenueCandidate,
     RevenueRepository,
     _mark_current_fiscal_periods,
+    extract_income_statement_heading_unit,
     extract_monetary_unit,
     extract_monetary_unit_before_value,
     is_primary_revenue_candidate,
@@ -147,6 +148,29 @@ def test_row_specific_unit_after_revenue_value_is_not_usable() -> None:
     unit = extract_monetary_unit_before_value(
         "I. 매 출 액 333,605,938 ... 기본주당이익(단위 : 원) 6,605",
         "333,605,938",
+    )
+
+    assert unit is None
+
+
+def test_five_row_income_statement_heading_can_supply_unit() -> None:
+    unit = extract_income_statement_heading_unit(
+        (
+            "연 결 포 괄 손 익 계 산 서 제 31 기 2025년 1월 1일부터 "
+            "2025년 12월 31일까지 주식회사 카카오와 그 종속기업 (단위 : 원)"
+        ),
+        row_count=5,
+        column_count=2,
+    )
+
+    assert unit == "원"
+
+
+def test_non_income_statement_heading_does_not_supply_revenue_unit() -> None:
+    unit = extract_income_statement_heading_unit(
+        "연 결 재 무 상 태 표 제 31 기 주식회사 카카오와 그 종속기업 (단위 : 원)",
+        row_count=5,
+        column_count=2,
     )
 
     assert unit is None

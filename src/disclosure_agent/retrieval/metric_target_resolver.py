@@ -16,6 +16,8 @@ from disclosure_agent.retrieval.company_resolver import (
 )
 from disclosure_agent.storage.db_models import SourceCompanyRow
 
+_YEAR_PATTERN = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
+
 
 @dataclass(frozen=True, slots=True)
 class MetricTargetResolution:
@@ -113,7 +115,7 @@ def match_company_mentions(
 def extract_query_years(query: str) -> tuple[int, ...]:
     """Extract unique four-digit years in first-appearance order."""
 
-    years = [int(match.group(1)) for match in re.finditer(r"\b(20\d{2})\b", query)]
+    years = [int(match.group(1)) for match in _YEAR_PATTERN.finditer(query)]
     return tuple(dict.fromkeys(years))
 
 

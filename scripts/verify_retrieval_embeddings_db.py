@@ -7,6 +7,7 @@ import argparse
 
 from sqlalchemy import text
 
+from disclosure_agent.retrieval.runtime import add_runtime_arguments, runtime_from_args
 from disclosure_agent.storage.database import get_engine
 
 
@@ -16,9 +17,13 @@ def _status(ok: bool) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database-url", required=True)
+    add_runtime_arguments(parser)
     args = parser.parse_args()
-    engine = get_engine(args.database_url)
+    try:
+        runtime = runtime_from_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    engine = get_engine(runtime.database_url)
     with engine.connect() as connection, connection.begin():
         connection.execute(text("SET TRANSACTION READ ONLY"))
         active_count = int(

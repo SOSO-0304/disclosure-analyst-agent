@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -36,6 +35,7 @@ from disclosure_agent.retrieval.evaluation import (
     score_ranking,
     select_balanced_targets,
 )
+from disclosure_agent.retrieval.runtime import add_runtime_arguments, runtime_from_args
 from disclosure_agent.storage.database import get_engine
 
 SAMPLE_SQL = """
@@ -360,7 +360,7 @@ def _examples(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database-url", required=True)
+    add_runtime_arguments(parser)
     parser.add_argument("--api-key-env", default="CLOVASTUDIO_API_KEY")
     parser.add_argument("--sample-per-stratum", type=int, default=5)
     parser.add_argument(
@@ -392,6 +392,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
+    try:
+        runtime = runtime_from_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    args.database_url = runtime.database_url
     if min(
         args.sample_per_stratum,
         args.max_targets,
@@ -449,7 +454,7 @@ def main() -> None:
         print("database writes                 0")
         return
 
-    api_key = os.environ.get(args.api_key_env, "")
+    api_key = runtime.api_key
     if not api_key:
         raise SystemExit(f"Environment variable {args.api_key_env} is missing")
     embeddings, query_telemetry = _embed_queries(

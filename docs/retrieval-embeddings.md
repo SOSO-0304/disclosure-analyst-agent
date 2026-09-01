@@ -238,6 +238,9 @@ python scripts/verify_retrieval_embeddings_db.py `
 
 ## 검색 smoke test
 
+이후 회사·접수일 필터와 hybrid 검색, `.env.perf` 자동 로딩은
+[검색 실행 가이드](retrieval-search.md)를 따릅니다. 새 임베딩이나 migration은 필요 없습니다.
+
 ```powershell
 python scripts/search_retrieval.py `
   "최근 공급계약의 계약상대와 계약금액을 알려줘" `

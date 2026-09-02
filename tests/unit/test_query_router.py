@@ -7,6 +7,12 @@ def test_revenue_query_uses_sql_only() -> None:
     assert route.rails == (RetrievalRail.REVENUE,)
 
 
+def test_revenue_difference_query_uses_sql_only() -> None:
+    route = route_query("삼성전자와 현대차의 2025년 연결기준 매출액 차이는 얼마인가?")
+
+    assert route.rails == (RetrievalRail.REVENUE,)
+
+
 def test_fundraising_query_uses_fundraising_sql() -> None:
     route = route_query("2025년 유상증자와 CB 자금조달 내역을 유형별로 정리해줘")
 
@@ -24,6 +30,14 @@ def test_facility_plan_query_keeps_semantic_rail() -> None:
 
 def test_terminated_contract_query_uses_contract_sql() -> None:
     route = route_query("2025년에 체결한 공급계약 중 이후 계약 해지된 건이 있는가?")
+
+    assert route.rails == (RetrievalRail.SUPPLY_CONTRACT,)
+
+
+def test_termination_reason_query_stays_on_contract_sql() -> None:
+    route = route_query(
+        "두산퓨얼셀의 2023년 연료전지 시스템 공급 계약은 언제 해지됐고 이유는 무엇이야?"
+    )
 
     assert route.rails == (RetrievalRail.SUPPLY_CONTRACT,)
 

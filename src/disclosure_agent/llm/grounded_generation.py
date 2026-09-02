@@ -188,7 +188,8 @@ def generate_grounded_answer(
     ]
     if evidence_report_years:
         repair_lines.append(
-            "- 연도별 사업보고서 비교에서는 각 연도 단락에 같은 연도의 사업보고서 Evidence만 인용하세요."
+            "- 연도별 사업보고서 비교에서는 각 연도 단락에 같은 연도의 "
+            "사업보고서 Evidence만 인용하세요."
         )
     repair_prompt = "\n".join(repair_lines)
     repaired = client.answer(

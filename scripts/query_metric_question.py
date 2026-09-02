@@ -106,7 +106,10 @@ def main() -> None:
     if result.reason is not None:
         print(f"reason                          {result.reason}")
     if result.derived_value is not None:
-        print(f"value                           {_display_decimal(result.derived_value, result.operation)}")
+        print(
+            f"value                           "
+            f"{_display_decimal(result.derived_value, result.operation)}"
+        )
     if result.ranking:
         for item in result.ranking:
             observation = item.observation

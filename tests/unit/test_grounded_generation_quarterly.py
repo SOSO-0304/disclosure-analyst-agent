@@ -145,6 +145,48 @@ text:
     assert "세부 투자 계획" not in answer.content
 
 
+def test_grounded_generation_preserves_safe_details_when_repair_is_too_sparse() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2026년 1분기 분기보고서를 기준으로 주요 투자 계획을 정리해줘
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk
+text:
+2026년 1분기 11.2조원의 시설투자가 이루어졌습니다.
+메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진하였습니다.
+시스템 반도체 Advanced 노드 CAPA 확보 투자도 진행 중입니다.
+투자 효율성 제고에도 집중할 계획입니다.
+(단위 : 억원)
+구 분 투자기간 투자액 DS 2026.01~2026.03 101,927 SDC 5,881 기타 4,524 합계 112,332
+"""
+    original = """주요 투자 계획은 다음과 같습니다:
+- 11.2조원의 시설투자가 이루어졌습니다 [E1].
+- 메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진하고 있습니다 [E1].
+- 시스템 반도체 Advanced 노드 CAPA 확보 투자도 진행 중입니다 [E1].
+- 투자 효율성 제고에도 집중할 계획입니다 [E1].
+
+세부 투자 계획은 다음과 같습니다:
+- DS 부문에 101,927억원을 투자합니다 [E1].
+
+이와 같은 투자 계획은 2026년 1분기 동안 진행될 예정입니다 [E1].
+"""
+    sparse_repair = "11.2조원의 시설투자가 이루어졌습니다 [E1]."
+    client = _FakeClient([original, sparse_repair])
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=1,
+    )
+
+    assert "Advanced 노드 CAPA" in answer.content
+    assert "투자 효율성" in answer.content
+    assert "지속 추진" in answer.content
+    assert "101,927억원을 투자합니다" not in answer.content
+    assert "진행될 예정" not in answer.content
+    assert "공시에서 확인되는 투자 관련 내용" in answer.content
+
+
 def test_grounded_generation_returns_safe_fallback_when_all_claims_are_removed() -> None:
     prompt = """=== EVIDENCE PACK ===
 [E1]

@@ -67,6 +67,19 @@ text:
     assert unsupported_temporal_claims(content, user_prompt=prompt) == (content,)
 
 
+def test_temporal_validator_rejects_present_tense_for_completed_table_amount() -> None:
+    prompt = """=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk
+text:
+2026년 1분기 11.2조원의 시설투자가 이루어졌습니다.
+(단위 : 억원)
+구 분 투자기간 투자액 DS 2026.01~2026.03 101,927 SDC 5,881 합계 107,808
+"""
+    content = "- DS 부문 신·증설 및 보완에 101,927억원을 투자합니다 [E1]."
+
+    assert unsupported_temporal_claims(content, user_prompt=prompt) == (content,)
+
+
 def test_plan_structure_rejects_completed_table_amounts_under_plan_heading() -> None:
     prompt = """사용자 질문:
 삼성전자의 2026년 1분기 분기보고서를 기준으로 주요 투자 계획을 정리해줘

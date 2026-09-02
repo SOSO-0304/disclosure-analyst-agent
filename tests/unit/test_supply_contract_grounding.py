@@ -211,7 +211,7 @@ def test_user_answer_has_deterministic_local_citations() -> None:
     assert "이후 해지된 계약이 1건 확인됩니다 [E1][E4]" in rendered
     assert "정정공시가 2회 확인됩니다 [E2][E3]" in rendered
     assert "계약금액 722억 원, 거래상대방 ㈜태영건설입니다 [E3]" in rendered
-    assert "PF금융약정 체결 무산에 따른 해지' 사유로 해지되었습니다 [E4]" in rendered
+    assert "해지 사유는 'PF금융약정 체결 무산에 따른 해지'입니다 [E4]" in rendered
     assert "[DETERMINISTIC ANALYSIS]" not in rendered
 
 

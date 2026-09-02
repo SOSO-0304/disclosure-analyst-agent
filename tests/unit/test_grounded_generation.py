@@ -146,6 +146,49 @@ DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
     assert "자릿수나 쉼표를 바꾸지 말고" in client.calls[1]
 
 
+def test_generate_grounded_answer_drops_bad_money_lines_after_failed_repair() -> None:
+    prompt = """=== EVIDENCE PACK ===
+[E1]
+text:
+(시설투자 현황) 52.7조원의 시설투자가 이루어졌습니다.
+(단위 : 억원)
+DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
+투자 효율성 제고에도 집중할 계획입니다.
+"""
+    client = _FakeClient(
+        [
+            "\n".join(
+                (
+                    "2025년 시설투자는 52.7조원입니다 [E1].",
+                    "- DS 부문: 47,476억원 [E1]",
+                    "투자 효율성 제고에 집중할 계획입니다 [E1].",
+                )
+            ),
+            "\n".join(
+                (
+                    "2025년 시설투자는 52.7조원입니다 [E1].",
+                    "- DS 부문: 47,476억원 [E1]",
+                    "- SDC: 2,797억원 [E1]",
+                    "투자 효율성 제고에 집중할 계획입니다 [E1].",
+                )
+            ),
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=1,
+    )
+
+    assert "52.7조원" in answer.content
+    assert "투자 효율성 제고" in answer.content
+    assert "47,476억원" not in answer.content
+    assert "2,797억원" not in answer.content
+    assert len(client.calls) == 2
+
+
 def test_generate_grounded_answer_does_not_retry_valid_citations() -> None:
     client = _FakeClient(["매출액은 100억 원입니다 [E1]."])
 

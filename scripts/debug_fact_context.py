@@ -101,7 +101,8 @@ def main() -> None:
                 if item.block_type == "table" and item.table_id:
                     nearby_table = session.get(SourceTableRow, item.table_id)
                     if nearby_table is not None:
-                        print(f"  caption={nearby_table.caption_normalized or nearby_table.caption_raw!r}")
+                        caption = nearby_table.caption_normalized or nearby_table.caption_raw
+                        print(f"  caption={caption!r}")
                         print(f"  rows={nearby_table.row_count} cols={nearby_table.column_count}")
                         print(f"  text={nearby_table.normalized_text[:1200]!r}")
                 else:

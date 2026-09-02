@@ -9,6 +9,7 @@ from typing import Protocol
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
 
 _EVIDENCE_CITATION = re.compile(r"\[E(\d+)\]")
+_MISSING_EVIDENCE_CITATION = "[EVIDENCE_CITATION_REQUIRED]"
 _INTERNAL_CITATION = re.compile(
     r"\[(?:DETERMINISTIC[ _]ANALYSIS|DETERMINISTIC_RESULT|DERIVED_FROM|ANALYSIS_TYPE)\]",
     re.IGNORECASE,
@@ -86,7 +87,7 @@ class GroundedAnswerClient(Protocol):
 
 
 def invalid_citation_tokens(content: str, *, evidence_count: int) -> tuple[str, ...]:
-    """Return internal or out-of-range citation tokens that must not reach users."""
+    """Return missing, internal, or out-of-range citation tokens."""
 
     invalid: list[str] = []
     for match in _INTERNAL_CITATION.finditer(content):
@@ -94,12 +95,16 @@ def invalid_citation_tokens(content: str, *, evidence_count: int) -> tuple[str, 
         if token not in invalid:
             invalid.append(token)
 
-    for match in _EVIDENCE_CITATION.finditer(content):
+    evidence_matches = tuple(_EVIDENCE_CITATION.finditer(content))
+    for match in evidence_matches:
         number = int(match.group(1))
         if number < 1 or number > evidence_count:
             token = match.group(0)
             if token not in invalid:
                 invalid.append(token)
+
+    if evidence_count > 0 and not evidence_matches:
+        invalid.append(_MISSING_EVIDENCE_CITATION)
     return tuple(invalid)
 
 
@@ -533,6 +538,7 @@ def generate_grounded_answer(
         "",
         "근거 정합성 재작성 요구사항:",
         f"- 사용할 수 있는 인용은 [E1]부터 [E{evidence_count}]까지뿐입니다.",
+        "- Evidence를 사용한 사실 답변에는 최소 하나 이상의 유효한 [E번호] 인용을 붙이세요.",
         "- [DETERMINISTIC ANALYSIS] 같은 내부 섹션명은 인용으로 쓰지 마세요.",
         "- Evidence가 뒷받침하는 사실관계는 유지하되 잘못된 인용이나 숫자 표기만 고치세요.",
         "- 구체적 사실을 결론에서 다시 말하면 그 문장에도 해당 [E번호]를 다시 붙이세요.",

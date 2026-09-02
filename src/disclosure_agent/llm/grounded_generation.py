@@ -66,6 +66,7 @@ _ABSENCE_PHRASES = (
     "확인된 이벤트 없음",
     "확인되지 않습니다",
 )
+_NEUTRAL_INVESTMENT_HEADING = "공시에서 확인되는 투자 관련 내용은 다음과 같습니다:"
 
 
 class GroundedAnswerClient(Protocol):
@@ -340,7 +341,7 @@ def _strip_lines_with_grounding_violations(
     *,
     user_prompt: str,
 ) -> str:
-    """Drop lines that still contain unsupported grounded claims or misleading headings."""
+    """Drop unsupported claims and neutralize misleading investment headings."""
 
     unsupported_money = set(unsupported_money_literals(content, user_prompt=user_prompt))
     unsupported_temporal = set(unsupported_temporal_claims(content, user_prompt=user_prompt))
@@ -350,10 +351,14 @@ def _strip_lines_with_grounding_violations(
     if not unsupported_money and not unsupported_temporal and not unsupported_structure:
         return content
 
-    retained = []
+    retained: list[str] = []
     for line in content.splitlines():
         stripped = line.strip()
-        if stripped in unsupported_temporal or stripped in unsupported_structure:
+        if stripped in unsupported_temporal:
+            continue
+        if stripped in unsupported_structure:
+            indent = line[: len(line) - len(line.lstrip())]
+            retained.append(f"{indent}{_NEUTRAL_INVESTMENT_HEADING}")
             continue
         if any(token in line for token in unsupported_money):
             continue
@@ -397,6 +402,50 @@ def _all_invalid_grounding_tokens(
     return tuple(dict.fromkeys(invalid))
 
 
+def _conservative_candidate(
+    answer: HcxAnswerResult,
+    *,
+    user_prompt: str,
+    evidence_count: int,
+    evidence_report_years: dict[int, int] | None,
+) -> HcxAnswerResult | None:
+    """Return a safe local degradation candidate without another model call."""
+
+    content = _strip_lines_with_grounding_violations(
+        answer.content,
+        user_prompt=user_prompt,
+    )
+    if not content:
+        return None
+    candidate = replace(answer, content=content)
+    remaining = _all_invalid_grounding_tokens(
+        candidate.content,
+        user_prompt=user_prompt,
+        evidence_count=evidence_count,
+        evidence_report_years=evidence_report_years,
+    )
+    return candidate if not remaining else None
+
+
+def _content_size(content: str) -> int:
+    return len(re.sub(r"\s+", "", content))
+
+
+def _prefer_non_degraded_repair(
+    repaired: HcxAnswerResult,
+    conservative_original: HcxAnswerResult | None,
+) -> HcxAnswerResult:
+    """Avoid a grounded repair that discards most otherwise-safe answer content."""
+
+    if conservative_original is None:
+        return repaired
+    original_size = _content_size(conservative_original.content)
+    repaired_size = _content_size(repaired.content)
+    if original_size and repaired_size * 2 < original_size:
+        return conservative_original
+    return repaired
+
+
 def generate_grounded_answer(
     client: GroundedAnswerClient,
     *,
@@ -406,7 +455,7 @@ def generate_grounded_answer(
     max_completion_tokens: int = 1200,
     evidence_report_years: dict[int, int] | None = None,
 ) -> HcxAnswerResult:
-    """Generate, repair once, then conservatively drop unsupported grounded claims."""
+    """Generate, repair once, then conservatively preserve the safest useful answer."""
 
     if evidence_count < 1:
         raise ValueError("evidence_count must be at least 1")
@@ -425,6 +474,13 @@ def generate_grounded_answer(
     )
     if not invalid:
         return answer
+
+    conservative_original = _conservative_candidate(
+        answer,
+        user_prompt=user_prompt,
+        evidence_count=evidence_count,
+        evidence_report_years=evidence_report_years,
+    )
 
     repair_lines = [
         user_prompt,
@@ -461,30 +517,24 @@ def generate_grounded_answer(
         evidence_report_years=evidence_report_years,
     )
     if not remaining:
-        return repaired
+        return _prefer_non_degraded_repair(repaired, conservative_original)
 
-    conservative_content = _strip_lines_with_grounding_violations(
-        repaired.content,
-        user_prompt=user_prompt,
-    )
-    conservative = replace(repaired, content=conservative_content)
-    remaining = _all_invalid_grounding_tokens(
-        conservative.content,
+    conservative_repaired = _conservative_candidate(
+        repaired,
         user_prompt=user_prompt,
         evidence_count=evidence_count,
         evidence_report_years=evidence_report_years,
     )
-    if conservative.content and not remaining:
-        return conservative
-    if not conservative.content and not remaining:
-        return replace(
-            repaired,
-            content=(
-                "검색된 공시는 있으나, 근거 정합성 검증을 통과한 서술형 답변을 "
-                "안전하게 구성하지 못했습니다. 근거 공시를 직접 확인해 주세요."
-            ),
-            finish_reason="grounding_exhausted",
-        )
+    if conservative_repaired is not None:
+        return _prefer_non_degraded_repair(conservative_repaired, conservative_original)
+    if conservative_original is not None:
+        return conservative_original
 
-    joined = ", ".join(remaining)
-    raise RuntimeError(f"HCX returned invalid grounded tokens after repair: {joined}")
+    return replace(
+        repaired,
+        content=(
+            "검색된 공시는 있으나, 근거 정합성 검증을 통과한 서술형 답변을 "
+            "안전하게 구성하지 못했습니다. 근거 공시를 직접 확인해 주세요."
+        ),
+        finish_reason="grounding_exhausted",
+    )

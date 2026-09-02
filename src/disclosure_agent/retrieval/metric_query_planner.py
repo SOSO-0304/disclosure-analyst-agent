@@ -31,12 +31,12 @@ _FACILITY_INVESTMENT_TERMS = ("설비투자", "신규시설투자", "시설투�
 _OPERATION_TERMS: tuple[tuple[MetricOperation, tuple[str, ...]], ...] = (
     (MetricOperation.GROWTH_RATE, ("증감률", "증가율", "성장률", "증감율")),
     (MetricOperation.AVERAGE, ("평균",)),
-    (MetricOperation.SUM, ("합계", "총합", "합산", "더한 값", "더하면")),
     (
         MetricOperation.RANKING,
         ("순위", "상위", "가장 큰", "가장 높은", "최대", "더 큰", "더 높은"),
     ),
     (MetricOperation.DIFFERENCE, ("차이", "비교", "얼마나 더", "격차")),
+    (MetricOperation.SUM, ("합계", "총합", "합산", "더한 값", "더하면")),
 )
 
 

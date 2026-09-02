@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from disclosure_agent.storage.retrieval_embedding_repository import SemanticSearchHit
 
 _TOKEN_RE = re.compile(r"[0-9A-Za-z가-힣]+")
+_SECTION_LINE = re.compile(r"(?m)^섹션:\s*(?P<title>.+)$")
 _SUFFIXES = (
     "으로부터",
     "에서부터",
@@ -95,6 +96,25 @@ _BUSINESS_CHANGE_ANCHORS = (
     "영업이익",
     "부문 매출",
 )
+_INVESTMENT_EXCLUDED_SECTIONS = (
+    "배당",
+    "주주환원",
+    "위험관리",
+    "파생거래",
+    "회사의 연혁",
+    "주주에 관한",
+)
+_BUSINESS_CHANGE_EXCLUDED_SECTIONS = (
+    "회사의 연혁",
+    "배당",
+    "주주에 관한",
+    "임원 및 직원",
+    "이사회",
+    "감사제도",
+    "위험관리",
+    "파생거래",
+    "계열회사",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,17 +134,32 @@ def _strip_suffix(token: str) -> str:
     return token
 
 
+def _section_title(lowered_text: str) -> str:
+    match = _SECTION_LINE.search(lowered_text)
+    return match.group("title").strip() if match is not None else ""
+
+
+def _section_is_excluded(title: str, excluded_terms: tuple[str, ...]) -> bool:
+    return any(term in title for term in excluded_terms)
+
+
 def _matches_query_focus(query: str, lowered_text: str) -> bool:
     """Apply conservative content gates for narrow narrative disclosure questions."""
 
     compact = "".join(query.lower().split())
+    section_title = _section_title(lowered_text)
+
     if "투자계획" in compact or "투자목적" in compact:
+        if _section_is_excluded(section_title, _INVESTMENT_EXCLUDED_SECTIONS):
+            return False
         return any(anchor in lowered_text for anchor in _INVESTMENT_PLAN_ANCHORS)
 
     business_change_query = "사업변화" in compact or (
         "핵심사업" in compact and "비교" in compact
     )
     if business_change_query:
+        if _section_is_excluded(section_title, _BUSINESS_CHANGE_EXCLUDED_SECTIONS):
+            return False
         return any(anchor in lowered_text for anchor in _BUSINESS_CHANGE_ANCHORS)
 
     return True

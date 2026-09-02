@@ -61,9 +61,21 @@ def _result(
 def test_repository_regression_cases_load() -> None:
     cases = load_regression_cases(Path("evals/regression_cases.jsonl"))
 
-    assert len(cases) >= 10
+    assert len(cases) == 14
     assert len({case.case_id for case in cases}) == len(cases)
-    assert {case.tier for case in cases} >= {"smoke", "challenge"}
+    assert {case.tier for case in cases} == {"smoke", "challenge"}
+
+
+def test_repository_extended_cases_load_and_ids_do_not_overlap() -> None:
+    baseline = load_regression_cases(Path("evals/regression_cases.jsonl"))
+    extended = load_regression_cases(Path("evals/extended_cases.jsonl"))
+    baseline_ids = {case.case_id for case in baseline}
+    extended_ids = {case.case_id for case in extended}
+
+    assert len(extended) == 30
+    assert {case.tier for case in extended} == {"extended"}
+    assert baseline_ids.isdisjoint(extended_ids)
+    assert len(baseline) + len(extended) == 44
 
 
 def test_evaluate_answer_passes_multi_year_grounded_case() -> None:

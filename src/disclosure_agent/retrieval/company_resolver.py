@@ -108,7 +108,10 @@ def match_company_mentions(
         key=lambda item: (-item[2], item[0], item[3].corp_code),
     ):
         start, end, _, _ = mention
-        overlaps = any(start < occupied_end and occupied_start < end for occupied_start, occupied_end in occupied)
+        overlaps = any(
+            start < occupied_end and occupied_start < end
+            for occupied_start, occupied_end in occupied
+        )
         if overlaps:
             continue
         selected.append(mention)

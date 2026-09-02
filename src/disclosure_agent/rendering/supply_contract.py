@@ -89,11 +89,11 @@ def render_supply_contract_termination_answer(
             )
 
         termination_date = (
-            contract.termination_date.isoformat() if contract.termination_date else "해지일 확인 불가"
+            contract.termination_date.isoformat() if contract.termination_date else "확인 불가"
         )
-        reason = contract.termination_reason or "해지 사유 확인 불가"
+        reason = contract.termination_reason or "확인 불가"
         lines.append(
-            f"이 계약은 {termination_date}에 '{reason}' 사유로 해지되었습니다 "
+            f"이 계약은 {termination_date}에 해지되었으며, 해지 사유는 '{reason}'입니다 "
             f"[{termination_label}]."
         )
 

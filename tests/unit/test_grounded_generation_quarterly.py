@@ -83,7 +83,8 @@ text:
 
 def test_explicit_exclusion_rejects_completed_investment_amounts() -> None:
     prompt = """사용자 질문:
-삼성전자의 2026년 1분기 분기보고서에서 이미 집행된 투자 금액은 빼고, 현재 진행 중이거나 앞으로 계획한 투자 방향만 정리해줘
+삼성전자의 2026년 1분기 분기보고서에서 이미 집행된 투자 금액은 빼고,
+현재 진행 중이거나 앞으로 계획한 투자 방향만 정리해줘
 
 === EVIDENCE PACK ===
 [E1] kind=semantic_chunk

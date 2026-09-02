@@ -28,6 +28,15 @@ def test_terminated_contract_query_uses_contract_sql() -> None:
     assert route.rails == (RetrievalRail.SUPPLY_CONTRACT,)
 
 
+def test_natural_terminated_contract_phrase_uses_contract_sql() -> None:
+    route = route_query(
+        "두산퓨얼셀이 2023년에 체결한 주요 계약 중 이후 해지된 계약이 존재하는가?"
+    )
+
+    assert route.rails == (RetrievalRail.SUPPLY_CONTRACT,)
+    assert "해지된 계약" in route.matched_terms
+
+
 def test_business_change_query_falls_back_to_semantic() -> None:
     route = route_query("2023년과 2025년 사업보고서의 핵심 사업 변화를 비교해줘")
 

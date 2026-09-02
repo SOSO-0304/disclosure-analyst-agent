@@ -107,7 +107,9 @@ def _round_robin(groups: tuple[tuple[T, ...], ...], *, limit: int) -> tuple[T, .
     return tuple(merged)
 
 
-def _dedupe_evidence_items(groups: tuple[tuple[EvidenceItem, ...], ...]) -> tuple[EvidenceItem, ...]:
+def _dedupe_evidence_items(
+    groups: tuple[tuple[EvidenceItem, ...], ...],
+) -> tuple[EvidenceItem, ...]:
     items: list[EvidenceItem] = []
     seen: set[str] = set()
     for group in groups:
@@ -134,7 +136,8 @@ def _grounding_prompt_for_query(query: str) -> str:
     if "투자계획" in compact or "투자목적" in compact:
         extra_rules.append(
             "사용자가 투자 계획이나 투자 목적을 묻는 경우 배당, 자사주 매입, 주주환원은 "
-            "투자 계획으로 분류하지 마세요. 사용자가 주주환원이나 자본배분을 함께 묻는 경우만 예외입니다."
+            "투자 계획으로 분류하지 마세요. 사용자가 주주환원이나 자본배분을 함께 묻는 "
+            "경우만 예외입니다."
         )
     years = extract_query_years(query)
     if len(years) > 1 and "사업보고서" in query:
@@ -517,7 +520,10 @@ class AnswerService:
                 SourceFilingRow.report_name.contains(report_type),
                 SourceFilingRow.report_name.contains(str(year)),
             )
-            .order_by(SourceFilingRow.receipt_date.desc(), SourceFilingRow.receipt_number.desc())
+            .order_by(
+                SourceFilingRow.receipt_date.desc(),
+                SourceFilingRow.receipt_number.desc(),
+            )
         )
         names = tuple(dict.fromkeys(self.session.scalars(statement).all()))
         return names[0] if names else None
@@ -684,7 +690,11 @@ class AnswerService:
         else:
             year = years[0] if len(years) == 1 else None
             effective_report_name = report_name
-            if effective_report_name is None and report_type is not None and year is not None:
+            if (
+                effective_report_name is None
+                and report_type is not None
+                and year is not None
+            ):
                 effective_report_name = self._resolve_report_name(
                     company_name=company_name,
                     year=year,
@@ -720,7 +730,9 @@ class AnswerService:
             )
 
         references = build_source_references(self.session, pack)
-        year_text = ",".join(str(year) for year in years) if years else "unfiltered"
+        year_text = (
+            ",".join(str(year) for year in years) if years else "unfiltered"
+        )
         report_scope = report_name or report_type or "unfiltered"
         metadata = _metadata(
             company=company_name,

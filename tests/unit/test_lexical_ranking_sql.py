@@ -67,13 +67,23 @@ def search(connection, *, limit=100, terms=("계약금액", "계약기간"), **f
     return [dict(row) for row in connection.execute(sql, params)]
 
 
-def test_full_tie_group_midrank_is_computed_before_limit(database):
+def test_midrank_is_bounded_to_returned_candidate_window(database):
     for i in range(6):
         add(database, f"exchange_20250{i + 1}01", "계약금액 100 계약기간 1년")
     rows = search(database, limit=2)
     assert len(rows) == 2
-    assert {r["lexical_rank"] for r in rows} == {3.5}
-    assert {r["lexical_tie_count"] for r in rows} == {6}
+    assert {r["lexical_rank"] for r in rows} == {1.5}
+    assert {r["lexical_tie_count"] for r in rows} == {2}
+
+
+def test_547_way_corpus_tie_does_not_assign_rank_274_to_100_candidates(database):
+    for i in range(547):
+        add(database, f"exchange_{i:014d}", "계약금액 계약기간")
+    rows = search(database, limit=100)
+    assert len(rows) == 100
+    assert {r["lexical_rank"] for r in rows} == {50.5}
+    assert {r["lexical_tie_count"] for r in rows} == {100}
+    assert "score_counts" not in lexical_sql("true", ["계약금액"])
 
 
 def test_lower_coverage_follows_the_whole_higher_tie_group(database):

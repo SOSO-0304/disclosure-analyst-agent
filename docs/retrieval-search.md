@@ -1,4 +1,9 @@
-# Filtered hybrid retrieval
+# Filtered retrieval and plan diagnostics
+
+Dense-only search is now the default. Hybrid is explicitly opt-in while its quality and
+latency are being evaluated. User measurements for the previous full-scope-midrank version
+were 31.72/32.84 seconds overall, including 23.817/21.081 seconds in lexical SQL. All five
+selected results came from the dense lane. This was not an accepted performance result.
 
 ## Frozen data contract
 
@@ -44,7 +49,8 @@ Keyword-only search uses no API key/calls:
 python scripts/search_retrieval.py "계약상대방 계약금액 계약기간" --mode lexical --top-k 5
 ```
 
-Hybrid search embeds only the query (one successful request, retries possible):
+Default dense search embeds only the query (one successful request, retries possible),
+and does not run lexical SQL:
 
 ```powershell
 python scripts/search_retrieval.py "계약상대방 계약금액 계약기간" --top-k 5
@@ -57,6 +63,9 @@ python scripts/search_retrieval.py "계약금액 계약기간" `
   --top-k 5
 ```
 
+Enable hybrid explicitly with `--mode hybrid`. This still scans eligible text; it is not
+an indexed BM25 implementation and is not promised to be faster than dense-only search.
+
 Use `--company "정확한 회사명"` instead of a corp code; stock codes are also accepted.
 Known company names in the query are resolved conservatively. Ambiguous multi-company queries
 stop instead of selecting one company. Use `--no-auto-company` for deliberate cross-company search.
@@ -65,7 +74,7 @@ Unknown explicit company names/codes and conflicting flags are errors, not unfil
 Dates are inclusive **filing receipt dates**, not contract start/end dates or accounting periods.
 No relative-date inference or global "latest filing" guarantee is provided.
 `--corrections only|exclude|all` filters the stored correction flag; default is all.
-`--mode dense` retains dense-only search; `--exact` forces exact vector search.
+`--mode dense` is the default; `--exact` forces exact vector search.
 `--json` keeps the previous results-list JSON shape and adds ranks and citations.
 
 ## Retrieval semantics
@@ -79,16 +88,17 @@ No relative-date inference or global "latest filing" guarantee is provided.
 3. The independent lexical lane scores substring term coverage over chunk content. It is a
    deterministic baseline, **not BM25 or Korean morphological analysis**. It scans eligible
    content and adds no disk-heavy index. Broad queries may be slower; timings are printed.
-   Equal coverage scores get the same **midrank over the entire filtered eligible scope**,
-   calculated before the candidate limit. For example, 1,000 equally highest-scoring chunks
-   occupy positions 1..1,000, so every one gets rank 500.5, not arbitrary ranks 1..100 for
-   the returned subset. Lower score groups start after all better-scoring matches.
-   This keeps a large weakly differentiated group from receiving a false first-place boost.
+   Equal coverage scores get the same **midrank within the returned candidate window**.
+   The full-scope materialization/count aggregation from the previous version was removed.
+   Only the at-most-100 returned candidates (or the explicit `--candidates` limit) are
+   materialized for tie ranking. For the observed 547-way top tie, 100 returned tied rows
+   now share rank 50.5, not rank 274 based on all 547 documents. Both lanes therefore use
+   the bounded candidate rank range. This does not force lexical results into the final set.
    Candidate ties are selected by a deterministic chunk-ID hash, not chronological ID order.
    There is no implicit newest/oldest preference. Hashes are not relevance signals.
 4. Reciprocal-rank fusion (RRF, k=60) combines the independent top-100 candidate lists, using
-   the scoped midranks for the lexical contribution. `lexical_rank` may be fractional or
-   larger than 100; it describes the full scoped score group, not returned-list position.
+   candidate-window midranks for the lexical contribution. `lexical_rank` may be fractional
+   but is bounded by the number of returned lexical candidates.
    Final equal RRF scores also use a deterministic hash tie-breaker. The chosen lexical
    subset still omits members of large tie groups; this does not guarantee improved recall
    or overlap. RRF/cosine scores are not answer confidence or probabilities.
@@ -105,7 +115,7 @@ The CLI prints `search breakdown` in seconds:
 |---|---|
 | `dense_initial` | Initial ANN or exact vector SQL, including row fetch and HNSW setting |
 | `dense_fallback` | Additional exact SQL after ANN underfill; zero when not used |
-| `lexical` | Keyword SQL, scoped tie-group ranks and candidate row fetch |
+| `lexical` | Keyword SQL, candidate-window tie ranks and row fetch; zero in default dense mode |
 | `fusion` | Rank fusion and candidate diagnostics |
 | `hydration` | Candidate content/provenance SQL and row fetch |
 | `selection` | Deduplication, diversity selection and citation construction |
@@ -114,9 +124,11 @@ The CLI prints `search breakdown` in seconds:
 The existing `timing seconds` line still separates query API time, whole search phase and
 whole CLI operation. Its `search` includes connection/transaction overhead and can exceed
 the breakdown's `total`. Skipped stages are zero; these measurements are sequential,
-not concurrent. Candidate counts now include `overlap`, and `lexical ties` reports whether
-the candidate boundary cuts a larger equal-score group. Each result shows matched-term
-count and full scoped tie count.
+not concurrent. Candidate counts include `overlap`. `lexical ties` reports candidate-window
+ties and whether the candidate limit was reached; **full-scope tie counts and actual cutoff
+truncation are unknown**, not silently assumed zero. Per-result `candidate_ties` and JSON
+`lexical_tie_count` now count returned candidates, not the whole corpus; the printed policy
+is `candidate_midrank`. Reaching the candidate limit does not prove a tie was truncated.
 
 Run the same query twice to distinguish a cold run from a warm one. Do not infer a sustained
 speedup from one measurement or compare different query texts as a controlled benchmark.
@@ -134,6 +146,59 @@ No new migration, corpus embedding, or index is needed for this ranking change. 
 ID-order bias and adds diagnostics; production latency and relevance must still be checked
 against actual results. `--json` continues to emit only the results list (now including tied
 lexical ranks/counts); timing and candidate-level diagnostics are console-mode output.
+
+## Read-only EXPLAIN diagnostic (one run, not another corpus evaluation)
+
+Plan-only mode asks PostgreSQL for plans without executing the candidate SELECTs. It still
+reads configuration/run/company metadata and embeds the question once for a real dense plan.
+Lexical-only explain needs no embedding API call:
+
+```powershell
+python scripts/search_retrieval.py "계약금액 계약기간" --mode lexical --explain
+```
+
+For actual row/buffer counts and server execution time, explicitly opt in to `--analyze`:
+
+```powershell
+python scripts/search_retrieval.py `
+  "단일판매 공급계약의 계약상대방과 계약금액, 계약기간" `
+  --mode hybrid `
+  --explain `
+  --analyze `
+  --explain-report data\quality\retrieval-explain-v1.json
+```
+
+This embeds only the question once and runs the initial dense SELECT and lexical SELECT
+once each, sequentially, with a 60-second timeout per statement. It does not also run normal
+retrieval, exact fallback on ANN underfill, or hydration. The existing company/date/type and
+correction filters are shared with regular search; `--exact` uses the same exact dense SQL.
+Do not rerun it in a loop. The two candidate stages may take up to roughly two minutes if
+both hit the statement timeout, plus configuration/API overhead.
+
+Safety and interpretation:
+
+- Transactions are read-only. No INSERT/UPDATE/DELETE, migration, index creation, standalone
+  `ANALYZE` statistics update or persistent settings change is performed. SELECTs can still
+  consume temporary disk, warm caches and add load. `EXPLAIN ANALYZE` really executes queries.
+- Per-stage savepoints preserve the other plan if one query times out. Failed stages produce
+  `status=partial`, SQLSTATE and exit code 1, not a success claim; raw error text is omitted.
+- The report includes scan/index names, estimated vs actual rows, filter removals, root buffer
+  counters, disk-sort information, JIT summary, PostgreSQL/pgvector versions and selected
+  memory settings. Parent buffer counters already include children; do not sum them again.
+- Node timing is disabled to reduce profiling overhead. `execution_ms` is server execution
+  time, not normal client fetch/network/whole-search time; profiling can still change timing.
+- Raw SQL, bound query text/vector, connection URLs, credentials, Filter/Index Cond/Order By,
+  Output and unrecognized plan fields are not stored. Only allowlisted plan fields survive.
+- Report output is opt-in, UTF-8, and refuses to overwrite an existing file. Choose a new
+  filename if it exists. Without `--explain-report`, sanitized JSON is printed to the console.
+  `--json` is reserved for ordinary result lists and cannot be combined with `--explain`.
+
+The diagnostic inspects the current implementation, not a replay of the previous slower SQL.
+Its purpose is to decide from evidence whether scans, index selection, row-estimate errors,
+cache reads, sorts or temporary I/O need further work. Do not infer the cause merely from
+the presence of an index or the printed `ann` label. See
+[PostgreSQL EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html) and
+[using EXPLAIN](https://www.postgresql.org/docs/current/using-explain.html).
 
 ## Citations and correction boundary
 

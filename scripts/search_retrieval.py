@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import time
+from pathlib import Path
 
 import orjson
 from sqlalchemy import text
 
+from disclosure_agent.retrieval.diagnostics import explain_retrieval
 from disclosure_agent.retrieval.embeddings import (
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
@@ -28,7 +30,7 @@ def main() -> None:
     parser.add_argument("--embedding-run-id")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--candidates", type=int, default=100)
-    parser.add_argument("--mode", choices=("hybrid", "dense", "lexical"), default="hybrid")
+    parser.add_argument("--mode", choices=("hybrid", "dense", "lexical"), default="dense")
     parser.add_argument("--company", help="Exact company name, stock code or corp code")
     parser.add_argument("--corp-code")
     parser.add_argument("--no-auto-company", action="store_true")
@@ -47,7 +49,26 @@ def main() -> None:
     parser.add_argument(
         "--json", action="store_true", help="JSON results list, with source citations"
     )
+    parser.add_argument(
+        "--explain", action="store_true", help="Plan selected search SQL; no results"
+    )
+    parser.add_argument(
+        "--analyze",
+        action="store_true",
+        help="With --explain, actually execute each SELECT once (60s timeout per statement)",
+    )
+    parser.add_argument(
+        "--explain-report",
+        type=Path,
+        help="Save sanitized plan JSON to a new file; never overwrite",
+    )
     args = parser.parse_args()
+    if (args.analyze or args.explain_report) and not args.explain:
+        parser.error("--analyze and --explain-report require --explain")
+    if args.explain and args.json:
+        parser.error("--json is for search results; explain mode has its own JSON report")
+    if args.explain_report and args.explain_report.exists():
+        parser.error("--explain-report already exists; choose a new filename")
     if not args.query.strip() or len(args.query) > 10000:
         parser.error("query must contain 1..10000 characters")
     if not 1 <= args.top_k <= 100 or not args.top_k <= args.candidates <= 1000:
@@ -103,6 +124,50 @@ def main() -> None:
         "chunk_type": args.chunk_type,
         "corrections": args.corrections,
     }
+    if args.explain:
+        print("=== retrieval plan diagnostic ===", flush=True)
+        print(
+            "ANALYZE enabled: each selected SELECT runs once; 60s timeout per statement"
+            if args.analyze
+            else "Plan only: candidate SELECTs are not executed",
+            flush=True,
+        )
+        with engine.connect() as connection, connection.begin():
+            report = explain_retrieval(
+                connection,
+                run=run,
+                query=args.query,
+                vector=vector,
+                mode=args.mode,
+                candidate_limit=args.candidates,
+                exact=args.exact,
+                filters=filters,
+                analyze=args.analyze,
+            )
+        report["query_tokens"] = query_tokens
+        report["api_seconds"] = api_seconds
+        report["total_seconds"] = time.monotonic() - started
+        encoded = orjson.dumps(report, option=orjson.OPT_INDENT_2)
+        if args.explain_report:
+            args.explain_report.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with args.explain_report.open("xb") as stream:
+                    stream.write(encoded)
+            except FileExistsError:
+                parser.error("Report file appeared during diagnostics; nothing was overwritten")
+            print(f"report            {args.explain_report}")
+            for name, stage in report["stages"].items():
+                print(f"{name}: {stage['status']} elapsed={stage['elapsed_seconds']:.3f}s")
+                print(
+                    orjson.dumps(stage.get("summary", stage), option=orjson.OPT_INDENT_2).decode()
+                )
+        else:
+            print(encoded.decode())
+        print(f"status            {report['status']}")
+        print("database writes   0 (SELECTs may use temporary disk/cache)")
+        if report["status"] == "partial":
+            raise SystemExit(1)
+        return
     search_start = time.monotonic()
     with engine.connect() as connection, connection.begin():
         connection.execute(text("SET TRANSACTION READ ONLY"))
@@ -157,7 +222,7 @@ def main() -> None:
         print(f"   ranks    : dense={row['dense_rank']} lexical={row['lexical_rank']}")
         print(
             f"   lexical  : matched_terms={row['lexical_score']} "
-            f"scope_ties={row['lexical_tie_count']}"
+            f"candidate_ties={row['lexical_tie_count']}"
         )
         print(f"   report   : {row['report_name']} / {row['receipt_date']}")
         print(f"   source   : {row['citation']['url']}")

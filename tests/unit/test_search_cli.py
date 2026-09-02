@@ -82,7 +82,7 @@ def setup_cli(tmp_path, monkeypatch):
             "warnings": [],
             "candidate_counts": {},
             "lexical_terms": ["매출"],
-            "lexical_diagnostics": {"rank_policy": "scope_midrank"},
+            "lexical_diagnostics": {"rank_policy": "candidate_midrank"},
             "timing_seconds": {"dense_initial": 0.1, "lexical": 0.2, "hydration": 0.03},
             "dense_strategy": "not_used" if kwargs["mode"] == "lexical" else "exact_filtered",
         }
@@ -140,14 +140,181 @@ def test_cli_hybrid_reads_file_key_and_embeds_only_query(setup_cli, monkeypatch,
             return EmbeddingResult(vector=tuple([0.1] * 1024), input_tokens=3, request_id="test")
 
     monkeypatch.setattr(cli, "ClovaStudioEmbeddingClient", Client)
-    monkeypatch.setattr(sys, "argv", ["search_retrieval.py", "매출", "--env-file", str(path)])
+    monkeypatch.setattr(
+        sys, "argv", ["search_retrieval.py", "매출", "--env-file", str(path), "--mode", "hybrid"]
+    )
     cli.main()
     assert provider_calls == ["매출"]
     assert captured["mode"] == "hybrid" and captured["vector"].startswith("[")
     output = capsys.readouterr().out
     assert "file-key" not in output and "secret" not in output
     assert "dense_initial=0.100s" in output and "lexical=0.200s" in output
-    assert "hydration=0.030s" in output and "scope_midrank" in output
+    assert "hydration=0.030s" in output and "candidate_midrank" in output
+
+
+def test_cli_defaults_to_dense(setup_cli, monkeypatch, capsys):
+    path, _, captured = setup_cli
+
+    class Client(Context):
+        def __init__(self, *args):
+            pass
+
+        def embed(self, query):
+            return EmbeddingResult(vector=tuple([0.1] * 1024), input_tokens=3, request_id="test")
+
+    monkeypatch.setattr(cli, "ClovaStudioEmbeddingClient", Client)
+    monkeypatch.setattr(sys, "argv", ["search_retrieval.py", "매출", "--env-file", str(path)])
+    cli.main()
+    assert captured["mode"] == "dense"
+
+
+def test_explain_mode_writes_new_report_without_normal_search(setup_cli, tmp_path, monkeypatch):
+    path, _, captured = setup_cli
+    destination = tmp_path / "plans.json"
+    observed = {}
+
+    def explain(connection, **kwargs):
+        observed.update(kwargs)
+        return {"status": "analyzed", "stages": {}}
+
+    monkeypatch.setattr(cli, "explain_retrieval", explain)
+    monkeypatch.setattr(
+        cli,
+        "ClovaStudioEmbeddingClient",
+        lambda *a, **k: pytest.fail("lexical diagnostics must not call provider"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "search_retrieval.py",
+            "매출",
+            "--env-file",
+            str(path),
+            "--mode",
+            "lexical",
+            "--explain",
+            "--analyze",
+            "--explain-report",
+            str(destination),
+        ],
+    )
+    cli.main()
+    assert not captured
+    assert observed["analyze"] is True and observed["vector"] is None
+    assert '"status": "analyzed"' in destination.read_text(encoding="utf-8")
+
+
+def test_existing_diagnostic_report_is_preserved_before_api(setup_cli, tmp_path, monkeypatch):
+    path, _, captured = setup_cli
+    destination = tmp_path / "plans.json"
+    destination.write_text("keep me", encoding="utf-8")
+    monkeypatch.setattr(
+        cli,
+        "ClovaStudioEmbeddingClient",
+        lambda *a, **k: pytest.fail("must reject existing file before API"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "search_retrieval.py",
+            "매출",
+            "--env-file",
+            str(path),
+            "--explain",
+            "--explain-report",
+            str(destination),
+        ],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2 and not captured
+    assert destination.read_text(encoding="utf-8") == "keep me"
+
+
+def test_hybrid_explain_embeds_once_and_never_runs_normal_retrieval(
+    setup_cli, tmp_path, monkeypatch
+):
+    path, _, captured = setup_cli
+    calls = []
+    destination = tmp_path / "hybrid-plan.json"
+
+    class Client(Context):
+        def __init__(self, key, config):
+            assert key == "file-key"
+
+        def embed(self, query):
+            calls.append(query)
+            return EmbeddingResult(vector=tuple([0.1] * 1024), input_tokens=3, request_id="test")
+
+    def explain(connection, **kwargs):
+        assert kwargs["mode"] == "hybrid" and kwargs["vector"].startswith("[")
+        assert kwargs["analyze"] is False
+        return {"status": "planned", "stages": {}}
+
+    monkeypatch.setattr(cli, "ClovaStudioEmbeddingClient", Client)
+    monkeypatch.setattr(cli, "explain_retrieval", explain)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "search_retrieval.py",
+            "매출",
+            "--env-file",
+            str(path),
+            "--mode",
+            "hybrid",
+            "--explain",
+            "--explain-report",
+            str(destination),
+        ],
+    )
+    cli.main()
+    assert calls == ["매출"] and not captured
+    value = destination.read_text(encoding="utf-8")
+    assert "file-key" not in value and "secret" not in value and "vector" not in value
+
+
+def test_partial_diagnostic_writes_report_then_exits_nonzero(setup_cli, tmp_path, monkeypatch):
+    path, _, captured = setup_cli
+    destination = tmp_path / "partial.json"
+    monkeypatch.setattr(
+        cli, "explain_retrieval", lambda *a, **k: {"status": "partial", "stages": {}}
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "search_retrieval.py",
+            "매출",
+            "--env-file",
+            str(path),
+            "--mode",
+            "lexical",
+            "--explain",
+            "--analyze",
+            "--explain-report",
+            str(destination),
+        ],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1 and not captured
+    assert '"status": "partial"' in destination.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "flags", [["--analyze"], ["--explain-report", "new.json"], ["--explain", "--json"]]
+)
+def test_invalid_explain_options_fail_before_configuration(monkeypatch, flags):
+    monkeypatch.setattr(
+        cli, "runtime_from_args", lambda args: pytest.fail("must fail before runtime")
+    )
+    monkeypatch.setattr(sys, "argv", ["search_retrieval.py", "매출", *flags])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
 
 
 def test_cli_unknown_explicit_company_fails_before_provider(setup_cli, monkeypatch):

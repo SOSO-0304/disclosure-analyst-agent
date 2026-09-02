@@ -127,24 +127,19 @@ def lexical_sql(where: str, terms: Sequence[str]) -> str:
         for i in range(len(terms))
     )
     return f"""
-        WITH lexical AS MATERIALIZED (
+        WITH lexical AS (
             SELECT e.chunk_id, ({score}) AS lexical_score {JOINS} WHERE {where}
-        ), score_counts AS (
-            SELECT lexical_score, count(*) AS tie_count
-            FROM lexical WHERE lexical_score > 0 GROUP BY lexical_score
-        ), ranked_scores AS (
-            SELECT lexical_score, tie_count,
-                COALESCE(SUM(tie_count) OVER (
-                    ORDER BY lexical_score DESC
-                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                ), 0) + (tie_count + 1) / 2.0 AS lexical_rank
-            FROM score_counts
+        ), candidates AS MATERIALIZED (
+            SELECT chunk_id, lexical_score FROM lexical WHERE lexical_score > 0
+            ORDER BY lexical_score DESC, md5(chunk_id), chunk_id
+            LIMIT :candidate_limit
         )
-        SELECT l.chunk_id, l.lexical_score, r.lexical_rank,
-            r.tie_count AS lexical_tie_count
-        FROM lexical l JOIN ranked_scores r USING (lexical_score)
-        ORDER BY l.lexical_score DESC, md5(l.chunk_id), l.chunk_id
-        LIMIT :candidate_limit
+        SELECT chunk_id, lexical_score,
+            RANK() OVER (ORDER BY lexical_score DESC)
+                + (COUNT(*) OVER (PARTITION BY lexical_score) - 1) / 2.0 AS lexical_rank,
+            COUNT(*) OVER (PARTITION BY lexical_score) AS lexical_tie_count
+        FROM candidates
+        ORDER BY lexical_score DESC, md5(chunk_id), chunk_id
     """
 
 
@@ -154,7 +149,7 @@ def retrieve(
     run: Mapping[str, Any],
     query: str,
     vector: str | None,
-    mode: str = "hybrid",
+    mode: str = "dense",
     top_k: int = 5,
     candidate_limit: int = 100,
     max_per_filing: int = 1,
@@ -215,18 +210,18 @@ def retrieve(
     phase_start = perf_counter()
     ranked = fuse_rankings(dense, lexical)
     overlap = len({r["chunk_id"] for r in dense} & {r["chunk_id"] for r in lexical})
-    boundary_ties = int(lexical[-1].get("lexical_tie_count", 1)) if lexical else 0
     boundary_returned = sum(r["lexical_score"] == lexical[-1]["lexical_score"] for r in lexical)
     lexical_diagnostics = {
-        "rank_policy": "scope_midrank",
-        "boundary_tie_count": boundary_ties,
-        "boundary_tie_returned": boundary_returned,
-        "boundary_tie_truncated": boundary_ties > boundary_returned,
+        "rank_policy": "candidate_midrank" if mode != "dense" else "not_used",
+        "tie_scope": "returned_candidates",
+        "boundary_tie_count": boundary_returned,
+        "candidate_limit_reached": len(lexical) == candidate_limit,
+        "full_scope_tie_count": None,
     }
-    if lexical_diagnostics["boundary_tie_truncated"]:
+    if lexical_diagnostics["candidate_limit_reached"]:
         warnings.append(
-            "Lexical cutoff intersects a tie group; hash-selected candidates share "
-            "the full scoped group's midrank (which can exceed the candidate limit)"
+            "Lexical candidate limit reached; tied midranks describe returned candidates only. "
+            "Full-scope tie counts are not computed; omitted candidates may have equal scores"
         )
     timings["fusion"] = perf_counter() - phase_start
     details: dict[str, dict[str, Any]] = {}

@@ -125,7 +125,7 @@ def fuse_rankings(
             if key in seen:
                 continue
             seen.add(key)
-            # SQL computes lexical midranks over the full filtered scope, before LIMIT.
+            # Both lanes use the bounded candidate window; lexical ties share a midrank.
             # Positional fallback preserves the standalone helper's existing interface.
             rank = float(row.get("lexical_rank", position)) if lane == "lexical" else position
             if not math.isfinite(rank) or rank < 1:

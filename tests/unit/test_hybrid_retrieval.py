@@ -203,7 +203,13 @@ def test_retrieval_company_filter_uses_exact_and_both_candidate_lanes():
         details=[evidence("a", "f1"), evidence("b", "f2")],
     )
     payload = retrieve(
-        connection, run=RUN, query="계약금액", vector="[0]", top_k=2, filters={"corp_code": "001"}
+        connection,
+        run=RUN,
+        query="계약금액",
+        vector="[0]",
+        top_k=2,
+        mode="hybrid",
+        filters={"corp_code": "001"},
     )
     assert payload["dense_strategy"] == "exact_filtered"
     assert len(payload["results"]) == 2
@@ -251,19 +257,19 @@ def test_run_lookup_only_accepts_completed_active_chunk_snapshot():
     assert params["run_id"] == "partial-run"
 
 
-def test_lexical_rrf_uses_global_midrank_not_returned_list_position():
+def test_lexical_rrf_uses_candidate_midrank_not_arbitrary_tie_position():
     lexical = [
         {
             "chunk_id": name,
             "lexical_score": 3,
-            "lexical_rank": Decimal("500.5"),
-            "lexical_tie_count": 1000,
+            "lexical_rank": Decimal("1.5"),
+            "lexical_tie_count": 2,
         }
         for name in ("exchange_20230101", "exchange_20260101")
     ]
     rows = fuse_rankings([], lexical)
-    assert {row["lexical_rank"] for row in rows} == {500.5}
-    assert all(row["rrf_score"] == pytest.approx(1 / 560.5) for row in rows)
+    assert {row["lexical_rank"] for row in rows} == {1.5}
+    assert all(row["rrf_score"] == pytest.approx(1 / 61.5) for row in rows)
     assert fuse_rankings([], list(reversed(lexical))) == rows
     assert [r["chunk_id"] for r in rows] == sorted(
         [r["chunk_id"] for r in rows], key=lambda value: sha256(value.encode()).hexdigest()
@@ -323,7 +329,7 @@ def test_timing_breakdown_includes_fetch_and_separates_exact_fallback(monkeypatc
         ],
         details=[evidence("a", "f1")],
     )
-    payload = retrieve(connection, run=RUN, query="계약금액", vector="[0]", top_k=1)
+    payload = retrieve(connection, run=RUN, query="계약금액", vector="[0]", top_k=1, mode="hybrid")
     assert payload["timing_seconds"] == {
         "dense_initial": 1.25,
         "dense_fallback": 2.25,
@@ -334,7 +340,8 @@ def test_timing_breakdown_includes_fetch_and_separates_exact_fallback(monkeypatc
         "total": 11,
     }
     assert payload["candidate_counts"] == {"dense": 1, "lexical": 1, "overlap": 1, "fused": 1}
-    assert payload["lexical_diagnostics"]["boundary_tie_truncated"] is True
+    assert payload["lexical_diagnostics"]["rank_policy"] == "candidate_midrank"
+    assert payload["lexical_diagnostics"]["full_scope_tie_count"] is None
     assert payload["results"][0]["lexical_tie_count"] == 10
 
 
@@ -347,9 +354,29 @@ def test_skipped_phases_have_zero_time(mode):
     else:
         assert payload["timing_seconds"]["lexical"] == 0
     assert payload["timing_seconds"]["hydration"] == 0
-    assert payload["lexical_diagnostics"]["boundary_tie_truncated"] is False
+    assert payload["lexical_diagnostics"]["candidate_limit_reached"] is False
 
 
 def test_explicit_unfiltered_exact_strategy_has_correct_label():
     payload = retrieve(Connection(), run=RUN, query="계약", vector="[0]", mode="dense", exact=True)
     assert payload["dense_strategy"] == "exact"
+
+
+def test_default_retrieval_never_executes_lexical_sql():
+    connection = Connection(dense=[{"chunk_id": "a", "similarity": 0.9}])
+    payload = retrieve(connection, run=RUN, query="계약금액", vector="[0]")
+    assert payload["mode"] == "dense"
+    assert payload["lexical_diagnostics"]["rank_policy"] == "not_used"
+    assert payload["timing_seconds"]["lexical"] == 0
+    assert not any("WITH lexical AS" in sql for sql, _ in connection.calls)
+
+
+def test_full_candidate_window_does_not_claim_known_corpus_tie_count():
+    connection = Connection(
+        lexical=[{"chunk_id": "a", "lexical_score": 1, "lexical_rank": 1, "lexical_tie_count": 1}],
+    )
+    result = retrieve(
+        connection, run=RUN, query="계약", vector=None, mode="lexical", top_k=1, candidate_limit=1
+    )
+    assert result["lexical_diagnostics"]["candidate_limit_reached"] is True
+    assert result["lexical_diagnostics"]["full_scope_tie_count"] is None

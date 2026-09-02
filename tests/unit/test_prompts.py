@@ -38,6 +38,13 @@ def test_grounding_prompt_prefers_normalized_final_values() -> None:
     assert "정규화된 최종 값" in GROUNDING_SYSTEM_PROMPT
 
 
+def test_grounding_prompt_separates_investment_results_from_plans() -> None:
+    assert "지속·향후 투자 방향" in GROUNDING_SYSTEM_PROMPT
+    assert "집행 실적을 '주요 투자 계획' 목록의 항목처럼 배치하지 마세요" in (
+        GROUNDING_SYSTEM_PROMPT
+    )
+
+
 def test_build_grounded_answer_prompt_contains_question_and_evidence() -> None:
     prompt = build_grounded_answer_prompt("카카오의 매출액은 얼마인가?", _pack())
 
@@ -47,3 +54,4 @@ def test_build_grounded_answer_prompt_contains_question_and_evidence() -> None:
     assert "fact_ids=fact:1" in prompt
     assert "사용자 표시 금액: X" in prompt
     assert "유효한 인용은 Evidence 번호인 [E숫자]뿐" in prompt
+    assert "확인된 투자 실적" in prompt

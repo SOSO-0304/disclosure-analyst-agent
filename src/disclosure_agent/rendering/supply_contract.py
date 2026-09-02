@@ -58,9 +58,13 @@ def render_supply_contract_termination_answer(
 
     company = result.company_name or result.findings[0].contract.company_name
     count = len(result.findings)
+    effective_query = query or pack.query
     direct_prefix = (
         "아니요."
-        if _has_false_termination_year_premise(query, formation_year=result.year)
+        if _has_false_termination_year_premise(
+            effective_query,
+            formation_year=result.year,
+        )
         else "네."
     )
     lines = [

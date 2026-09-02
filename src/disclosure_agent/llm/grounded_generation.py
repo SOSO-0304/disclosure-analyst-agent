@@ -22,6 +22,12 @@ _POSITIVE_FUNDRAISING_CATEGORY = re.compile(
     re.MULTILINE,
 )
 _REPORT_CONTEXT = re.compile(r"(?P<year>20\d{2})년\s*사업보고서")
+_MONEY_LITERAL = re.compile(
+    r"(?<![\d,])(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*"
+    r"(?:조\s*원|억\s*원|만\s*원|천\s*원|원)"
+)
+_TABLE_UNIT = re.compile(r"단위\s*[:：]\s*(조\s*원|억\s*원|만\s*원|천\s*원|원)")
+_GROUPED_NUMBER = re.compile(r"(?<![\d,])\d{1,3}(?:,\d{3})+(?![\d,])")
 _ABSENCE_PHRASES = (
     "확인된 내역 없음",
     "확인된 이벤트가 없습니다",
@@ -86,6 +92,40 @@ def invalid_report_year_citations(
     return tuple(invalid)
 
 
+def _normalize_money_token(value: str) -> str:
+    return re.sub(r"\s+", "", value)
+
+
+def _supported_money_literals(user_prompt: str) -> set[str]:
+    supported = {
+        _normalize_money_token(match.group(0))
+        for match in _MONEY_LITERAL.finditer(user_prompt)
+    }
+    table_units = {
+        _normalize_money_token(match.group(1))
+        for match in _TABLE_UNIT.finditer(user_prompt)
+    }
+    grouped_numbers = {match.group(0) for match in _GROUPED_NUMBER.finditer(user_prompt)}
+    for unit in table_units:
+        for number in grouped_numbers:
+            supported.add(f"{number}{unit}")
+    return supported
+
+
+def unsupported_money_literals(content: str, *, user_prompt: str) -> tuple[str, ...]:
+    """Return answer money literals whose numeric value is absent from grounded input."""
+
+    supported = _supported_money_literals(user_prompt)
+    unsupported: list[str] = []
+    for match in _MONEY_LITERAL.finditer(content):
+        token = match.group(0)
+        if _normalize_money_token(token) in supported:
+            continue
+        if token not in unsupported:
+            unsupported.append(token)
+    return tuple(unsupported)
+
+
 def _strip_unsupported_fundraising_absence_citations(
     content: str,
     *,
@@ -132,13 +172,15 @@ def _sanitize_answer(
     return replace(answer, content=content)
 
 
-def _all_invalid_citations(
+def _all_invalid_grounding_tokens(
     content: str,
     *,
+    user_prompt: str,
     evidence_count: int,
     evidence_report_years: dict[int, int] | None,
 ) -> tuple[str, ...]:
     invalid = list(invalid_citation_tokens(content, evidence_count=evidence_count))
+    invalid.extend(unsupported_money_literals(content, user_prompt=user_prompt))
     if evidence_report_years:
         invalid.extend(
             invalid_report_year_citations(
@@ -158,7 +200,7 @@ def generate_grounded_answer(
     max_completion_tokens: int = 1200,
     evidence_report_years: dict[int, int] | None = None,
 ) -> HcxAnswerResult:
-    """Generate an answer and retry once when citation tokens are invalid."""
+    """Generate an answer and retry once when grounding validation fails."""
 
     if evidence_count < 1:
         raise ValueError("evidence_count must be at least 1")
@@ -169,8 +211,9 @@ def generate_grounded_answer(
         max_completion_tokens=max_completion_tokens,
     )
     answer = _sanitize_answer(answer, user_prompt=user_prompt)
-    invalid = _all_invalid_citations(
+    invalid = _all_invalid_grounding_tokens(
         answer.content,
+        user_prompt=user_prompt,
         evidence_count=evidence_count,
         evidence_report_years=evidence_report_years,
     )
@@ -180,11 +223,13 @@ def generate_grounded_answer(
     repair_lines = [
         user_prompt,
         "",
-        "인용 형식 재작성 요구사항:",
+        "근거 정합성 재작성 요구사항:",
         f"- 사용할 수 있는 인용은 [E1]부터 [E{evidence_count}]까지뿐입니다.",
         "- [DETERMINISTIC ANALYSIS] 같은 내부 섹션명은 인용으로 쓰지 마세요.",
-        "- 기존 답변의 사실관계와 계산 결과는 바꾸지 말고 인용 위치만 올바르게 고치세요.",
+        "- Evidence가 뒷받침하는 사실관계는 유지하되 잘못된 인용이나 숫자 표기만 고치세요.",
         "- 구체적 사실을 결론에서 다시 말하면 그 문장에도 해당 [E번호]를 다시 붙이세요.",
+        "- 금액은 Evidence에 실제로 등장하는 숫자와 단위만 사용하세요. 표의 숫자를 옮길 때 "
+        "자릿수나 쉼표를 바꾸지 말고, 근거에 없는 축약이나 임의 환산을 하지 마세요.",
     ]
     if evidence_report_years:
         repair_lines.append(
@@ -198,12 +243,13 @@ def generate_grounded_answer(
         max_completion_tokens=max_completion_tokens,
     )
     repaired = _sanitize_answer(repaired, user_prompt=user_prompt)
-    remaining = _all_invalid_citations(
+    remaining = _all_invalid_grounding_tokens(
         repaired.content,
+        user_prompt=user_prompt,
         evidence_count=evidence_count,
         evidence_report_years=evidence_report_years,
     )
     if remaining:
         joined = ", ".join(remaining)
-        raise RuntimeError(f"HCX returned invalid grounded citations after repair: {joined}")
+        raise RuntimeError(f"HCX returned invalid grounded tokens after repair: {joined}")
     return repaired

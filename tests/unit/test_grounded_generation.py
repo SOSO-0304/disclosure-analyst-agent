@@ -3,6 +3,7 @@ from __future__ import annotations
 from disclosure_agent.llm.grounded_generation import (
     generate_grounded_answer,
     invalid_citation_tokens,
+    invalid_report_year_citations,
 )
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
 
@@ -39,6 +40,15 @@ def test_invalid_citation_tokens_reject_internal_and_out_of_range_labels() -> No
     assert invalid == ("[DETERMINISTIC ANALYSIS]", "[E5]")
 
 
+def test_invalid_report_year_citations_reject_wrong_year_inside_scoped_paragraph() -> None:
+    invalid = invalid_report_year_citations(
+        "2025년 사업보고서에서는 AI 전략이 강조됩니다 [E2][E3].",
+        evidence_report_years={1: 2023, 2: 2025, 3: 2023},
+    )
+
+    assert invalid == ("[E3]",)
+
+
 def test_generate_grounded_answer_repairs_invalid_citation_once() -> None:
     client = _FakeClient(
         [
@@ -57,6 +67,27 @@ def test_generate_grounded_answer_repairs_invalid_citation_once() -> None:
     assert answer.content == "해지 계약이 있습니다 [E1][E4]."
     assert len(client.calls) == 2
     assert "[DETERMINISTIC ANALYSIS] 같은 내부 섹션명" in client.calls[1]
+
+
+def test_generate_grounded_answer_repairs_wrong_annual_report_year_citation() -> None:
+    client = _FakeClient(
+        [
+            "2025년 사업보고서에서는 HBM4 대응이 강조됩니다 [E3].",
+            "2025년 사업보고서에서는 HBM4 대응이 강조됩니다 [E2].",
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt="question and evidence",
+        evidence_count=3,
+        evidence_report_years={1: 2023, 2: 2025, 3: 2023},
+    )
+
+    assert answer.content.endswith("[E2].")
+    assert len(client.calls) == 2
+    assert "같은 연도의 사업보고서 Evidence" in client.calls[1]
 
 
 def test_generate_grounded_answer_does_not_retry_valid_citations() -> None:

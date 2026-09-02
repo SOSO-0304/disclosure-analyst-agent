@@ -100,3 +100,41 @@ def test_business_change_comparison_filters_company_history_chunk() -> None:
     )
 
     assert tuple(item.hit.chunk_id for item in reranked) == ("business",)
+
+
+def test_business_change_rejects_history_section_with_later_business_terms() -> None:
+    candidates = (
+        _hit(
+            "history-with-business-tail",
+            0.75,
+            "\n".join(
+                (
+                    "회사: 삼성전자",
+                    "섹션: 2. 회사의 연혁",
+                    "대표이사와 최대주주의 변동 사항",
+                    "후속 하위내용에 Galaxy와 HBM 관련 문장이 포함될 수 있음",
+                )
+            ),
+        ),
+        _hit(
+            "business",
+            0.63,
+            "\n".join(
+                (
+                    "회사: 삼성전자",
+                    "섹션: 3. 재무상태 및 영업실적",
+                    "DX 부문은 Galaxy AI를 확대하고 DS 부문은 HBM 수요에 대응했습니다.",
+                )
+            ),
+        ),
+    )
+
+    reranked = rerank_semantic_hits(
+        "삼성전자의 2023년과 2025년 사업보고서 핵심 사업 변화를 비교해줘",
+        candidates,
+        company_name="삼성전자",
+        year=2025,
+        top_k=5,
+    )
+
+    assert tuple(item.hit.chunk_id for item in reranked) == ("business",)

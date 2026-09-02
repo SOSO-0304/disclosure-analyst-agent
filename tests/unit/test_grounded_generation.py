@@ -118,7 +118,10 @@ analysis_type: fundraising_by_instrument
                 (
                     "유상증자: 확인된 내역 없음 [E1][E2][E3].",
                     "전환사채(CB): 3건, 합계 378억 원 [E1][E2][E3].",
-                    "신주인수권부사채(BW)와 교환사채(EB): 확인된 내역 없음 [E1][E2][E3].",
+                    (
+                        "신주인수권부사채(BW)와 교환사채(EB): "
+                        "확인된 내역 없음 [E1][E2][E3]."
+                    ),
                 )
             )
         ]
@@ -133,5 +136,8 @@ analysis_type: fundraising_by_instrument
 
     assert "유상증자: 확인된 내역 없음." in answer.content
     assert "전환사채(CB): 3건, 합계 378억 원 [E1][E2][E3]." in answer.content
-    assert "신주인수권부사채(BW)와 교환사채(EB): 확인된 내역 없음." in answer.content
+    assert (
+        "신주인수권부사채(BW)와 교환사채(EB): 확인된 내역 없음."
+        in answer.content
+    )
     assert len(client.calls) == 1

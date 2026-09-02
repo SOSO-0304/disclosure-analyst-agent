@@ -196,3 +196,4 @@ def test_prompt_guards_supply_contract_lifecycle_semantics() -> None:
     assert "lineage가 불완전하면" in GROUNDING_SYSTEM_PROMPT
     assert "유효한 인용은 오직 [E1], [E2] 같은 Evidence 번호" in GROUNDING_SYSTEM_PROMPT
     assert "원계약과 해지 Evidence를 바로 인용" in GROUNDING_SYSTEM_PROMPT
+    assert "해당 모든 정정 Evidence" in GROUNDING_SYSTEM_PROMPT

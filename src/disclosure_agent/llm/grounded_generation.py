@@ -151,15 +151,25 @@ def unsupported_money_literals(content: str, *, user_prompt: str) -> tuple[str, 
 def _completed_context(user_prompt: str) -> tuple[set[str], set[str]]:
     completed_money: set[str] = set()
     completed_years: set[str] = set()
-    segments = re.split(r"(?<=[.!?])\s+|\n", user_prompt)
-    for segment in segments:
-        if not any(marker in segment for marker in _COMPLETED_MARKERS):
-            continue
-        completed_money.update(
-            _normalize_money_token(match.group(0))
-            for match in _MONEY_LITERAL.finditer(segment)
-        )
-        completed_years.update(_YEAR_TOKEN.findall(segment))
+    lowered = user_prompt.lower()
+    window_radius = 240
+
+    for marker in _COMPLETED_MARKERS:
+        start = 0
+        while True:
+            index = lowered.find(marker.lower(), start)
+            if index < 0:
+                break
+            window_start = max(0, index - window_radius)
+            window_end = min(len(user_prompt), index + len(marker) + window_radius)
+            window = user_prompt[window_start:window_end]
+            completed_money.update(
+                _normalize_money_token(match.group(0))
+                for match in _MONEY_LITERAL.finditer(window)
+            )
+            completed_years.update(_YEAR_TOKEN.findall(window))
+            start = index + len(marker)
+
     return completed_money, completed_years
 
 

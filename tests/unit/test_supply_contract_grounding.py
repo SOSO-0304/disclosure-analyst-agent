@@ -6,8 +6,12 @@ from types import SimpleNamespace
 from sqlalchemy.dialects import postgresql
 
 from disclosure_agent.llm.prompts import GROUNDING_SYSTEM_PROMPT
+from disclosure_agent.rendering.supply_contract import (
+    render_supply_contract_termination_answer,
+)
 from disclosure_agent.retrieval import supply_contract_query_resolver
 from disclosure_agent.retrieval.company_resolver import CompanyIdentity
+from disclosure_agent.retrieval.evidence_pack import EvidenceItem, EvidencePack
 from disclosure_agent.retrieval.supply_contract_evidence import (
     render_deterministic_supply_contract_analysis,
 )
@@ -112,6 +116,42 @@ def _finding(*, lineage_complete: bool = True) -> TerminatedContractFinding:
     )
 
 
+def _evidence_item(rank: int, filing_id: str, source_kind: str) -> EvidenceItem:
+    return EvidenceItem(
+        evidence_id=f"evidence:{filing_id}",
+        source_kind=source_kind,
+        rank=rank,
+        score=1.0,
+        semantic_score=0.0,
+        lexical_score=0.0,
+        company_name="두산퓨얼셀",
+        filing_id=filing_id,
+        report_name="공시",
+        document_id=f"document:{filing_id}",
+        section_id=None,
+        content_text="evidence",
+        truncated=False,
+        matched_terms=(),
+        block_ids=(),
+        table_ids=(),
+    )
+
+
+def _evidence_pack() -> EvidencePack:
+    items = (
+        _evidence_item(1, "exchange_root", "supply_contract_formation"),
+        _evidence_item(2, "exchange_correction_1", "supply_contract_correction"),
+        _evidence_item(3, "exchange_correction_2", "supply_contract_correction"),
+        _evidence_item(4, "exchange_termination", "supply_contract_termination"),
+    )
+    return EvidencePack(
+        query="질문",
+        retrieval_status="MATCHES_FOUND",
+        items=items,
+        total_chars=sum(len(item.content_text) for item in items),
+    )
+
+
 def test_resolves_supply_contract_company_and_formation_year(monkeypatch) -> None:
     companies = (_company("1", "두산퓨얼셀"), _company("2", "삼성중공업"))
     monkeypatch.setattr(
@@ -157,6 +197,22 @@ def test_renders_full_correction_chain_and_termination() -> None:
     assert "722억 원" in rendered
     assert "PF금융약정 체결 무산에 따른 해지 [E4]" in rendered
     assert "derived_from: [E1],[E2],[E3],[E4]" in rendered
+
+
+def test_user_answer_has_deterministic_local_citations() -> None:
+    result = TerminatedContractsInYearResult(
+        year=2023,
+        company_name="두산퓨얼셀",
+        findings=(_finding(),),
+    )
+
+    rendered = render_supply_contract_termination_answer(result, _evidence_pack())
+
+    assert "이후 해지된 계약이 1건 확인됩니다 [E1][E4]" in rendered
+    assert "정정공시가 2회 확인됩니다 [E2][E3]" in rendered
+    assert "계약금액 722억 원, 거래상대방 ㈜태영건설입니다 [E3]" in rendered
+    assert "PF금융약정 체결 무산에 따른 해지' 사유로 해지되었습니다 [E4]" in rendered
+    assert "[DETERMINISTIC ANALYSIS]" not in rendered
 
 
 def test_incomplete_correction_lineage_is_partial() -> None:

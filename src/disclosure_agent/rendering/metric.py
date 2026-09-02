@@ -177,7 +177,7 @@ def _ranking_answer(result: MetricAnalysisResult, pack: EvidencePack) -> str:
     lines: list[str] = []
     if result.metric is MetricName.FACILITY_INVESTMENT:
         years = {rank.observation.target.year for rank in result.ranking}
-        year_text = str(next(iter(years))) if len(years) == 1 else "각 대상 연도"
+        year_text = f"{next(iter(years))}년" if len(years) == 1 else "각 대상 연도"
         lines.append(
             f"{year_text}에 공시된 신규시설투자 결정 금액 합계 기준 순위입니다."
         )

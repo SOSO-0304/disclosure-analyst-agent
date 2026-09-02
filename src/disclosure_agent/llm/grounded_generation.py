@@ -22,6 +22,10 @@ _POSITIVE_FUNDRAISING_CATEGORY = re.compile(
     re.MULTILINE,
 )
 _REPORT_CONTEXT = re.compile(r"(?P<year>20\d{2})년\s*사업보고서")
+_USER_QUESTION = re.compile(
+    r"사용자 질문:\s*\n(?P<query>.*?)(?:\n\s*\n|$)",
+    re.DOTALL,
+)
 _MONEY_LITERAL = re.compile(
     r"(?<![\d,])(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*"
     r"(?:조\s*원|억\s*원|만\s*원|천\s*원|원)"
@@ -206,8 +210,6 @@ def _completed_context(
             )
             start = index + len(marker)
 
-    # When one Evidence block explicitly describes completed facility investment and then
-    # presents its investment-period table, table values belong to that completed result.
     for block in _evidence_blocks(user_prompt):
         if not any(marker in block for marker in _COMPLETED_MARKERS):
             continue
@@ -224,6 +226,41 @@ def _completed_context(
         )
 
     return completed_money, completed_periods
+
+
+def _question_explicitly_excludes_completed_investment(user_prompt: str) -> bool:
+    match = _USER_QUESTION.search(user_prompt)
+    if match is None:
+        return False
+    compact = "".join(match.group("query").split())
+    exclusion = any(term in compact for term in ("빼고", "제외하고", "제외해", "제외한"))
+    completed_scope = any(term in compact for term in ("집행된", "집행한", "투자실적"))
+    amount_scope = "금액" in compact or "실적" in compact
+    return "투자" in compact and exclusion and completed_scope and amount_scope
+
+
+def unsupported_explicit_exclusions(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject completed investment amounts that the user explicitly asked to exclude."""
+
+    if not _question_explicitly_excludes_completed_investment(user_prompt):
+        return ()
+    completed_money, _ = _completed_context(user_prompt)
+    if not completed_money:
+        return ()
+
+    invalid: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        normalized_line = _normalize_money_token(stripped)
+        if any(token in normalized_line for token in completed_money):
+            invalid.append(stripped)
+    return tuple(dict.fromkeys(invalid))
 
 
 def unsupported_temporal_claims(content: str, *, user_prompt: str) -> tuple[str, ...]:
@@ -345,16 +382,24 @@ def _strip_lines_with_grounding_violations(
 
     unsupported_money = set(unsupported_money_literals(content, user_prompt=user_prompt))
     unsupported_temporal = set(unsupported_temporal_claims(content, user_prompt=user_prompt))
+    unsupported_exclusions = set(
+        unsupported_explicit_exclusions(content, user_prompt=user_prompt)
+    )
     unsupported_structure = set(
         unsupported_investment_plan_structure(content, user_prompt=user_prompt)
     )
-    if not unsupported_money and not unsupported_temporal and not unsupported_structure:
+    if (
+        not unsupported_money
+        and not unsupported_temporal
+        and not unsupported_exclusions
+        and not unsupported_structure
+    ):
         return content
 
     retained: list[str] = []
     for line in content.splitlines():
         stripped = line.strip()
-        if stripped in unsupported_temporal:
+        if stripped in unsupported_temporal or stripped in unsupported_exclusions:
             continue
         if stripped in unsupported_structure:
             indent = line[: len(line) - len(line.lstrip())]
@@ -391,6 +436,7 @@ def _all_invalid_grounding_tokens(
     invalid = list(invalid_citation_tokens(content, evidence_count=evidence_count))
     invalid.extend(unsupported_money_literals(content, user_prompt=user_prompt))
     invalid.extend(unsupported_temporal_claims(content, user_prompt=user_prompt))
+    invalid.extend(unsupported_explicit_exclusions(content, user_prompt=user_prompt))
     invalid.extend(unsupported_investment_plan_structure(content, user_prompt=user_prompt))
     if evidence_report_years:
         invalid.extend(
@@ -497,6 +543,7 @@ def generate_grounded_answer(
         "- 이미 종료된 투자기간이나 분기를 '진행될 예정' 같은 미래 일정으로 바꾸지 마세요.",
         "- 투자 계획 질의에서 이미 집행된 금액·기간은 '확인된 투자 실적'처럼 별도 구분하고, "
         "'주요 투자 계획' 또는 '세부 투자 계획' 아래에 배치하지 마세요.",
+        "- 사용자가 특정 정보나 범위를 빼거나 제외하라고 명시했으면 답변에 다시 포함하지 마세요.",
     ]
     if evidence_report_years:
         repair_lines.append(

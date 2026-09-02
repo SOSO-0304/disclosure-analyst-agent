@@ -160,6 +160,25 @@ def _strip_unsupported_fundraising_absence_citations(
     return "\n".join(sanitized_lines)
 
 
+def _strip_lines_with_unsupported_money(
+    content: str,
+    *,
+    user_prompt: str,
+) -> str:
+    """Drop answer lines that still contain money values absent from grounded input."""
+
+    unsupported = set(unsupported_money_literals(content, user_prompt=user_prompt))
+    if not unsupported:
+        return content
+
+    retained = [
+        line
+        for line in content.splitlines()
+        if not any(token in line for token in unsupported)
+    ]
+    return "\n".join(retained).strip()
+
+
 def _sanitize_answer(
     answer: HcxAnswerResult,
     *,
@@ -200,7 +219,7 @@ def generate_grounded_answer(
     max_completion_tokens: int = 1200,
     evidence_report_years: dict[int, int] | None = None,
 ) -> HcxAnswerResult:
-    """Generate an answer and retry once when grounding validation fails."""
+    """Generate an answer, repair once, then conservatively drop unsupported money lines."""
 
     if evidence_count < 1:
         raise ValueError("evidence_count must be at least 1")
@@ -249,7 +268,22 @@ def generate_grounded_answer(
         evidence_count=evidence_count,
         evidence_report_years=evidence_report_years,
     )
-    if remaining:
-        joined = ", ".join(remaining)
-        raise RuntimeError(f"HCX returned invalid grounded tokens after repair: {joined}")
-    return repaired
+    if not remaining:
+        return repaired
+
+    conservative_content = _strip_lines_with_unsupported_money(
+        repaired.content,
+        user_prompt=user_prompt,
+    )
+    conservative = replace(repaired, content=conservative_content)
+    remaining = _all_invalid_grounding_tokens(
+        conservative.content,
+        user_prompt=user_prompt,
+        evidence_count=evidence_count,
+        evidence_report_years=evidence_report_years,
+    )
+    if conservative.content and not remaining:
+        return conservative
+
+    joined = ", ".join(remaining)
+    raise RuntimeError(f"HCX returned invalid grounded tokens after repair: {joined}")

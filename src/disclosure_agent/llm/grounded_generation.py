@@ -36,6 +36,7 @@ _KOREAN_PERIOD = re.compile(
     r"(?P<start_year>20\d{2})년\s*(?P<start_month>\d{1,2})월부터\s*"
     r"(?:(?P<end_year>20\d{2})년\s*)?(?P<end_month>\d{1,2})월까지"
 )
+_KOREAN_QUARTER = re.compile(r"(?P<year>20\d{2})년\s*(?P<quarter>[1-4])분기")
 _COMPLETED_MARKERS = (
     "이루어졌",
     "완료했",
@@ -164,6 +165,18 @@ def _period_tuple(match: re.Match[str]) -> tuple[int, int, int, int]:
     return start_year, start_month, end_year, end_month
 
 
+def _quarter_period(match: re.Match[str]) -> tuple[int, int, int, int]:
+    year = int(match.group("year"))
+    quarter = int(match.group("quarter"))
+    start_month = (quarter - 1) * 3 + 1
+    return year, start_month, year, start_month + 2
+
+
+def _evidence_blocks(user_prompt: str) -> tuple[str, ...]:
+    blocks = re.split(r"(?=^\[E\d+\]\s)", user_prompt, flags=re.MULTILINE)
+    return tuple(block for block in blocks if re.match(r"^\[E\d+\]\s", block))
+
+
 def _completed_context(
     user_prompt: str,
 ) -> tuple[set[str], set[tuple[int, int, int, int]]]:
@@ -190,6 +203,23 @@ def _completed_context(
             )
             start = index + len(marker)
 
+    # When one Evidence block explicitly describes completed facility investment and then
+    # presents its investment-period table, table values belong to that completed result.
+    for block in _evidence_blocks(user_prompt):
+        if not any(marker in block for marker in _COMPLETED_MARKERS):
+            continue
+        if "투자기간" not in block or "투자액" not in block:
+            continue
+        units = {
+            _normalize_money_token(match.group(1)) for match in _TABLE_UNIT.finditer(block)
+        }
+        numbers = {match.group(0) for match in _GROUPED_NUMBER.finditer(block)}
+        for unit in units:
+            completed_money.update(f"{number}{unit}" for number in numbers)
+        completed_periods.update(
+            _period_tuple(match) for match in _DOTTED_PERIOD.finditer(block)
+        )
+
     return completed_money, completed_periods
 
 
@@ -211,9 +241,61 @@ def unsupported_temporal_claims(content: str, *, user_prompt: str) -> tuple[str,
         claimed_periods = {
             _period_tuple(match) for match in _KOREAN_PERIOD.finditer(stripped)
         }
+        claimed_periods.update(
+            _quarter_period(match) for match in _KOREAN_QUARTER.finditer(stripped)
+        )
         period_conflict = bool(claimed_periods & completed_periods)
         if (money_conflict or period_conflict) and stripped not in invalid:
             invalid.append(stripped)
+    return tuple(invalid)
+
+
+def unsupported_investment_plan_structure(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject headings that label completed investment results as investment plans."""
+
+    compact_prompt = "".join(user_prompt.split())
+    if "투자계획" not in compact_prompt:
+        return ()
+
+    completed_money, _ = _completed_context(user_prompt)
+    lines = content.splitlines()
+    invalid: list[str] = []
+
+    for index, line in enumerate(lines):
+        heading = line.strip()
+        if "투자 계획" not in heading or not heading.endswith(":"):
+            continue
+        if "향후" in heading or "지속" in heading:
+            continue
+
+        block_lines: list[str] = []
+        started = False
+        for following in lines[index + 1 :]:
+            stripped = following.strip()
+            if not stripped:
+                if started:
+                    break
+                continue
+            started = True
+            block_lines.append(stripped)
+
+        has_completed_marker = any(
+            marker in block_line
+            for block_line in block_lines
+            for marker in _COMPLETED_MARKERS
+        )
+        has_completed_money = any(
+            token in _normalize_money_token(block_line)
+            for block_line in block_lines
+            for token in completed_money
+        )
+        if (has_completed_marker or has_completed_money) and heading not in invalid:
+            invalid.append(heading)
+
     return tuple(invalid)
 
 
@@ -256,17 +338,20 @@ def _strip_lines_with_grounding_violations(
     *,
     user_prompt: str,
 ) -> str:
-    """Drop lines that still contain unsupported money or temporal-state claims."""
+    """Drop lines that still contain unsupported grounded claims or misleading headings."""
 
     unsupported_money = set(unsupported_money_literals(content, user_prompt=user_prompt))
     unsupported_temporal = set(unsupported_temporal_claims(content, user_prompt=user_prompt))
-    if not unsupported_money and not unsupported_temporal:
+    unsupported_structure = set(
+        unsupported_investment_plan_structure(content, user_prompt=user_prompt)
+    )
+    if not unsupported_money and not unsupported_temporal and not unsupported_structure:
         return content
 
     retained = []
     for line in content.splitlines():
         stripped = line.strip()
-        if stripped in unsupported_temporal:
+        if stripped in unsupported_temporal or stripped in unsupported_structure:
             continue
         if any(token in line for token in unsupported_money):
             continue
@@ -299,6 +384,7 @@ def _all_invalid_grounding_tokens(
     invalid = list(invalid_citation_tokens(content, evidence_count=evidence_count))
     invalid.extend(unsupported_money_literals(content, user_prompt=user_prompt))
     invalid.extend(unsupported_temporal_claims(content, user_prompt=user_prompt))
+    invalid.extend(unsupported_investment_plan_structure(content, user_prompt=user_prompt))
     if evidence_report_years:
         invalid.extend(
             invalid_report_year_citations(
@@ -350,7 +436,9 @@ def generate_grounded_answer(
         "자릿수나 쉼표를 바꾸지 말고, 근거에 없는 축약이나 임의 환산을 하지 마세요.",
         "- Evidence가 '이루어졌습니다', '완료했습니다'처럼 완료 사실로 밝힌 투자나 취득을 "
         "계획 또는 예정으로 미래화하지 마세요.",
-        "- 이미 종료된 투자기간을 '진행될 예정' 같은 미래 일정으로 바꾸지 마세요.",
+        "- 이미 종료된 투자기간이나 분기를 '진행될 예정' 같은 미래 일정으로 바꾸지 마세요.",
+        "- 투자 계획 질의에서 이미 집행된 금액·기간은 '확인된 투자 실적'처럼 별도 구분하고, "
+        "'주요 투자 계획' 또는 '세부 투자 계획' 아래에 배치하지 마세요.",
     ]
     if evidence_report_years:
         repair_lines.append(

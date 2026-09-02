@@ -15,9 +15,26 @@ def _labels_by_filing_id(pack: EvidencePack) -> dict[str, str]:
     return {item.filing_id: f"E{item.rank}" for item in pack.items}
 
 
+def _has_false_termination_year_premise(query: str | None, *, formation_year: int) -> bool:
+    """Detect a claim that the formation year itself was the termination year."""
+
+    if not query:
+        return False
+    compact = " ".join(query.split())
+    return any(
+        phrase in compact
+        for phrase in (
+            f"{formation_year}년에 해지",
+            f"{formation_year}년 해지",
+        )
+    )
+
+
 def render_supply_contract_termination_answer(
     result: TerminatedContractsInYearResult,
     pack: EvidencePack,
+    *,
+    query: str | None = None,
 ) -> str:
     """Render closed factual termination findings without LLM citation drift."""
 
@@ -41,9 +58,14 @@ def render_supply_contract_termination_answer(
 
     company = result.company_name or result.findings[0].contract.company_name
     count = len(result.findings)
+    direct_prefix = (
+        "아니요."
+        if _has_false_termination_year_premise(query, formation_year=result.year)
+        else "네."
+    )
     lines = [
         (
-            f"네. {company}의 {result.year}년 체결 계약 중 이후 해지된 계약이 "
+            f"{direct_prefix} {company}의 {result.year}년 체결 계약 중 이후 해지된 계약이 "
             f"{count}건 확인됩니다 {_citation(tuple(existence_labels))}."
         )
     ]

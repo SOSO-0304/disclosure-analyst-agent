@@ -55,8 +55,8 @@ def match_company_alias(
     return matches[0] if matches else None
 
 
-def resolve_company(session: Session, value: str) -> CompanyIdentity | None:
-    """Resolve one company alias against the persisted 70-company source master."""
+def source_companies(session: Session) -> tuple[CompanyIdentity, ...]:
+    """Return the persisted source-company master in deterministic order."""
 
     rows = session.execute(
         select(
@@ -66,7 +66,7 @@ def resolve_company(session: Session, value: str) -> CompanyIdentity | None:
             SourceCompanyRow.corp_name,
         ).order_by(SourceCompanyRow.corp_code)
     )
-    companies = tuple(
+    return tuple(
         CompanyIdentity(
             corp_code=row.corp_code,
             stock_code=row.stock_code,
@@ -75,4 +75,63 @@ def resolve_company(session: Session, value: str) -> CompanyIdentity | None:
         )
         for row in rows
     )
-    return match_company_alias(value, companies)
+
+
+def match_company_mentions(
+    query: str,
+    companies: tuple[CompanyIdentity, ...],
+) -> tuple[CompanyIdentity, ...]:
+    """Resolve non-overlapping company mentions, preferring the longest alias."""
+
+    normalized_query = normalize_company_alias(query)
+    mentions: list[tuple[int, int, int, CompanyIdentity]] = []
+
+    for company in companies:
+        aliases = {
+            normalize_company_alias(company.listed_name),
+            normalize_company_alias(company.corp_name),
+        }
+        aliases.discard("")
+        for alias in aliases:
+            start = 0
+            while True:
+                index = normalized_query.find(alias, start)
+                if index < 0:
+                    break
+                mentions.append((index, index + len(alias), len(alias), company))
+                start = index + 1
+
+    selected: list[tuple[int, int, int, CompanyIdentity]] = []
+    occupied: list[tuple[int, int]] = []
+    for mention in sorted(
+        mentions,
+        key=lambda item: (-item[2], item[0], item[3].corp_code),
+    ):
+        start, end, _, _ = mention
+        overlaps = any(start < occupied_end and occupied_start < end for occupied_start, occupied_end in occupied)
+        if overlaps:
+            continue
+        selected.append(mention)
+        occupied.append((start, end))
+
+    ordered = sorted(selected, key=lambda item: (item[0], item[1], item[3].corp_code))
+    deduped: list[CompanyIdentity] = []
+    seen_corp_codes: set[str] = set()
+    for _, _, _, company in ordered:
+        if company.corp_code in seen_corp_codes:
+            continue
+        seen_corp_codes.add(company.corp_code)
+        deduped.append(company)
+    return tuple(deduped)
+
+
+def match_query_companies(session: Session, query: str) -> tuple[CompanyIdentity, ...]:
+    """Resolve company names mentioned inside a natural-language query."""
+
+    return match_company_mentions(query, source_companies(session))
+
+
+def resolve_company(session: Session, value: str) -> CompanyIdentity | None:
+    """Resolve one company alias against the persisted source master."""
+
+    return match_company_alias(value, source_companies(session))

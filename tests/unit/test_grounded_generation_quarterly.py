@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from disclosure_agent.llm.grounded_generation import (
     generate_grounded_answer,
+    unsupported_explicit_exclusions,
     unsupported_investment_plan_structure,
     unsupported_temporal_claims,
 )
@@ -78,6 +79,29 @@ text:
     content = "- DS 부문 신·증설 및 보완에 101,927억원을 투자합니다 [E1]."
 
     assert unsupported_temporal_claims(content, user_prompt=prompt) == (content,)
+
+
+def test_explicit_exclusion_rejects_completed_investment_amounts() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2026년 1분기 분기보고서에서 이미 집행된 투자 금액은 빼고, 현재 진행 중이거나 앞으로 계획한 투자 방향만 정리해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk
+text:
+2026년 1분기 11.2조원의 시설투자가 이루어졌습니다.
+메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진하였습니다.
+시스템 반도체 Advanced 노드 CAPA 확보 투자도 진행 중입니다.
+투자 효율성 제고에도 집중할 계획입니다.
+(단위 : 억원)
+구 분 투자기간 투자액 DS 2026.01~2026.03 101,927 SDC 5,881 기타 4,524 합계 112,332
+"""
+    content = """Advanced 노드 CAPA 확보 투자는 진행 중입니다 [E1].
+2026년 1분기에는 11.2조원의 시설투자가 이루어졌습니다 [E1].
+"""
+
+    assert unsupported_explicit_exclusions(content, user_prompt=prompt) == (
+        "2026년 1분기에는 11.2조원의 시설투자가 이루어졌습니다 [E1].",
+    )
 
 
 def test_plan_structure_rejects_completed_table_amounts_under_plan_heading() -> None:

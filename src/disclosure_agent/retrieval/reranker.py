@@ -52,6 +52,49 @@ _STOPWORDS = frozenset(
         "회사",
     }
 )
+_INVESTMENT_PLAN_ANCHORS = (
+    "시설투자",
+    "설비투자",
+    "투자 계획",
+    "투자계획",
+    "투자 목적",
+    "투자목적",
+    "투자 예정",
+    "투자할 계획",
+    "투자를 지속",
+    "투자도 진행",
+    "첨단공정",
+    "인프라 투자",
+    "capa 확보",
+    "신ㆍ증설",
+    "신·증설",
+    "증설ㆍ전환",
+    "증설·전환",
+    "투자 효율",
+    "투자기간",
+    "대상자산",
+)
+_BUSINESS_CHANGE_ANCHORS = (
+    "사업 측면",
+    "dx 부문",
+    "ds 부문",
+    "sdc",
+    "harman",
+    "영상디스플레이",
+    "생활가전",
+    "mobile experience",
+    "mx(",
+    "메모리 사업",
+    "foundry",
+    "system lsi",
+    "반도체 사업",
+    "galaxy",
+    "갤럭시",
+    "hbm",
+    "neo qled",
+    "영업이익",
+    "부문 매출",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +112,22 @@ def _strip_suffix(token: str) -> str:
         if token.endswith(suffix) and len(token) - len(suffix) >= 2:
             return token[: -len(suffix)]
     return token
+
+
+def _matches_query_focus(query: str, lowered_text: str) -> bool:
+    """Apply conservative content gates for narrow narrative disclosure questions."""
+
+    compact = "".join(query.lower().split())
+    if "투자계획" in compact or "투자목적" in compact:
+        return any(anchor in lowered_text for anchor in _INVESTMENT_PLAN_ANCHORS)
+
+    business_change_query = "사업변화" in compact or (
+        "핵심사업" in compact and "비교" in compact
+    )
+    if business_change_query:
+        return any(anchor in lowered_text for anchor in _BUSINESS_CHANGE_ANCHORS)
+
+    return True
 
 
 def query_terms(
@@ -118,6 +177,15 @@ def rerank_semantic_hits(
         return ()
 
     terms = query_terms(query, company_name=company_name, year=year)
+    lowered_texts = tuple(hit.content_text.lower() for hit in hits)
+    focused_pairs = tuple(
+        (hit, text)
+        for hit, text in zip(hits, lowered_texts, strict=True)
+        if _matches_query_focus(query, text)
+    )
+    if not focused_pairs:
+        return ()
+
     if not terms:
         return tuple(
             RerankedSemanticHit(
@@ -126,19 +194,23 @@ def rerank_semantic_hits(
                 final_score=hit.similarity,
                 matched_terms=(),
             )
-            for hit in hits[:top_k]
+            for hit, _ in focused_pairs[:top_k]
         )
 
-    lowered_texts = tuple(hit.content_text.lower() for hit in hits)
-    document_frequency = {term: sum(term in text for text in lowered_texts) for term in terms}
+    focused_texts = tuple(text for _, text in focused_pairs)
+    document_frequency = {
+        term: sum(term in text for text in focused_texts)
+        for term in terms
+    }
     term_weights = {
-        term: math.log((len(hits) + 1) / (document_frequency[term] + 1)) + 1.0 for term in terms
+        term: math.log((len(focused_pairs) + 1) / (document_frequency[term] + 1)) + 1.0
+        for term in terms
     }
     total_weight = sum(term_weights.values())
     lexical_weight = 1.0 - semantic_weight
     reranked: list[RerankedSemanticHit] = []
 
-    for hit, text in zip(hits, lowered_texts, strict=True):
+    for hit, text in focused_pairs:
         matched_terms = tuple(term for term in terms if term in text)
         matched_weight = sum(term_weights[term] for term in matched_terms)
         lexical_score = matched_weight / total_weight if total_weight else 0.0

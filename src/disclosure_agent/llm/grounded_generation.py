@@ -28,6 +28,28 @@ _MONEY_LITERAL = re.compile(
 )
 _TABLE_UNIT = re.compile(r"단위\s*[:：]\s*(조\s*원|억\s*원|만\s*원|천\s*원|원)")
 _GROUPED_NUMBER = re.compile(r"(?<![\d,])\d{1,3}(?:,\d{3})+(?![\d,])")
+_YEAR_TOKEN = re.compile(r"20\d{2}")
+_COMPLETED_MARKERS = (
+    "이루어졌",
+    "완료했",
+    "완료하였",
+    "취득 완료",
+    "실시했",
+    "실시하였",
+    "집행했",
+    "집행하였",
+    "투자했",
+    "투자하였",
+)
+_FUTURE_MARKERS = (
+    "계획",
+    "예정",
+    "진행할",
+    "진행될",
+    "추진할",
+    "투자할",
+    "집행할",
+)
 _ABSENCE_PHRASES = (
     "확인된 내역 없음",
     "확인된 이벤트가 없습니다",
@@ -126,6 +148,44 @@ def unsupported_money_literals(content: str, *, user_prompt: str) -> tuple[str, 
     return tuple(unsupported)
 
 
+def _completed_context(user_prompt: str) -> tuple[set[str], set[str]]:
+    completed_money: set[str] = set()
+    completed_years: set[str] = set()
+    segments = re.split(r"(?<=[.!?])\s+|\n", user_prompt)
+    for segment in segments:
+        if not any(marker in segment for marker in _COMPLETED_MARKERS):
+            continue
+        completed_money.update(
+            _normalize_money_token(match.group(0))
+            for match in _MONEY_LITERAL.finditer(segment)
+        )
+        completed_years.update(_YEAR_TOKEN.findall(segment))
+    return completed_money, completed_years
+
+
+def unsupported_temporal_claims(content: str, *, user_prompt: str) -> tuple[str, ...]:
+    """Reject completed disclosure facts that HCX rewrites as future plans or schedules."""
+
+    completed_money, completed_years = _completed_context(user_prompt)
+    if not completed_money and not completed_years:
+        return ()
+
+    invalid: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or not any(marker in stripped for marker in _FUTURE_MARKERS):
+            continue
+
+        normalized_line = _normalize_money_token(stripped)
+        money_conflict = any(token in normalized_line for token in completed_money)
+        year_conflict = "사업보고서" not in stripped and any(
+            year in stripped for year in completed_years
+        )
+        if (money_conflict or year_conflict) and stripped not in invalid:
+            invalid.append(stripped)
+    return tuple(invalid)
+
+
 def _strip_unsupported_fundraising_absence_citations(
     content: str,
     *,
@@ -160,22 +220,29 @@ def _strip_unsupported_fundraising_absence_citations(
     return "\n".join(sanitized_lines)
 
 
-def _strip_lines_with_unsupported_money(
+def _strip_lines_with_grounding_violations(
     content: str,
     *,
     user_prompt: str,
 ) -> str:
-    """Drop answer lines that still contain money values absent from grounded input."""
+    """Drop lines that still contain unsupported money or temporal-state claims."""
 
-    unsupported = set(unsupported_money_literals(content, user_prompt=user_prompt))
-    if not unsupported:
+    unsupported_money = set(unsupported_money_literals(content, user_prompt=user_prompt))
+    unsupported_temporal = set(unsupported_temporal_claims(content, user_prompt=user_prompt))
+    if not unsupported_money and not unsupported_temporal:
         return content
 
-    retained = [
-        line
-        for line in content.splitlines()
-        if not any(token in line for token in unsupported)
-    ]
+    retained = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped in unsupported_temporal:
+            continue
+        if any(token in line for token in unsupported_money):
+            continue
+        retained.append(line)
+
+    while retained and retained[-1].strip().endswith(":"):
+        retained.pop()
     return "\n".join(retained).strip()
 
 
@@ -200,6 +267,7 @@ def _all_invalid_grounding_tokens(
 ) -> tuple[str, ...]:
     invalid = list(invalid_citation_tokens(content, evidence_count=evidence_count))
     invalid.extend(unsupported_money_literals(content, user_prompt=user_prompt))
+    invalid.extend(unsupported_temporal_claims(content, user_prompt=user_prompt))
     if evidence_report_years:
         invalid.extend(
             invalid_report_year_citations(
@@ -219,7 +287,7 @@ def generate_grounded_answer(
     max_completion_tokens: int = 1200,
     evidence_report_years: dict[int, int] | None = None,
 ) -> HcxAnswerResult:
-    """Generate an answer, repair once, then conservatively drop unsupported money lines."""
+    """Generate, repair once, then conservatively drop unsupported grounded claims."""
 
     if evidence_count < 1:
         raise ValueError("evidence_count must be at least 1")
@@ -249,6 +317,9 @@ def generate_grounded_answer(
         "- 구체적 사실을 결론에서 다시 말하면 그 문장에도 해당 [E번호]를 다시 붙이세요.",
         "- 금액은 Evidence에 실제로 등장하는 숫자와 단위만 사용하세요. 표의 숫자를 옮길 때 "
         "자릿수나 쉼표를 바꾸지 말고, 근거에 없는 축약이나 임의 환산을 하지 마세요.",
+        "- Evidence가 '이루어졌습니다', '완료했습니다'처럼 완료 사실로 밝힌 투자나 취득을 "
+        "계획 또는 예정으로 미래화하지 마세요.",
+        "- 이미 종료된 투자기간을 '진행될 예정' 같은 미래 일정으로 바꾸지 마세요.",
     ]
     if evidence_report_years:
         repair_lines.append(
@@ -271,7 +342,7 @@ def generate_grounded_answer(
     if not remaining:
         return repaired
 
-    conservative_content = _strip_lines_with_unsupported_money(
+    conservative_content = _strip_lines_with_grounding_violations(
         repaired.content,
         user_prompt=user_prompt,
     )

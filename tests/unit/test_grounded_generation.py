@@ -71,3 +71,36 @@ def test_generate_grounded_answer_does_not_retry_valid_citations() -> None:
 
     assert answer.content == "매출액은 100억 원입니다 [E1]."
     assert len(client.calls) == 1
+
+
+def test_generate_grounded_answer_strips_citations_from_empty_fundraising_types() -> None:
+    prompt = """=== DETERMINISTIC ANALYSIS ===
+analysis_type: fundraising_by_instrument
+유형: 유상증자 | 확인된 이벤트 0건 | 금액 0원으로 해석하지 않음
+유형: 전환사채(CB) | 3건 | 합계 378억 원 | [E1],[E2],[E3]
+유형: 신주인수권부사채(BW) | 확인된 이벤트 0건 | 금액 0원으로 해석하지 않음
+유형: 교환사채(EB) | 확인된 이벤트 0건 | 금액 0원으로 해석하지 않음
+"""
+    client = _FakeClient(
+        [
+            "\n".join(
+                (
+                    "유상증자: 확인된 내역 없음 [E1][E2][E3].",
+                    "전환사채(CB): 3건, 합계 378억 원 [E1][E2][E3].",
+                    "신주인수권부사채(BW)와 교환사채(EB): 확인된 내역 없음 [E1][E2][E3].",
+                )
+            )
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=3,
+    )
+
+    assert "유상증자: 확인된 내역 없음." in answer.content
+    assert "전환사채(CB): 3건, 합계 378억 원 [E1][E2][E3]." in answer.content
+    assert "신주인수권부사채(BW)와 교환사채(EB): 확인된 내역 없음." in answer.content
+    assert len(client.calls) == 1

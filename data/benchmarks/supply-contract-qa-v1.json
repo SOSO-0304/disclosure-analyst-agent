@@ -1,0 +1,1198 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230131800162"
+        ]
+      },
+      "group": "facts",
+      "id": "F01",
+      "request": {
+        "query": "HD현대일렉트릭의 배전변압기 3500대 공급계약 금액과 상대방, 계약기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230525800082"
+        ]
+      },
+      "group": "facts",
+      "id": "F02",
+      "request": {
+        "query": "HD현대일렉트릭의 사우디 380KV 변압기와 리액터 18대 계약 내용을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230317801144"
+        ]
+      },
+      "group": "facts",
+      "id": "F03",
+      "request": {
+        "query": "HMM이 2023년 3월 17일 공시한 장기대선계약의 금액과 계약기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20231027800429"
+        ]
+      },
+      "group": "facts",
+      "id": "F04",
+      "request": {
+        "query": "HMM의 2023년 10월 27일 장기대선계약 금액과 시작일, 종료일은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20250514800672"
+        ]
+      },
+      "group": "facts",
+      "id": "F05",
+      "request": {
+        "query": "LIG넥스원의 장거리지대공유도무기-II 체계종합 시제 계약상대방과 금액, 기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20250707800058"
+        ]
+      },
+      "group": "facts",
+      "id": "F06",
+      "request": {
+        "query": "삼성중공업의 해양생산설비 본 계약 전 예비 작업 계약은 상대방이 누구고 금액과 기간이 어떻게 돼?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20260211800232"
+        ]
+      },
+      "group": "facts",
+      "id": "F07",
+      "request": {
+        "query": "삼성중공업이 2026년 2월 공시한 컨테이너선 2척 계약 금액과 계약기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230224800251"
+        ]
+      },
+      "group": "facts",
+      "id": "F08",
+      "request": {
+        "query": "한국항공우주의 말레이시아 FA-50 경전투기 수출 계약 상대방과 계약금액, 기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230213800586"
+        ]
+      },
+      "group": "facts",
+      "id": "F09",
+      "request": {
+        "query": "한화오션의 2023년 2월 LNG 운반선 1척 계약 상대방과 금액, 기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230530800118"
+        ]
+      },
+      "group": "facts",
+      "id": "F10",
+      "request": {
+        "query": "한미반도체가 Forehope에 공급하는 micro SAW 장비 계약금액과 기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230202800044"
+        ]
+      },
+      "group": "facts",
+      "id": "F11",
+      "request": {
+        "query": "현대로템의 알타이전차 양산 부품 공급 계약 상대방과 금액, 기간은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_amount",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230405800944"
+        ]
+      },
+      "group": "facts",
+      "id": "F12",
+      "request": {
+        "query": "엘에스일렉트릭이 2023년 4월 5일 공시한 가오슝 MRT 전력공급 계약의 금액과 종료일은?"
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20250707800058",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2025-07-07",
+        "receipt_to": "2025-07-07",
+        "response": "fields",
+        "scope_mode": "explicit_ui",
+        "targets": [
+          "20250707800058"
+        ]
+      },
+      "group": "scope",
+      "id": "S1",
+      "request": {
+        "date_from": "2025-07-07",
+        "date_to": "2025-07-07",
+        "query": "삼성중공업의 공급계약 상대방과 금액, 기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20250707800058",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2025-07-07",
+        "receipt_to": "2025-07-07",
+        "response": "fields",
+        "scope_mode": "natural_language",
+        "targets": [
+          "20250707800058"
+        ]
+      },
+      "group": "scope",
+      "id": "S5",
+      "request": {
+        "query": "삼성중공업이 2025-07-07에 공시한 공급계약의 상대방과 금액, 계약기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20250514800672",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2025-05-14",
+        "receipt_to": "2025-05-14",
+        "response": "fields",
+        "scope_mode": "explicit_ui",
+        "targets": [
+          "20250514800672"
+        ]
+      },
+      "group": "scope",
+      "id": "S2",
+      "request": {
+        "date_from": "2025-05-14",
+        "date_to": "2025-05-14",
+        "query": "LIG넥스원의 공급계약 상대방과 금액, 기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20250514800672",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2025-05-14",
+        "receipt_to": "2025-05-14",
+        "response": "fields",
+        "scope_mode": "natural_language",
+        "targets": [
+          "20250514800672"
+        ]
+      },
+      "group": "scope",
+      "id": "S6",
+      "request": {
+        "query": "LIG넥스원이 2025-05-14에 공시한 공급계약의 상대방과 금액, 계약기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20230525800082",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2023-05-25",
+        "receipt_to": "2023-05-25",
+        "response": "fields",
+        "scope_mode": "explicit_ui",
+        "targets": [
+          "20230525800082"
+        ]
+      },
+      "group": "scope",
+      "id": "S3",
+      "request": {
+        "date_from": "2023-05-25",
+        "date_to": "2023-05-25",
+        "query": "HD현대일렉트릭의 공급계약 상대방과 금액, 기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20230525800082",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2023-05-25",
+        "receipt_to": "2023-05-25",
+        "response": "fields",
+        "scope_mode": "natural_language",
+        "targets": [
+          "20230525800082"
+        ]
+      },
+      "group": "scope",
+      "id": "S7",
+      "request": {
+        "query": "HD현대일렉트릭이 2023-05-25에 공시한 공급계약의 상대방과 금액, 계약기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20230224800251",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2023-02-24",
+        "receipt_to": "2023-02-24",
+        "response": "fields",
+        "scope_mode": "explicit_ui",
+        "targets": [
+          "20230224800251"
+        ]
+      },
+      "group": "scope",
+      "id": "S4",
+      "request": {
+        "date_from": "2023-02-24",
+        "date_to": "2023-02-24",
+        "query": "한국항공우주의 공급계약 상대방과 금액, 기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "company_target": "20230224800251",
+        "fields": [
+          "contract_amount",
+          "counterparty",
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "receipt_from": "2023-02-24",
+        "receipt_to": "2023-02-24",
+        "response": "fields",
+        "scope_mode": "natural_language",
+        "targets": [
+          "20230224800251"
+        ]
+      },
+      "group": "scope",
+      "id": "S8",
+      "request": {
+        "query": "한국항공우주가 2023-02-24에 공시한 공급계약의 상대방과 금액, 계약기간을 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty",
+          "contract_amount"
+        ],
+        "response": "fields",
+        "targets": [
+          "20250707800058"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P1",
+      "request": {
+        "query": "삼성중공업 해양설비 사전 작업 건, 발주처랑 수주액이 얼마야?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20250707800058"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P2",
+      "request": {
+        "query": "삼성중공업 예비 작업 계약은 언제부터 언제까지야? 실제 작업 착수일 말고 계약기간 항목 기준으로."
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty",
+          "contract_amount"
+        ],
+        "response": "fields",
+        "targets": [
+          "20250514800672"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P3",
+      "request": {
+        "query": "LIG넥스원 체계종합 시제 사업은 누구와 맺은 얼마짜리 계약이야?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230525800082"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P4",
+      "request": {
+        "query": "HD현대일렉트릭 사우디 변압기 18대 납품은 종료일이 언제야?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty",
+          "contract_amount"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230224800251"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P5",
+      "request": {
+        "query": "한국항공우주 말레이시아 전투기 딜의 고객과 수주 규모를 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230202800044"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P6",
+      "request": {
+        "query": "현대로템 알타이 양산부품, 납품 계약 끝나는 날 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230213800586"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P7",
+      "request": {
+        "query": "한화오션 LNG선 한 척, 2023년 2월에 발표한 계약은 누구와 체결했어?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "contract_start_date",
+          "contract_end_date"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230530800118"
+        ]
+      },
+      "group": "paraphrase",
+      "id": "P8",
+      "request": {
+        "query": "한미반도체 중국 Forehope 장비 납품은 언제 시작해서 언제 끝나?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230317801144"
+        ]
+      },
+      "group": "missing",
+      "id": "M1",
+      "request": {
+        "query": "HMM의 2023년 3월 장기대선계약 상대방은 누구야?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty"
+        ],
+        "response": "fields",
+        "targets": [
+          "20231027800429"
+        ]
+      },
+      "group": "missing",
+      "id": "M2",
+      "request": {
+        "query": "HMM 2023년 10월 장기대선계약의 계약상대방 이름 알려줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty"
+        ],
+        "response": "fields",
+        "targets": [
+          "20230317801144"
+        ]
+      },
+      "group": "missing",
+      "id": "M3",
+      "request": {
+        "query": "HMM이 2023년 3월 17일 발표한 장기대선은 어느 회사가 계약했어?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [
+          "counterparty"
+        ],
+        "response": "fields",
+        "targets": [
+          "20231027800429"
+        ]
+      },
+      "group": "missing",
+      "id": "M4",
+      "request": {
+        "query": "HMM의 2023년 10월 27일 대선계약 고객사 실명이 기재돼 있어?"
+      }
+    },
+    {
+      "expected": {
+        "absence_scope": "frozen_corpus_explicit_ui",
+        "fields": [],
+        "receipt_from": "1900-01-01",
+        "receipt_to": "1900-12-31",
+        "response": "no_results",
+        "targets": []
+      },
+      "group": "missing",
+      "id": "M5",
+      "request": {
+        "date_from": "1900-01-01",
+        "date_to": "1900-12-31",
+        "query": "삼성중공업의 공급계약을 보여줘."
+      }
+    },
+    {
+      "expected": {
+        "absence_scope": "frozen_corpus_explicit_ui",
+        "fields": [],
+        "receipt_from": "1900-01-01",
+        "receipt_to": "1900-12-31",
+        "response": "no_results",
+        "targets": []
+      },
+      "group": "missing",
+      "id": "M6",
+      "request": {
+        "date_from": "1900-01-01",
+        "date_to": "1900-12-31",
+        "query": "HMM의 공급계약을 보여줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [],
+        "response": "unsupported",
+        "targets": []
+      },
+      "group": "unsupported",
+      "id": "U1",
+      "request": {
+        "query": "삼성중공업의 모든 공급계약 금액을 합산해줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [],
+        "response": "unsupported",
+        "targets": []
+      },
+      "group": "unsupported",
+      "id": "U2",
+      "request": {
+        "query": "삼성중공업의 정정공시를 전부 반영한 최신 유효 계약금액은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [],
+        "response": "unsupported",
+        "targets": []
+      },
+      "group": "unsupported",
+      "id": "U3",
+      "request": {
+        "query": "HMM의 장기대선 중 해지된 계약을 제외한 현재 잔여 계약금액은?"
+      }
+    },
+    {
+      "expected": {
+        "fields": [],
+        "response": "unsupported",
+        "targets": []
+      },
+      "group": "unsupported",
+      "id": "U4",
+      "request": {
+        "query": "한국항공우주 말레이시아 FA-50 계약의 매출총이익을 계산해줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [],
+        "response": "unsupported",
+        "targets": []
+      },
+      "group": "unsupported",
+      "id": "U5",
+      "request": {
+        "query": "현대로템의 계약금액을 오늘 환율로 달러로 바꿔줘."
+      }
+    },
+    {
+      "expected": {
+        "fields": [],
+        "response": "unsupported",
+        "targets": []
+      },
+      "group": "unsupported",
+      "id": "U6",
+      "request": {
+        "query": "한미반도체의 2025년 매출과 영업이익을 공급계약 자료로 알려줘."
+      }
+    }
+  ],
+  "chunk_run_id": "c700b5a3a6cfa055be147bc71dd478ca",
+  "embedding_run_id": "1220f708cc241e9a00d0b40cbddea7da",
+  "gold_review": "Raw repository XML read independently; not copied from extractor output. No separate human review claimed.",
+  "purpose": "development regression; not an unseen holdout or a general QA benchmark",
+  "records": {
+    "20230131800162": {
+      "company": "HD현대일렉트릭",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "97,000,000,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "97000000000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2024-10-31",
+          "status": "extracted",
+          "unit": null,
+          "value": "2024-10-31",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2023-01-30",
+          "status": "extracted",
+          "unit": null,
+          "value": "2023-01-30",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "Hyundai Electric America Corporation",
+          "status": "extracted",
+          "unit": null,
+          "value": "Hyundai Electric America Corporation",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-01-31",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "c04c0e5365c5d8383a26b186b26c9cebd72b90fd",
+      "source_normalized_sha256": "c7c7e65a396f4cb94a271522afae691828c8e40d9bca2db9014833ddbee03bc5",
+      "source_path": "data/raw/exchange/HD현대일렉트릭/20230131800162/20230131800162.xml"
+    },
+    "20230202800044": {
+      "company": "현대로템",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "174,143,441,588",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "174143441588",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2027-12-31",
+          "status": "extracted",
+          "unit": null,
+          "value": "2027-12-31",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2023-02-01",
+          "status": "extracted",
+          "unit": null,
+          "value": "2023-02-01",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "BMC OTOMOTIV SANAYI VE TICARET A.S.",
+          "status": "extracted",
+          "unit": null,
+          "value": "BMC OTOMOTIV SANAYI VE TICARET A.S.",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-02-02",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "39eb39b09371dbecb45aeea90363963c491c3a68",
+      "source_normalized_sha256": "87df48538fc92945980cdcf2fa1335672b3e60011a3a065263a75af2b45e2916",
+      "source_path": "data/raw/exchange/현대로템/20230202800044/20230202800044.xml"
+    },
+    "20230213800586": {
+      "company": "한화오션",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "314,500,000,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "314500000000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2027-03-31",
+          "status": "extracted",
+          "unit": null,
+          "value": "2027-03-31",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2023-02-10",
+          "status": "extracted",
+          "unit": null,
+          "value": "2023-02-10",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "오세아니아 지역 선주",
+          "status": "extracted",
+          "unit": null,
+          "value": "오세아니아 지역 선주",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-02-13",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "fd486c638277447e2c4f249cc364684e57c469c5",
+      "source_normalized_sha256": "63dda0d6785b14d1493ad48a159833b52337f7a3531148673afa189d0315c7e5",
+      "source_path": "data/raw/exchange/한화오션/20230213800586/20230213800586.xml"
+    },
+    "20230224800251": {
+      "company": "한국항공우주",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "1,195,242,120,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "1195242120000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2029-08-15",
+          "status": "extracted",
+          "unit": null,
+          "value": "2029-08-15",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2023-02-24",
+          "status": "extracted",
+          "unit": null,
+          "value": "2023-02-24",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "말레이시아 국방부(Malaysia MINDEF)",
+          "status": "extracted",
+          "unit": null,
+          "value": "말레이시아 국방부(Malaysia MINDEF)",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-02-24",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "477f55b9d345dd03fd1c2ae1ce719ed44a14dde2",
+      "source_normalized_sha256": "1b184e799683e5b65896df0e11b666913dd57984fe9ae6c089c986cdfee0b729",
+      "source_path": "data/raw/exchange/한국항공우주/20230224800251/20230224800251.xml"
+    },
+    "20230317801144": {
+      "company": "HMM",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "795,582,915,120",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "795582915120",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2041-06-30",
+          "status": "extracted",
+          "unit": null,
+          "value": "2041-06-30",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2025-12-31",
+          "status": "extracted",
+          "unit": null,
+          "value": "2025-12-31",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "-",
+          "status": "missing",
+          "unit": null,
+          "value": null,
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-03-17",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "5e2adda48055fea26e963788c36a43d647b934ef",
+      "source_normalized_sha256": "95076af5b05fe4a6dafe3cf0884268d95513ae5a8315db7838a67d52bd4469b0",
+      "source_path": "data/raw/exchange/HMM/20230317801144/20230317801144.xml"
+    },
+    "20230405800944": {
+      "company": "엘에스일렉트릭",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "266,799,300,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "266799300000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2034-07-21",
+          "status": "extracted",
+          "unit": null,
+          "value": "2034-07-21",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2022-10-17",
+          "status": "extracted",
+          "unit": null,
+          "value": "2022-10-17",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "ST ENGINEERING ELECTRONICS LTD.",
+          "status": "extracted",
+          "unit": null,
+          "value": "ST ENGINEERING ELECTRONICS LTD.",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": true,
+      "receipt_date": "2023-04-05",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "49e586dae65ecf693dcf0d017152c229b2ad65e0",
+      "source_normalized_sha256": "5a992c2fd51f550833e9c7682b8e846b7f38615b7a18374adf3d8195ddaa4e08",
+      "source_path": "data/raw/exchange/엘에스일렉트릭/20230405800944/20230405800944.xml"
+    },
+    "20230525800082": {
+      "company": "HD현대일렉트릭",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "87,800,000,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "87800000000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2025-10-23",
+          "status": "extracted",
+          "unit": null,
+          "value": "2025-10-23",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2023-05-24",
+          "status": "extracted",
+          "unit": null,
+          "value": "2023-05-24",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "사우디 전력청(SEC)",
+          "status": "extracted",
+          "unit": null,
+          "value": "사우디 전력청(SEC)",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-05-25",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "c47d36391e941d40316f68822e0f83a71601b4c2",
+      "source_normalized_sha256": "51209ae8ed52ca968d6cf5e41084f054d3ab40afe88eb5e6d48d73eb81706333",
+      "source_path": "data/raw/exchange/HD현대일렉트릭/20230525800082/20230525800082.xml"
+    },
+    "20230530800118": {
+      "company": "한미반도체",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "7,927,088,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "7927088000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2023-08-31",
+          "status": "extracted",
+          "unit": null,
+          "value": "2023-08-31",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2023-05-30",
+          "status": "extracted",
+          "unit": null,
+          "value": "2023-05-30",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "Forehope Semiconductor (Ningbo) Co.,Ltd.",
+          "status": "extracted",
+          "unit": null,
+          "value": "Forehope Semiconductor (Ningbo) Co.,Ltd.",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-05-30",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "2cf18d5aafec3467d844b8f818cf3bcea44fc92c",
+      "source_normalized_sha256": "f96f1ff10dc817c637a0465ba648cd0d1078a9023d5904176768f736e97dffd9",
+      "source_path": "data/raw/exchange/한미반도체/20230530800118/20230530800118.xml"
+    },
+    "20231027800429": {
+      "company": "HMM",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "1,282,363,356,560",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "1282363356560",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2042-12-31",
+          "status": "extracted",
+          "unit": null,
+          "value": "2042-12-31",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2026-09-01",
+          "status": "extracted",
+          "unit": null,
+          "value": "2026-09-01",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "-",
+          "status": "missing",
+          "unit": null,
+          "value": null,
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2023-10-27",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "ca6957897041c6f7f7e37f86001400e457b21ceb",
+      "source_normalized_sha256": "08b92b0b416551d9cdc43a81592c51a14824c48999240aa121218b3e554d1f29",
+      "source_path": "data/raw/exchange/HMM/20231027800429/20231027800429.xml"
+    },
+    "20250514800672": {
+      "company": "LIG넥스원",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "98,700,000,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "98700000000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2028-10-31",
+          "status": "extracted",
+          "unit": null,
+          "value": "2028-10-31",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2025-05-14",
+          "status": "extracted",
+          "unit": null,
+          "value": "2025-05-14",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "국방과학연구소",
+          "status": "extracted",
+          "unit": null,
+          "value": "국방과학연구소",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2025-05-14",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "948d4b4c499700e16f53b8d43fbe7a706361570a",
+      "source_normalized_sha256": "89cf985d0a01df05102114e849567cffaede90019723963ade490db670aa8c64",
+      "source_path": "data/raw/exchange/LIG디펜스앤에어로스페이스/20250514800672/20250514800672.xml"
+    },
+    "20250707800058": {
+      "company": "삼성중공업",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "869,400,000,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "869400000000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2025-09-30",
+          "status": "extracted",
+          "unit": null,
+          "value": "2025-09-30",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2025-07-04",
+          "status": "extracted",
+          "unit": null,
+          "value": "2025-07-04",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "아프리카 지역 선주",
+          "status": "extracted",
+          "unit": null,
+          "value": "아프리카 지역 선주",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2025-07-07",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "0d51e0344ac55c431b00029f8ce1acbe1548cdea",
+      "source_normalized_sha256": "1b777a122191f30ad56bf07b2c40f224a6abd7543f4523d1314612c936dd69a8",
+      "source_path": "data/raw/exchange/삼성중공업/20250707800058/20250707800058.xml"
+    },
+    "20260211800232": {
+      "company": "삼성중공업",
+      "fields": {
+        "contract_amount": {
+          "raw_text": "468,600,000,000",
+          "status": "extracted",
+          "unit": "KRW",
+          "value": "468600000000",
+          "xpath": "/html/body/div/div/table/tbody/tr[3]/td[3]"
+        },
+        "contract_end_date": {
+          "raw_text": "2028-05-01",
+          "status": "extracted",
+          "unit": null,
+          "value": "2028-05-01",
+          "xpath": "/html/body/div/div/table/tbody/tr[11]/td[2]"
+        },
+        "contract_start_date": {
+          "raw_text": "2026-02-10",
+          "status": "extracted",
+          "unit": null,
+          "value": "2026-02-10",
+          "xpath": "/html/body/div/div/table/tbody/tr[10]/td[3]"
+        },
+        "counterparty": {
+          "raw_text": "아프리카 지역 선주",
+          "status": "extracted",
+          "unit": null,
+          "value": "아프리카 지역 선주",
+          "xpath": "/html/body/div/div/table/tbody/tr[7]/td[2]"
+        }
+      },
+      "is_correction": false,
+      "receipt_date": "2026-02-11",
+      "review_method": "independent_raw_xml_xpath_review",
+      "source_blob_sha": "41e10cc5bf637d2574259e48ccaffa57c94331ea",
+      "source_normalized_sha256": "4ba2b292ba835391bc04e8fe52583b0a8cd8183e389af3568816ed4248afb32a",
+      "source_path": "data/raw/exchange/삼성중공업/20260211800232/20260211800232.xml"
+    }
+  },
+  "schema_version": "contract-qa-v1",
+  "source_commit": "1a41d3edad033352774a157a5ab2321c29257803",
+  "top_k": 5
+}

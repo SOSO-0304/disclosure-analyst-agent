@@ -233,6 +233,12 @@ embedding data or index definitions are changed by this fix.
 
 ## Supply-contract field answers (bounded vertical slice)
 
+The next quality gate is the [40-question contract QA development baseline](contract-qa.md).
+It reuses the completed v2 embeddings, checks independently reviewed raw-source gold,
+and reports retrieval, field, evidence, scope and unsupported-intent failures separately.
+Run `python scripts/evaluate_contract_qa.py --dry-run` before the live 40-query evaluation.
+No corpus re-embedding or database writes are performed.
+
 The initial vector-first diagnostic on the user's perf DB (`retrieval-explain-v2.json`)
 confirmed actual use of `ix_retrieval_embeddings_hnsw_cosine`: 200 vector candidates,
 100 returned eligible candidates, 1.042s dense server execution versus 6.855s previously,

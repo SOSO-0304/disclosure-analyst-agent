@@ -4,6 +4,7 @@ from disclosure_agent.llm.grounded_generation import (
     generate_grounded_answer,
     invalid_citation_tokens,
     invalid_report_year_citations,
+    unsupported_money_literals,
 )
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
 
@@ -49,6 +50,35 @@ def test_invalid_report_year_citations_reject_wrong_year_inside_scoped_paragraph
     assert invalid == ("[E3]",)
 
 
+def test_unsupported_money_literals_reject_changed_table_digits() -> None:
+    prompt = """text:
+(단위 : 억원)
+DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
+52.7조원의 시설투자가 이루어졌습니다.
+"""
+
+    invalid = unsupported_money_literals(
+        "DS 47,476억원, SDC 2,797억원, 총 52.7조원입니다.",
+        user_prompt=prompt,
+    )
+
+    assert invalid == ("47,476억원", "2,797억원")
+
+
+def test_unsupported_money_literals_allow_exact_table_numbers_with_declared_unit() -> None:
+    prompt = """text:
+(단위 : 억원)
+DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
+"""
+
+    invalid = unsupported_money_literals(
+        "DS 474,764억 원, SDC 27,970억원입니다.",
+        user_prompt=prompt,
+    )
+
+    assert invalid == ()
+
+
 def test_generate_grounded_answer_repairs_invalid_citation_once() -> None:
     client = _FakeClient(
         [
@@ -90,13 +120,39 @@ def test_generate_grounded_answer_repairs_wrong_annual_report_year_citation() ->
     assert "같은 연도의 사업보고서 Evidence" in client.calls[1]
 
 
+def test_generate_grounded_answer_repairs_changed_money_digits() -> None:
+    prompt = """=== EVIDENCE PACK ===
+[E1]
+text:
+(단위 : 억원)
+DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
+"""
+    client = _FakeClient(
+        [
+            "DS 부문은 47,476억원을 투자했습니다 [E1].",
+            "DS 부문은 474,764억원을 투자했습니다 [E1].",
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=1,
+    )
+
+    assert "474,764억원" in answer.content
+    assert len(client.calls) == 2
+    assert "자릿수나 쉼표를 바꾸지 말고" in client.calls[1]
+
+
 def test_generate_grounded_answer_does_not_retry_valid_citations() -> None:
     client = _FakeClient(["매출액은 100억 원입니다 [E1]."])
 
     answer = generate_grounded_answer(
         client,
         system_prompt="system",
-        user_prompt="question and evidence",
+        user_prompt="Evidence: 매출액 100억 원",
         evidence_count=1,
     )
 

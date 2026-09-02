@@ -208,6 +208,8 @@ def test_user_answer_has_deterministic_local_citations() -> None:
 
     rendered = render_supply_contract_termination_answer(result, _evidence_pack())
 
+    assert "두산퓨얼셀의 2023년 체결 계약" in rendered
+    assert "두산퓨얼셀가" not in rendered
     assert "이후 해지된 계약이 1건 확인됩니다 [E1][E4]" in rendered
     assert "정정공시가 2회 확인됩니다 [E2][E3]" in rendered
     assert "계약금액 722억 원, 거래상대방 ㈜태영건설입니다 [E3]" in rendered

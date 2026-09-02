@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import Protocol
 
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
@@ -11,6 +12,20 @@ _EVIDENCE_CITATION = re.compile(r"\[E(\d+)\]")
 _INTERNAL_CITATION = re.compile(
     r"\[(?:DETERMINISTIC[ _]ANALYSIS|DETERMINISTIC_RESULT|DERIVED_FROM|ANALYSIS_TYPE)\]",
     re.IGNORECASE,
+)
+_EMPTY_FUNDRAISING_CATEGORY = re.compile(
+    r"^유형:\s*(?P<label>.+?)\s*\|\s*확인된 이벤트 0건\s*\|",
+    re.MULTILINE,
+)
+_POSITIVE_FUNDRAISING_CATEGORY = re.compile(
+    r"^유형:\s*(?P<label>.+?)\s*\|\s*[1-9]\d*건\s*\|",
+    re.MULTILINE,
+)
+_ABSENCE_PHRASES = (
+    "확인된 내역 없음",
+    "확인된 이벤트가 없습니다",
+    "확인된 이벤트 없음",
+    "확인되지 않습니다",
 )
 
 
@@ -44,6 +59,52 @@ def invalid_citation_tokens(content: str, *, evidence_count: int) -> tuple[str, 
     return tuple(invalid)
 
 
+def _strip_unsupported_fundraising_absence_citations(
+    content: str,
+    *,
+    user_prompt: str,
+) -> str:
+    """Remove positive-event citations from deterministic zero-event category statements."""
+
+    if "analysis_type: fundraising_by_instrument" not in user_prompt:
+        return content
+
+    empty_labels = tuple(
+        match.group("label").strip()
+        for match in _EMPTY_FUNDRAISING_CATEGORY.finditer(user_prompt)
+    )
+    positive_labels = tuple(
+        match.group("label").strip()
+        for match in _POSITIVE_FUNDRAISING_CATEGORY.finditer(user_prompt)
+    )
+    if not empty_labels:
+        return content
+
+    sanitized_lines: list[str] = []
+    for line in content.splitlines():
+        mentions_empty = any(label in line for label in empty_labels)
+        mentions_positive = any(label in line for label in positive_labels)
+        states_absence = any(phrase in line for phrase in _ABSENCE_PHRASES)
+        if mentions_empty and not mentions_positive and states_absence:
+            line = _EVIDENCE_CITATION.sub("", line)
+            line = re.sub(r"\s+([.,])", r"\1", line)
+            line = re.sub(r" {2,}", " ", line).rstrip()
+        sanitized_lines.append(line)
+    return "\n".join(sanitized_lines)
+
+
+def _sanitize_answer(
+    answer: HcxAnswerResult,
+    *,
+    user_prompt: str,
+) -> HcxAnswerResult:
+    content = _strip_unsupported_fundraising_absence_citations(
+        answer.content,
+        user_prompt=user_prompt,
+    )
+    return replace(answer, content=content)
+
+
 def generate_grounded_answer(
     client: GroundedAnswerClient,
     *,
@@ -62,6 +123,7 @@ def generate_grounded_answer(
         user_prompt=user_prompt,
         max_completion_tokens=max_completion_tokens,
     )
+    answer = _sanitize_answer(answer, user_prompt=user_prompt)
     invalid = invalid_citation_tokens(answer.content, evidence_count=evidence_count)
     if not invalid:
         return answer
@@ -82,6 +144,7 @@ def generate_grounded_answer(
         user_prompt=repair_prompt,
         max_completion_tokens=max_completion_tokens,
     )
+    repaired = _sanitize_answer(repaired, user_prompt=user_prompt)
     remaining = invalid_citation_tokens(repaired.content, evidence_count=evidence_count)
     if remaining:
         joined = ", ".join(remaining)

@@ -5,6 +5,7 @@ from disclosure_agent.llm.grounded_generation import (
     invalid_citation_tokens,
     invalid_report_year_citations,
     unsupported_money_literals,
+    unsupported_temporal_claims,
 )
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
 
@@ -79,6 +80,29 @@ DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
     assert invalid == ()
 
 
+def test_unsupported_temporal_claims_reject_completed_investment_as_future_plan() -> None:
+    prompt = """text:
+2025년 DS 부문 및 SDC 등의 첨단공정 증설을 중심으로
+52.7조원의 시설투자가 이루어졌습니다.
+투자기간 2025.01~2025.12
+"""
+    content = "\n".join(
+        (
+            "삼성전자의 2025년 사업보고서에 따른 투자 계획입니다.",
+            "- 52.7조원의 시설투자를 계획하고 있습니다 [E1].",
+            "- 투자 효율성 제고에 집중할 계획입니다 [E1].",
+            "2025년 1월부터 12월까지 진행될 예정입니다 [E1].",
+        )
+    )
+
+    invalid = unsupported_temporal_claims(content, user_prompt=prompt)
+
+    assert invalid == (
+        "- 52.7조원의 시설투자를 계획하고 있습니다 [E1].",
+        "2025년 1월부터 12월까지 진행될 예정입니다 [E1].",
+    )
+
+
 def test_generate_grounded_answer_repairs_invalid_citation_once() -> None:
     client = _FakeClient(
         [
@@ -146,6 +170,33 @@ DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
     assert "자릿수나 쉼표를 바꾸지 말고" in client.calls[1]
 
 
+def test_generate_grounded_answer_repairs_completed_investment_future_tense() -> None:
+    prompt = """=== EVIDENCE PACK ===
+[E1]
+text:
+2025년 DS 부문 및 SDC 등의 첨단공정 증설을 중심으로
+52.7조원의 시설투자가 이루어졌습니다.
+투자 효율성 제고에도 집중할 계획입니다.
+"""
+    client = _FakeClient(
+        [
+            "52.7조원의 시설투자를 계획하고 있습니다 [E1].",
+            "52.7조원의 시설투자가 이루어졌습니다 [E1].",
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=1,
+    )
+
+    assert "시설투자가 이루어졌습니다" in answer.content
+    assert len(client.calls) == 2
+    assert "계획 또는 예정으로 미래화하지 마세요" in client.calls[1]
+
+
 def test_generate_grounded_answer_drops_bad_money_lines_after_failed_repair() -> None:
     prompt = """=== EVIDENCE PACK ===
 [E1]
@@ -186,6 +237,37 @@ DS 부문 474,764 SDC 27,970 기타 21,225 합계 526,511
     assert "투자 효율성 제고" in answer.content
     assert "47,476억원" not in answer.content
     assert "2,797억원" not in answer.content
+    assert len(client.calls) == 2
+
+
+def test_generate_grounded_answer_drops_temporal_lines_after_failed_repair() -> None:
+    prompt = """=== EVIDENCE PACK ===
+[E1]
+text:
+2025년 첨단공정 증설을 중심으로 52.7조원의 시설투자가 이루어졌습니다.
+투자기간 2025.01~2025.12
+메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진하였습니다.
+투자 효율성 제고에도 집중할 계획입니다.
+"""
+    bad_answer = "\n".join(
+        (
+            "- 52.7조원의 시설투자를 계획하고 있습니다 [E1].",
+            "- 메모리 경쟁력 강화를 위한 투자를 지속 추진합니다 [E1].",
+            "2025년 1월부터 12월까지 진행될 예정입니다 [E1].",
+        )
+    )
+    client = _FakeClient([bad_answer, bad_answer])
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=1,
+    )
+
+    assert "52.7조원의 시설투자를 계획" not in answer.content
+    assert "진행될 예정" not in answer.content
+    assert "메모리 경쟁력 강화" in answer.content
     assert len(client.calls) == 2
 
 

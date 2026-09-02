@@ -157,7 +157,10 @@ def render_deterministic_metric_analysis(
                 f"{_refs(labels)}"
             )
     elif result.derived_value is not None:
-        lines.append(f"deterministic_result: {_format_decimal(result.derived_value, result.operation)}")
+        lines.append(
+            "deterministic_result: "
+            f"{_format_decimal(result.derived_value, result.operation)}"
+        )
 
     return "\n".join(lines)
 

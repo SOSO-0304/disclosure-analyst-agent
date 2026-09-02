@@ -6,7 +6,6 @@ from disclosure_agent.retrieval.company_resolver import (
     normalize_company_alias,
 )
 
-
 COMPANIES = (
     CompanyIdentity(
         corp_code="00261443",

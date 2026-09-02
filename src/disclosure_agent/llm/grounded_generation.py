@@ -28,7 +28,14 @@ _MONEY_LITERAL = re.compile(
 )
 _TABLE_UNIT = re.compile(r"단위\s*[:：]\s*(조\s*원|억\s*원|만\s*원|천\s*원|원)")
 _GROUPED_NUMBER = re.compile(r"(?<![\d,])\d{1,3}(?:,\d{3})+(?![\d,])")
-_YEAR_TOKEN = re.compile(r"20\d{2}")
+_DOTTED_PERIOD = re.compile(
+    r"(?P<start_year>20\d{2})\.(?P<start_month>\d{1,2})\s*[~～-]\s*"
+    r"(?:(?P<end_year>20\d{2})\.)?(?P<end_month>\d{1,2})"
+)
+_KOREAN_PERIOD = re.compile(
+    r"(?P<start_year>20\d{2})년\s*(?P<start_month>\d{1,2})월부터\s*"
+    r"(?:(?P<end_year>20\d{2})년\s*)?(?P<end_month>\d{1,2})월까지"
+)
 _COMPLETED_MARKERS = (
     "이루어졌",
     "완료했",
@@ -148,9 +155,20 @@ def unsupported_money_literals(content: str, *, user_prompt: str) -> tuple[str, 
     return tuple(unsupported)
 
 
-def _completed_context(user_prompt: str) -> tuple[set[str], set[str]]:
+def _period_tuple(match: re.Match[str]) -> tuple[int, int, int, int]:
+    start_year = int(match.group("start_year"))
+    start_month = int(match.group("start_month"))
+    end_year_raw = match.group("end_year")
+    end_year = int(end_year_raw) if end_year_raw else start_year
+    end_month = int(match.group("end_month"))
+    return start_year, start_month, end_year, end_month
+
+
+def _completed_context(
+    user_prompt: str,
+) -> tuple[set[str], set[tuple[int, int, int, int]]]:
     completed_money: set[str] = set()
-    completed_years: set[str] = set()
+    completed_periods: set[tuple[int, int, int, int]] = set()
     lowered = user_prompt.lower()
     window_radius = 240
 
@@ -167,17 +185,19 @@ def _completed_context(user_prompt: str) -> tuple[set[str], set[str]]:
                 _normalize_money_token(match.group(0))
                 for match in _MONEY_LITERAL.finditer(window)
             )
-            completed_years.update(_YEAR_TOKEN.findall(window))
+            completed_periods.update(
+                _period_tuple(match) for match in _DOTTED_PERIOD.finditer(window)
+            )
             start = index + len(marker)
 
-    return completed_money, completed_years
+    return completed_money, completed_periods
 
 
 def unsupported_temporal_claims(content: str, *, user_prompt: str) -> tuple[str, ...]:
     """Reject completed disclosure facts that HCX rewrites as future plans or schedules."""
 
-    completed_money, completed_years = _completed_context(user_prompt)
-    if not completed_money and not completed_years:
+    completed_money, completed_periods = _completed_context(user_prompt)
+    if not completed_money and not completed_periods:
         return ()
 
     invalid: list[str] = []
@@ -188,10 +208,11 @@ def unsupported_temporal_claims(content: str, *, user_prompt: str) -> tuple[str,
 
         normalized_line = _normalize_money_token(stripped)
         money_conflict = any(token in normalized_line for token in completed_money)
-        year_conflict = "사업보고서" not in stripped and any(
-            year in stripped for year in completed_years
-        )
-        if (money_conflict or year_conflict) and stripped not in invalid:
+        claimed_periods = {
+            _period_tuple(match) for match in _KOREAN_PERIOD.finditer(stripped)
+        }
+        period_conflict = bool(claimed_periods & completed_periods)
+        if (money_conflict or period_conflict) and stripped not in invalid:
             invalid.append(stripped)
     return tuple(invalid)
 
@@ -365,6 +386,15 @@ def generate_grounded_answer(
     )
     if conservative.content and not remaining:
         return conservative
+    if not conservative.content and not remaining:
+        return replace(
+            repaired,
+            content=(
+                "검색된 공시는 있으나, 근거 정합성 검증을 통과한 서술형 답변을 "
+                "안전하게 구성하지 못했습니다. 근거 공시를 직접 확인해 주세요."
+            ),
+            finish_reason="grounding_exhausted",
+        )
 
     joined = ", ".join(remaining)
     raise RuntimeError(f"HCX returned invalid grounded tokens after repair: {joined}")

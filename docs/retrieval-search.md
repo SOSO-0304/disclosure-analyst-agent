@@ -233,11 +233,16 @@ embedding data or index definitions are changed by this fix.
 
 ## Supply-contract field answers (bounded vertical slice)
 
-The next quality gate is the [40-question contract QA development baseline](contract-qa.md).
+The next quality gate is the [40-question contract QA v2 development regression](contract-qa.md).
 It reuses the completed v2 embeddings, checks independently reviewed raw-source gold,
 and reports retrieval, field, evidence, scope and unsupported-intent failures separately.
 Run `python scripts/evaluate_contract_qa.py --dry-run` before the live 40-query evaluation.
 No corpus re-embedding or database writes are performed.
+
+The user's v1 baseline completed 40 questions: 26 passed, target hit@5 was 25/32,
+and all 71 scored fields/evidence checks on retrieved gold targets matched. This is conditional
+field accuracy, not 100% end-to-end accuracy. The revised question set only disambiguates P3;
+the other 39 questions and all gold remain unchanged. New production quality is pending evaluation.
 
 The initial vector-first diagnostic on the user's perf DB (`retrieval-explain-v2.json`)
 confirmed actual use of `ix_retrieval_embeddings_hnsw_cosine`: 200 vector candidates,
@@ -257,21 +262,34 @@ python scripts/search_retrieval.py `
   --mode dense `
   --top-k 5 `
   --contract-fields `
-  --answer-report data\quality\retrieval-contract-fields-v1.json
+  --answer-report data\quality\retrieval-contract-fields-v2.json
 ```
 
 The existing `.env.perf` configuration and company/receipt-date/correction filters apply.
-This runs one ordinary retrieval (including hydration) and one bounded table expansion SELECT
+In contract mode, `plan_contract_query` runs before any embedding call. It interprets explicit
+year/month/day filing dates, intersects UI scopes, and restricts candidates to exchange table
+chunks with `document_subtype=단일판매공급계약체결`. Implicit date-domain assumptions are displayed.
+Contract performance dates, malformed/relative/unclear dates and conflicting options return
+`clarification_required`. Aggregation, latest-effective/lifecycle, currency conversion and
+financial-analysis requests return `unsupported` with a reason; no query API/search/extraction
+calls are made for these stopped requests. This is a bounded rule-based interface, not general NLU.
+
+Ready requests run ordinary retrieval (including hydration) and one bounded table expansion SELECT
 in the same read-only transaction. Only the question is embedded; field extraction makes
 no API calls. No migration, corpus re-embedding, source reload or index rebuild is required.
+Queries with explicit quantities in units 대/척 additionally run one bounded quantity-candidate
+SELECT, normalizing commas/whitespace so `3,500대` matches `3500대`. Literal quantity matches
+are promoted before RRF ordering. Other numeric types/units and model-name normalization are
+not supported by this probe. All snapshot/scope/hash guards also apply to this candidate path
+and hydration/expansion; the probe never relaxes filters. Its database cost requires live measurement.
 `--mode lexical` can also extract fields without any embedding call, but the broad lexical
 scan can be slower. Do not combine field extraction with `--explain`/`--analyze`.
 
 Boundaries and guarantees:
 
-- Only Exchange `document_subtype=단일판매공급계약체결` source tables are supported. A search
-  result from another filing type or narrative is explicitly marked unsupported, not converted
-  into a contract. This is a fixed four-field extraction mode, not a general question router.
+- Only Exchange `document_subtype=단일판매공급계약체결` source tables are supported. Contract
+  mode now applies that scope before retrieval; the extractor retains its independent checks
+  if called directly with another filing type or narrative. General search remains unchanged.
 - Expansion is limited to at most 20 selected hits (`--top-k <= 20`), only their referenced
   tables, and 50,000 logical cells / 2,000,000 JSON bytes per table. No sibling-table scan or
   full-corpus pass is performed. Oversized grids are not transferred to the client.

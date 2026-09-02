@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import Connection, text
 
+from disclosure_agent.retrieval.contract_query import quantity_pattern
 from disclosure_agent.retrieval.hybrid import (
     citation,
     fuse_rankings,
@@ -70,6 +71,7 @@ def scope_sql(
     document_group: str | None = None,
     chunk_type: str | None = None,
     corrections: str = "all",
+    document_subtype: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     conditions = [
         "e.embedding_run_id = :run_id",
@@ -87,6 +89,7 @@ def scope_sql(
         ("date_to", date_to, "f.receipt_date", "<="),
         ("document_group", document_group, "c.document_group", "="),
         ("chunk_type", chunk_type, "c.chunk_type", "="),
+        ("document_subtype", document_subtype, "f.document_subtype", "="),
     ):
         if value is not None:
             conditions.append(f"{column} {op} :{name}")
@@ -171,6 +174,62 @@ def lexical_sql(where: str, terms: Sequence[str]) -> str:
     """
 
 
+def quantity_sql(where: str, probes: Sequence[tuple[str, str]], *, has_vector: bool) -> str:
+    """Bounded exact-quantity candidates; every snapshot/scope guard remains applied."""
+    if not 1 <= len(probes) <= 3:
+        raise ValueError("Require 1..3 quantity probes")
+    for probe in probes:
+        quantity_pattern(probe)
+    normalized = "regexp_replace(lower(c.content), '[[:space:],]', '', 'g')"
+    score = " + ".join(
+        f"CASE WHEN {normalized} ~ :quantity_{i} THEN 1 ELSE 0 END" for i in range(len(probes))
+    )
+    distance = "e.embedding <=> CAST(:vector AS vector)" if has_vector else "0.0"
+    return f"""
+        WITH quantity_candidates AS (
+            SELECT e.chunk_id, ({score}) AS quantity_matches, {distance} AS distance
+            {JOINS} WHERE {where}
+        )
+        SELECT chunk_id, quantity_matches, 1 - distance AS similarity
+        FROM quantity_candidates WHERE quantity_matches > 0
+        ORDER BY quantity_matches DESC, distance, md5(chunk_id), chunk_id
+        LIMIT :candidate_limit
+    """
+
+
+def promote_quantity_candidates(ranked, candidates):
+    """Literal quantities are stronger than semantic similarity, not hard filters."""
+    values = {row["chunk_id"]: dict(row) for row in ranked}
+    for position, row in enumerate(candidates, 1):
+        item = values.setdefault(
+            row["chunk_id"],
+            {
+                "chunk_id": row["chunk_id"],
+                "rrf_score": 0.0,
+                "dense_rank": None,
+                "lexical_rank": None,
+                "similarity": row["similarity"],
+                "lexical_score": None,
+                "lexical_tie_count": None,
+            },
+        )
+        item.update(quantity_matches=row["quantity_matches"], quantity_rank=position)
+    for row in values.values():
+        row.setdefault("quantity_matches", 0)
+        row.setdefault("quantity_rank", None)
+    original_order = {key: index for index, key in enumerate(values)}
+    return sorted(
+        values.values(),
+        key=lambda r: (
+            -r["quantity_matches"],
+            -r["rrf_score"],
+            r["quantity_rank"] or 1_000_000,
+            # Preserve original ranking for candidates without a quantity match.
+            original_order[r["chunk_id"]],
+        ),
+    )
+
+
 def retrieve(
     connection: Connection,
     *,
@@ -184,6 +243,7 @@ def retrieve(
     company_cap: int = 2,
     exact: bool = False,
     filters: Mapping[str, Any] | None = None,
+    quantity_probes: Sequence[tuple[str, str]] = (),
 ) -> dict[str, Any]:
     started = perf_counter()
     timings = dict.fromkeys(
@@ -204,6 +264,10 @@ def retrieve(
         raise ValueError("Require 1 <= top-k <= candidate-limit <= 1000")
     if mode != "lexical" and vector is None:
         raise ValueError("Dense search requires a query vector")
+    if len(quantity_probes) > 3:
+        raise ValueError("At most three quantity probes")
+    for probe in quantity_probes:
+        quantity_pattern(probe)
     filters = dict(filters or {})
     where, params = scope_sql(run, **filters)
     params.update(vector=vector, candidate_limit=candidate_limit)
@@ -264,8 +328,28 @@ def retrieve(
         timings["lexical"] = perf_counter() - phase_start
     elif mode != "dense":
         warnings.append("No lexical terms were extracted")
+    quantity_candidates = []
+    if quantity_probes:
+        phase_start = perf_counter()
+        quantity_candidates = [
+            dict(row)
+            for row in connection.execute(
+                text(quantity_sql(where, quantity_probes, has_vector=vector is not None)),
+                {
+                    **params,
+                    **{f"quantity_{i}": quantity_pattern(p) for i, p in enumerate(quantity_probes)},
+                },
+            ).mappings()
+        ]
+        timings["quantity"] = perf_counter() - phase_start
+        if not quantity_candidates:
+            warnings.append(
+                "No exact quantity candidates; semantic results kept within the same scope"
+            )
     phase_start = perf_counter()
     ranked = fuse_rankings(dense, lexical)
+    if quantity_probes:
+        ranked = promote_quantity_candidates(ranked, quantity_candidates)
     overlap = len({r["chunk_id"] for r in dense} & {r["chunk_id"] for r in lexical})
     boundary_returned = sum(r["lexical_score"] == lexical[-1]["lexical_score"] for r in lexical)
     lexical_diagnostics = {
@@ -326,6 +410,12 @@ def retrieve(
             "index_verification": "Use --explain --analyze; strategy names do not prove HNSW use",
         },
         "lexical_terms": terms,
+        "quantity_diagnostics": {
+            "probes": list(quantity_probes),
+            "candidate_count": len(quantity_candidates),
+            "policy": "literal_quantity_then_rrf" if quantity_probes else "not_used",
+            "scope_relaxed": False,
+        },
         "candidate_counts": {
             "dense": len(dense),
             "lexical": len(lexical),

@@ -318,6 +318,10 @@ def contract_findings(
 
 def render_contract_findings(report: Mapping[str, Any]) -> str:
     lines = ["=== 계약 필드 추출 (검색된 공시 기준) ==="]
+    if report.get("status") in {"unsupported", "clarification_required"}:
+        lines.extend([f"상태: {report['status']}", str(report["reason"])])
+        return "\n".join(lines)
+    lines.extend(f"해석: {note}" for note in report.get("query_plan", {}).get("notes", []))
     for index, item in enumerate(report["findings"], 1):
         correction = "정정공시" if item["is_correction"] else "비정정공시"
         lines.append(f"\n{index}. {item['company_name']} / {item['report_name']} / {correction}")

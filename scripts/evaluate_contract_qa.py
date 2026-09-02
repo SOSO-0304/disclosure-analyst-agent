@@ -13,6 +13,11 @@ import orjson
 from sqlalchemy import text
 
 from disclosure_agent.retrieval.contract_answers import contract_findings
+from disclosure_agent.retrieval.contract_query import (
+    PLANNER_VERSION,
+    plan_contract_query,
+    stopped_contract_answer,
+)
 from disclosure_agent.retrieval.embeddings import (
     ClovaStudioEmbeddingClient,
     EmbeddingConfig,
@@ -32,7 +37,9 @@ from disclosure_agent.retrieval.search import company_catalog, completed_run, re
 from disclosure_agent.storage.database import get_engine
 
 ROOT = Path(__file__).resolve().parents[1]
-BENCHMARK = ROOT / "data/benchmarks/supply-contract-qa-v1.json"
+BENCHMARKS = {
+    version: ROOT / f"data/benchmarks/supply-contract-qa-{version}.json" for version in ("v1", "v2")
+}
 
 
 @contextmanager
@@ -131,7 +138,22 @@ def preflight(connection, benchmark):
 def observe_request(engine, run, client, companies, request):
     """Production search + field extractor. Gold cannot enter this function."""
     started = time.monotonic()
-    filters = request_filters(request, companies)
+    plan = plan_contract_query(request["query"], request_filters(request, companies))
+    filters = plan["filters"]
+    if plan["status"] != "ready":
+        return {
+            "kind": plan["status"],
+            "reason": plan["reason"],
+            "reason_code": plan["reason_code"],
+            "answer": stopped_contract_answer(plan, run),
+            "hits": [],
+            "filters": {
+                k: v.isoformat() if hasattr(v, "isoformat") else v for k, v in filters.items()
+            },
+            "query_tokens": 0,
+            "query_provider_calls": 0,
+            "timing_seconds": {"total": time.monotonic() - started},
+        }
     api_start = time.monotonic()
     embedded = client.embed(request["query"])
     api_seconds = time.monotonic() - api_start
@@ -148,13 +170,14 @@ def observe_request(engine, run, client, companies, request):
             company_cap=2,
             exact=False,
             filters=filters,
+            quantity_probes=plan["quantity_probes"],
         )
         extraction_start = time.monotonic()
         answer = contract_findings(connection, run=run, hits=payload["results"], filters=filters)
+        answer["schema_version"] = "retrieval-contract-fields-v2"
+        answer["query_plan"] = plan
         extraction_seconds = time.monotonic() - extraction_start
     return {
-        # Current CLI always returns field findings. Generic LIMITATIONS text is
-        # not an intent-aware refusal; do not manufacture one from the test label.
         "kind": "fields",
         "answer": answer,
         "filters": {k: v.isoformat() if hasattr(v, "isoformat") else v for k, v in filters.items()},
@@ -163,6 +186,8 @@ def observe_request(engine, run, client, companies, request):
             for row in payload["results"]
         ],
         "query_tokens": embedded.input_tokens,
+        "query_provider_calls": 1,
+        "quantity_diagnostics": payload.get("quantity_diagnostics", {}),
         "dense_strategy": payload["dense_strategy"],
         "timing_seconds": {
             "query_api": api_seconds,
@@ -180,6 +205,17 @@ def safe_error(exc: Exception) -> dict[str, str]:
 
 def checkpoint(stream, report, telemetry):
     report["summary"] = summarize(report["results"])
+    changed = {item["case_id"] for item in report.get("question_changes", [])}
+    if changed:
+        report["comparison"] = {
+            "excluded_changed_question_ids": sorted(changed),
+            "unchanged_questions": summarize(
+                [r for r in report["results"] if r["id"] not in changed], planned=40 - len(changed)
+            ),
+            "note": (
+                "Compare unchanged questions with v1; changed P3 is not a direct before/after pair."
+            ),
+        }
     report["provider"] = telemetry.snapshot()
     report["query_tokens"] = sum(r["observed"].get("query_tokens") or 0 for r in report["results"])
     stream.seek(0)
@@ -200,14 +236,16 @@ def main() -> None:
         "--limit", type=int, default=40, help="1..40; a partial run never passes the full gate"
     )
     parser.add_argument("--requests-per-minute", type=int, default=480)
+    parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
     args = parser.parse_args()
     if not 1 <= args.limit <= 40 or not 1 <= args.requests_per_minute <= 480:
         parser.error("Require limit 1..40 and requests-per-minute 1..480")
     if args.report and args.report.exists():
         parser.error("Report already exists; choose a new filename")
-    benchmark, digest = load_benchmark(BENCHMARK)
+    benchmark, digest = load_benchmark(BENCHMARKS[args.benchmark_version])
     gold = verify_gold_sources(benchmark, ROOT)
     print("=== contract QA benchmark ===", flush=True)
+    print(f"benchmark version              {args.benchmark_version}")
     print(f"questions                      {len(benchmark['cases'])}")
     print(f"independent source records     {gold['records']}")
     print(f"raw gold fields verified       {gold['checked_fields']}")
@@ -232,7 +270,13 @@ def main() -> None:
         )
     telemetry = EmbeddingTelemetry()
     report = {
-        "schema_version": "contract-qa-report-v1",
+        "schema_version": "contract-qa-report-v2",
+        "benchmark_version": args.benchmark_version,
+        "question_changes": benchmark.get("changes", []),
+        "query_planner_version": PLANNER_VERSION,
+        "provider_call_policy": (
+            "Only ready requests are embedded; refused/clarification requests make zero calls"
+        ),
         "benchmark_sha256": digest,
         "embedding_run_id": benchmark["embedding_run_id"],
         "chunk_run_id": benchmark["chunk_run_id"],

@@ -280,6 +280,63 @@ def test_contract_console_mode_renders_without_generation_api(setup_cli, monkeyp
     assert "계약 필드 추출" in output and "계약이 없다는 뜻은 아닙니다" in output
 
 
+@pytest.mark.parametrize(
+    "query,status",
+    [
+        ("삼성생명의 공급계약 금액을 합산해줘", "unsupported"),
+        ("삼성생명의 2029-02-30 공급계약", "clarification_required"),
+    ],
+)
+def test_contract_stop_skips_provider_and_search(setup_cli, monkeypatch, capsys, query, status):
+    path, _, _ = setup_cli
+    monkeypatch.setattr(cli, "ClovaStudioEmbeddingClient", lambda *a: pytest.fail("no paid calls"))
+    monkeypatch.setattr(
+        cli, "retrieve", lambda *a, **kw: pytest.fail("no retrieval on refused query")
+    )
+    monkeypatch.setattr(cli, "contract_findings", lambda *a, **kw: pytest.fail("no extraction"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["search_retrieval.py", query, "--env-file", str(path), "--contract-fields", "--json"],
+    )
+    cli.main()
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == status and report["findings"] == []
+    assert report["reason"] and report["query_provider_calls"] == 0
+
+
+def test_cli_contract_applies_text_date_and_quantity_in_all_search_lanes(
+    setup_cli, monkeypatch, capsys
+):
+    path, _, captured = setup_cli
+    monkeypatch.setattr(
+        cli,
+        "contract_findings",
+        lambda *a, **kw: {"status": "no_results", "findings": [], "limitations": []},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "search_retrieval.py",
+            "삼성생명 2032년 2월에 공시한 3500대 계약금액",
+            "--env-file",
+            str(path),
+            "--contract-fields",
+            "--mode",
+            "lexical",
+            "--json",
+        ],
+    )
+    cli.main()
+    report = json.loads(capsys.readouterr().out)
+    assert captured["filters"]["date_from"].isoformat() == "2032-02-01"
+    assert captured["filters"]["date_to"].isoformat() == "2032-02-29"
+    assert captured["filters"]["document_subtype"] == "단일판매공급계약체결"
+    assert captured["quantity_probes"] == [("3500", "대")]
+    assert report["query_plan"]["notes"]
+
+
 def test_explain_mode_writes_new_report_without_normal_search(setup_cli, tmp_path, monkeypatch):
     path, _, captured = setup_cli
     destination = tmp_path / "plans.json"

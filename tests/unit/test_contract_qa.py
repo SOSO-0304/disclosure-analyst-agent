@@ -319,11 +319,12 @@ def test_observer_calls_existing_pipeline_without_oracle(monkeypatch):
         "contract_findings",
         lambda *args, **kwargs: {"findings": [], "limitations": ["Not totals"]},
     )
-    request = {"query": "삼성중공업 2025-07-07 모든 계약을 합산해줘"}
+    request = {"query": "삼성중공업 2025-07-07 공시한 계약금액은?"}
     observed = cli.observe_request(engine, {}, client, COMPANIES, request)
     assert calls == [request["query"]]
-    assert captured["top_k"] == 5 and captured["filters"]["date_from"] is None
-    assert observed["kind"] == "fields"  # never falsely claim intent rejection
+    assert captured["top_k"] == 5 and captured["filters"]["date_from"] == date(2025, 7, 7)
+    assert captured["filters"]["document_subtype"] == "단일판매공급계약체결"
+    assert observed["kind"] == "fields"
     assert conn.statements == ["SET TRANSACTION READ ONLY", "SET LOCAL statement_timeout = '20s'"]
 
 
@@ -333,6 +334,23 @@ def test_dry_run_does_not_read_env_or_connect(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["evaluate_contract_qa.py", "--dry-run"])
     cli.main()
     assert "local_gold_verified (not retrieval-tested)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "query,status",
+    [
+        ("삼성중공업 공급계약 합산해줘", "unsupported"),
+        ("삼성중공업 2031년 2월 29일 공급계약", "clarification_required"),
+    ],
+)
+def test_eval_uses_real_planner_refusal_without_provider_or_db(monkeypatch, query, status):
+    client = SimpleNamespace(embed=lambda *a: pytest.fail("refusal must not call provider"))
+    engine = SimpleNamespace(connect=lambda: pytest.fail("refusal must not query database"))
+    result = cli.observe_request(
+        engine, {"embedding_run_id": "v2", "chunk_run_id": "c"}, client, COMPANIES, {"query": query}
+    )
+    assert result["kind"] == status and result["reason"]
+    assert result["hits"] == [] and result["query_provider_calls"] == 0
 
 
 def test_existing_report_is_never_overwritten(tmp_path, monkeypatch):
@@ -351,6 +369,69 @@ def test_checkpoint_preserves_results_and_redacts_errors():
     assert orjson.loads(stream.getvalue())["summary"]["not_run"] == 40
     error = cli.safe_error(RuntimeError("postgresql://secret:key@host Bearer private-key"))
     assert error == {"kind": "error", "error_type": "RuntimeError"}
+
+
+def test_full_eval_loop_uses_34_queries_and_separates_changed_question(
+    benchmark, tmp_path, monkeypatch
+):
+    companies = [
+        {"corp_name": name, "listed_name": name, "corp_code": str(i)}
+        for i, name in enumerate(sorted({r["company"] for r in benchmark["records"].values()}))
+    ]
+    metadata = {
+        receipt: {
+            "corp_code": next(c["corp_code"] for c in companies if c["corp_name"] == r["company"])
+        }
+        for receipt, r in benchmark["records"].items()
+    }
+    run = {
+        "embedding_run_id": "v2",
+        "chunk_run_id": "chunks",
+        "provider": "clova-studio",
+        "model": "bge-m3",
+        "dimensions": 1024,
+        "distance_metric": "cosine",
+        "endpoint": "https://example.invalid",
+        "input_version": "retrieval-embedding-v2",
+    }
+    monkeypatch.setattr(
+        cli, "runtime_from_args", lambda *a: SimpleNamespace(database_url="unused", api_key="test")
+    )
+    monkeypatch.setattr(cli, "get_engine", lambda *a: SimpleNamespace(connect=lambda: Connection()))
+    monkeypatch.setattr(cli, "preflight", lambda *a: (run, companies, metadata, []))
+    monkeypatch.setattr(
+        cli,
+        "retrieve",
+        lambda *a, **kw: {"results": [], "dense_strategy": "exact_filtered", "timing_seconds": {}},
+    )
+    monkeypatch.setattr(
+        cli, "contract_findings", lambda *a, **kw: {"findings": [], "limitations": []}
+    )
+    queries = []
+
+    class Client(Context):
+        def __init__(self, *a, telemetry, **kw):
+            self.telemetry = telemetry
+
+        def embed(self, query):
+            queries.append(query)
+            self.telemetry.record_response(200, retry=False)
+            return EmbeddingResult(tuple([0.1] * 1024), 5, "mock")
+
+    monkeypatch.setattr(cli, "ClovaStudioEmbeddingClient", Client)
+    path = tmp_path / "result.json"
+    monkeypatch.setattr(
+        sys, "argv", ["evaluate_contract_qa.py", "--benchmark-version", "v2", "--report", str(path)]
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1  # empty mocked retrieval must not get credited
+    result = orjson.loads(path.read_bytes())
+    assert result["status"] == "completed" and result["summary"]["tested"] == 40
+    assert result["summary"]["passed"] == 8  # 6 genuine refusals and 2 empty scopes only
+    assert result["provider"]["http_requests"] == len(queries) == 34
+    assert result["comparison"]["unchanged_questions"]["tested"] == 39
+    assert result["comparison"]["excluded_changed_question_ids"] == ["P3"]
 
 
 @pytest.mark.parametrize("mode", ["partial", "interrupt", "failure"])

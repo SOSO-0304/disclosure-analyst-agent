@@ -11,6 +11,7 @@ import orjson
 from sqlalchemy import text
 
 from disclosure_agent.retrieval.contract_answers import contract_findings, render_contract_findings
+from disclosure_agent.retrieval.contract_query import plan_contract_query, stopped_contract_answer
 from disclosure_agent.retrieval.diagnostics import explain_retrieval
 from disclosure_agent.retrieval.embeddings import (
     ClovaStudioEmbeddingClient,
@@ -115,6 +116,34 @@ def main() -> None:
             )
         except ValueError as exc:
             parser.error(str(exc))
+    filters = {
+        "corp_code": str(company["corp_code"]) if company else None,
+        "date_from": start_date,
+        "date_to": end_date,
+        "document_group": args.document_group,
+        "chunk_type": args.chunk_type,
+        "corrections": args.corrections,
+    }
+    query_plan = None
+    if args.contract_fields:
+        query_plan = plan_contract_query(args.query, filters)
+        if query_plan["status"] != "ready":
+            answer = stopped_contract_answer(query_plan, run)
+            if args.answer_report:
+                args.answer_report.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    with args.answer_report.open("xb") as stream:
+                        stream.write(orjson.dumps(answer, option=orjson.OPT_INDENT_2))
+                except FileExistsError:
+                    parser.error("Report appeared during planning; nothing was overwritten")
+            print(
+                orjson.dumps(answer, option=orjson.OPT_INDENT_2).decode()
+                if args.json
+                else render_contract_findings(answer)
+            )
+            return
+        filters = query_plan["filters"]
+        start_date, end_date = filters["date_from"], filters["date_to"]
     vector = None
     query_tokens = 0
     api_seconds = 0.0
@@ -135,14 +164,6 @@ def main() -> None:
         vector = vector_literal(result.vector)
         query_tokens = result.input_tokens or 0
         api_seconds = time.monotonic() - api_start
-    filters = {
-        "corp_code": str(company["corp_code"]) if company else None,
-        "date_from": start_date,
-        "date_to": end_date,
-        "document_group": args.document_group,
-        "chunk_type": args.chunk_type,
-        "corrections": args.corrections,
-    }
     if args.explain:
         print("=== retrieval plan diagnostic ===", flush=True)
         print(
@@ -205,6 +226,7 @@ def main() -> None:
             max_per_filing=args.max_per_filing,
             company_cap=args.company_cap,
             filters=filters,
+            **({"quantity_probes": query_plan["quantity_probes"]} if query_plan else {}),
         )
         if args.contract_fields:
             extraction_start = time.monotonic()
@@ -214,6 +236,9 @@ def main() -> None:
             extraction_seconds = time.monotonic() - extraction_start
     search_seconds = time.monotonic() - search_start - extraction_seconds
     if answer is not None:
+        answer["schema_version"] = "retrieval-contract-fields-v2"
+        answer["query_plan"] = query_plan
+        answer["query_provider_calls"] = 0 if args.mode == "lexical" else 1
         answer["retrieval"] = {
             "mode": args.mode,
             "dense_strategy": payload["dense_strategy"],
@@ -223,6 +248,7 @@ def main() -> None:
             "dense_diagnostics": payload["dense_diagnostics"],
             "timing_seconds": payload["timing_seconds"],
             "warnings": payload["warnings"],
+            "quantity_diagnostics": payload.get("quantity_diagnostics", {}),
         }
         answer["timing_seconds"] = {
             "query_api": api_seconds,

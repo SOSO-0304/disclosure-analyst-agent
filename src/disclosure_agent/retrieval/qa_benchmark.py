@@ -20,8 +20,8 @@ def load_benchmark(path: Path) -> tuple[dict[str, Any], str]:
     raw = path.read_bytes()
     benchmark = orjson.loads(raw)
     cases, records = benchmark["cases"], benchmark["records"]
-    if benchmark["schema_version"] != "contract-qa-v1" or len(cases) != 40:
-        raise ValueError("Expected the frozen 40-case contract-qa-v1 benchmark")
+    if benchmark["schema_version"] not in {"contract-qa-v1", "contract-qa-v2"} or len(cases) != 40:
+        raise ValueError("Expected a versioned 40-case contract QA benchmark")
     if dict(Counter(case["group"] for case in cases)) != GROUPS:
         raise ValueError("Benchmark group counts changed")
     if len({case["id"] for case in cases}) != len(cases):
@@ -119,6 +119,10 @@ def score_case(
     }
     if observed["kind"] == "error":
         failures.append("execution_error")
+        outcome["passed"] = False
+        return outcome
+    if observed["kind"] == "clarification_required":
+        failures.append("clarification_required")
         outcome["passed"] = False
         return outcome
     if expected["response"] == "unsupported":

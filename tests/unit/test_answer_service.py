@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
-from disclosure_agent.services.answer_service import AnswerService
+from disclosure_agent.services.answer_service import (
+    AnswerService,
+    _grounding_prompt_for_query,
+    _round_robin,
+)
 
 
 def _runner(name: str):
@@ -70,3 +74,40 @@ def test_hybrid_year_keeps_single_year_filter() -> None:
     )
 
     assert year == 2025
+
+
+def test_hybrid_years_preserve_all_comparison_years() -> None:
+    years = AnswerService._hybrid_years(
+        "삼성전자의 2023년과 2025년 사업보고서를 비교해줘",
+        fallback_year=None,
+        report_name=None,
+    )
+
+    assert years == (2023, 2025)
+
+
+def test_infers_explicit_report_type_from_query() -> None:
+    assert AnswerService._infer_report_type("2025년 사업보고서를 기준으로 정리해줘") == "사업보고서"
+    assert AnswerService._infer_report_type("2026년 1분기 분기보고서를 요약해줘") == "분기보고서"
+
+
+def test_round_robin_balances_comparison_groups() -> None:
+    merged = _round_robin((("2023-a", "2023-b", "2023-c"), ("2025-a", "2025-b")), limit=5)
+
+    assert merged == ("2023-a", "2025-a", "2023-b", "2025-b", "2023-c")
+
+
+def test_investment_plan_prompt_excludes_shareholder_return_by_default() -> None:
+    prompt = _grounding_prompt_for_query(
+        "삼성전자의 2025년 사업보고서를 기준으로 주요 투자 계획과 목적을 정리해줘"
+    )
+
+    assert "배당, 자사주 매입, 주주환원은 투자 계획으로 분류하지 마세요" in prompt
+
+
+def test_multi_year_prompt_guards_temporal_attribution() -> None:
+    prompt = _grounding_prompt_for_query(
+        "삼성전자의 2023년과 2025년 사업보고서에서 핵심 사업 변화를 비교해줘"
+    )
+
+    assert "다른 연도의 사업보고서 내용으로 재귀속하지 마세요" in prompt

@@ -87,12 +87,16 @@ def test_hybrid_years_preserve_all_comparison_years() -> None:
 
 
 def test_infers_explicit_report_type_from_query() -> None:
-    assert AnswerService._infer_report_type("2025년 사업보고서를 기준으로 정리해줘") == "사업보고서"
-    assert AnswerService._infer_report_type("2026년 1분기 분기보고서를 요약해줘") == "분기보고서"
+    annual = AnswerService._infer_report_type("2025년 사업보고서를 기준으로 정리해줘")
+    quarterly = AnswerService._infer_report_type("2026년 1분기 분기보고서를 요약해줘")
+
+    assert annual == "사업보고서"
+    assert quarterly == "분기보고서"
 
 
 def test_round_robin_balances_comparison_groups() -> None:
-    merged = _round_robin((("2023-a", "2023-b", "2023-c"), ("2025-a", "2025-b")), limit=5)
+    groups = (("2023-a", "2023-b", "2023-c"), ("2025-a", "2025-b"))
+    merged = _round_robin(groups, limit=5)
 
     assert merged == ("2023-a", "2025-a", "2023-b", "2025-b", "2023-c")
 

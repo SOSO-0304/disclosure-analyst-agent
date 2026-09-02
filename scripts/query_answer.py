@@ -46,10 +46,11 @@ def main() -> None:
             max_completion_tokens=args.max_completion_tokens,
         )
 
+    rails = ",".join(rail.value for rail in result.plan.route.rails)
     print("=== UNIFIED DISCLOSURE ANSWER ===")
     print(f"query                           {result.query}")
     print(f"mode                            {result.plan.mode.value}")
-    print(f"rails                           {','.join(rail.value for rail in result.plan.route.rails)}")
+    print(f"rails                           {rails}")
     print(f"plan_reason                     {result.plan.reason}")
     print(f"analysis_status                 {result.status}")
     print(f"generator                       {result.generator}")

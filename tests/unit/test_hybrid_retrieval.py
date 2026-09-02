@@ -20,6 +20,7 @@ from disclosure_agent.retrieval.search import (
     lexical_sql,
     retrieve,
     scope_sql,
+    vector_pool_limits,
 )
 
 COMPANIES = [
@@ -192,7 +193,9 @@ class Connection:
         if "WITH lexical AS" in sql:
             return Result(self.lexical)
         if "AS similarity" in sql:
-            return Result(self.dense if "MATERIALIZED" in sql or self.ann is None else self.ann)
+            return Result(
+                self.ann if "WITH vector_candidates" in sql and self.ann is not None else self.dense
+            )
         return Result()
 
 
@@ -227,7 +230,95 @@ def test_ann_underfill_falls_back_without_relaxing_scope():
     )
     payload = retrieve(connection, run=RUN, query="계약", vector="[0]", mode="dense", top_k=1)
     assert payload["dense_strategy"] == "exact_fallback"
-    assert any("MATERIALIZED" in sql for sql, _ in connection.calls)
+    assert payload["dense_diagnostics"]["pool_attempts"] == [
+        {"pool_limit": size, "eligible_candidates": 0} for size in (200, 800, 3200)
+    ]
+    assert payload["dense_diagnostics"]["index_usage"] == "not_observed"
+    queries = [(sql, params) for sql, params in connection.calls if "AS similarity" in sql]
+    assert len(queries) == 4
+    assert "WITH candidates AS MATERIALIZED" in queries[-1][0]
+    where, _ = scope_sql(RUN)
+    for sql, params in queries:
+        assert where in sql
+        assert params["run_id"] == "run-v2" and params["chunk_run_id"] == "chunks"
+
+
+@pytest.mark.parametrize(
+    "limit,expected", [(1, (32, 128, 512)), (100, (200, 800, 3200)), (1000, (2000, 3200))]
+)
+def test_vector_pool_expansion_is_bounded(limit, expected):
+    assert vector_pool_limits(limit) == expected
+
+
+@pytest.mark.parametrize("limit", [0, 1001])
+def test_invalid_vector_candidate_limit_is_rejected(limit):
+    with pytest.raises(ValueError, match="Candidate limit"):
+        vector_pool_limits(limit)
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_vector_pool_stops_when_full_and_replaces_earlier_ranking(expand):
+    class ExpandingConnection(Connection):
+        def execute(self, statement, params=None):
+            if "WITH vector_candidates" in str(statement):
+                self.ann = (
+                    []
+                    if expand and params["pool_limit"] == 32
+                    else [{"chunk_id": "a", "similarity": 0.9}]
+                )
+            return super().execute(statement, params)
+
+    connection = ExpandingConnection(details=[evidence("a", "f1")])
+    payload = retrieve(connection, run=RUN, query="계약", vector="[0]", top_k=1, candidate_limit=1)
+    assert payload["dense_strategy"] == ("vector_first_expanded" if expand else "vector_first")
+    assert len(payload["dense_diagnostics"]["pool_attempts"]) == (2 if expand else 1)
+    assert [row["chunk_id"] for row in payload["results"]] == ["a"]
+    assert not any("WITH candidates AS MATERIALIZED" in sql for sql, _ in connection.calls)
+    settings = [sql for sql, _ in connection.calls if sql.startswith("SET")]
+    assert settings == [
+        "SET LOCAL hnsw.ef_search = 200",
+        "SET LOCAL hnsw.iterative_scan = 'strict_order'",
+    ]
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_expansion_and_fallback_replace_nonempty_previous_results(fallback):
+    class ReplacingConnection(Connection):
+        def execute(self, statement, params=None):
+            if "WITH vector_candidates" in str(statement):
+                self.ann = [{"chunk_id": "old", "similarity": 0.5}]
+                if not fallback and params["pool_limit"] > 32:
+                    self.ann = self.dense
+            return super().execute(statement, params)
+
+    connection = ReplacingConnection(
+        dense=[{"chunk_id": "a", "similarity": 0.9}, {"chunk_id": "b", "similarity": 0.8}],
+        details=[evidence("old", "old-f"), evidence("a", "f1"), evidence("b", "f2")],
+    )
+    payload = retrieve(connection, run=RUN, query="계약", vector="[0]", top_k=2, candidate_limit=2)
+    assert [row["chunk_id"] for row in payload["results"]] == ["a", "b"]
+    assert payload["candidate_counts"]["dense"] == 2
+    assert payload["dense_strategy"] == ("exact_fallback" if fallback else "vector_first_expanded")
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"corp_code": "001"},
+        {"date_from": date(2025, 1, 1)},
+        {"document_group": "major"},
+        {"chunk_type": "table"},
+        {"corrections": "only"},
+    ],
+)
+def test_narrowed_scope_never_expands_vector_pool(filters):
+    connection = Connection()
+    payload = retrieve(connection, run=RUN, query="계약", vector="[0]", filters=filters)
+    assert payload["dense_strategy"] == "exact_filtered"
+    assert payload["dense_diagnostics"]["pool_attempts"] == []
+    assert not any(
+        "vector_candidates" in sql or "iterative_scan" in sql for sql, _ in connection.calls
+    )
 
 
 def test_lexical_mode_needs_no_vector_and_never_runs_dense():
@@ -315,6 +406,8 @@ def test_timing_breakdown_includes_fetch_and_separates_exact_fallback(monkeypatc
                 clock[0] += 3
             elif "c.content_sha256, c.filing_id" in sql:
                 clock[0] += 4
+            elif "WITH vector_candidates" in sql:
+                clock[0] += 1
             elif "MATERIALIZED" in sql:
                 clock[0] += 2
             else:
@@ -332,12 +425,13 @@ def test_timing_breakdown_includes_fetch_and_separates_exact_fallback(monkeypatc
     payload = retrieve(connection, run=RUN, query="계약금액", vector="[0]", top_k=1, mode="hybrid")
     assert payload["timing_seconds"] == {
         "dense_initial": 1.25,
+        "dense_expansion": 2.5,
         "dense_fallback": 2.25,
         "lexical": 3.25,
         "hydration": 4.25,
         "fusion": 0,
         "selection": 0,
-        "total": 11,
+        "total": 13.5,
     }
     assert payload["candidate_counts"] == {"dense": 1, "lexical": 1, "overlap": 1, "fused": 1}
     assert payload["lexical_diagnostics"]["rank_policy"] == "candidate_midrank"

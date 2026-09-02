@@ -112,11 +112,39 @@ def dense_sql(where: str, *, exact: bool) -> str:
             LIMIT :candidate_limit
         """
     return f"""
-        SELECT e.chunk_id, 1 - (e.embedding <=> CAST(:vector AS vector)) AS similarity
-        {JOINS} WHERE {where}
-        ORDER BY e.embedding <=> CAST(:vector AS vector)
+        WITH vector_candidates AS MATERIALIZED (
+            SELECT e.chunk_id, e.chunk_run_id, e.embedding_run_id, e.chunk_content_sha256,
+                e.embedding <=> CAST(:vector AS vector) AS distance
+            FROM public.retrieval_embeddings e
+            WHERE e.embedding_run_id = :run_id AND e.chunk_run_id = :chunk_run_id
+            ORDER BY e.embedding <=> CAST(:vector AS vector)
+            LIMIT :pool_limit
+        )
+        SELECT e.chunk_id, 1 - e.distance AS similarity
+        FROM vector_candidates e
+        JOIN public.retrieval_chunks c
+          ON c.chunk_id = e.chunk_id AND c.chunk_run_id = e.chunk_run_id
+        JOIN public.source_filings f ON f.filing_id = c.filing_id
+        WHERE {where}
+        ORDER BY e.distance, e.chunk_id
         LIMIT :candidate_limit
     """
+
+
+def vector_pool_limits(candidate_limit: int) -> tuple[int, ...]:
+    """At most three bounded attempts; never an unbounded ANN retry loop."""
+    if not 1 <= candidate_limit <= 1000:
+        raise ValueError("Candidate limit must be between 1 and 1000")
+    first = max(32, 2 * candidate_limit)
+    last = min(3200, first * 16)
+    return tuple(dict.fromkeys((first, min(last, first * 4), last)))
+
+
+def configure_dense_search(connection: Connection, *, iterative: bool) -> None:
+    connection.execute(text("SET LOCAL hnsw.ef_search = 200"))
+    if iterative:
+        # pgvector >= 0.8; current verified perf environment is 0.8.6.
+        connection.execute(text("SET LOCAL hnsw.iterative_scan = 'strict_order'"))
 
 
 def lexical_sql(where: str, terms: Sequence[str]) -> str:
@@ -159,7 +187,16 @@ def retrieve(
 ) -> dict[str, Any]:
     started = perf_counter()
     timings = dict.fromkeys(
-        ("dense_initial", "dense_fallback", "lexical", "fusion", "hydration", "selection"), 0.0
+        (
+            "dense_initial",
+            "dense_expansion",
+            "dense_fallback",
+            "lexical",
+            "fusion",
+            "hydration",
+            "selection",
+        ),
+        0.0,
     )
     if mode not in {"hybrid", "dense", "lexical"}:
         raise ValueError("Unknown retrieval mode")
@@ -179,15 +216,35 @@ def retrieve(
     )
     use_exact = exact or narrowed
     strategy = "not_used"
+    pool_attempts = []
     if mode != "lexical":
-        strategy = "exact_filtered" if narrowed else "exact" if exact else "ann"
+        strategy = "exact_filtered" if narrowed else "exact" if exact else "vector_first"
         phase_start = perf_counter()
-        connection.execute(text("SET LOCAL hnsw.ef_search = 200"))
-        dense = [
-            dict(r)
-            for r in connection.execute(text(dense_sql(where, exact=use_exact)), params).mappings()
-        ]
-        timings["dense_initial"] = perf_counter() - phase_start
+        configure_dense_search(connection, iterative=not use_exact)
+        if use_exact:
+            dense = [
+                dict(r)
+                for r in connection.execute(text(dense_sql(where, exact=True)), params).mappings()
+            ]
+            timings["dense_initial"] = perf_counter() - phase_start
+        else:
+            for index, pool_limit in enumerate(vector_pool_limits(candidate_limit)):
+                if index:
+                    phase_start = perf_counter()
+                # Re-rank the expanded pool, never append stale/duplicate earlier candidates.
+                dense = [
+                    dict(r)
+                    for r in connection.execute(
+                        text(dense_sql(where, exact=False)), {**params, "pool_limit": pool_limit}
+                    ).mappings()
+                ]
+                elapsed = perf_counter() - phase_start
+                timings["dense_expansion" if index else "dense_initial"] += elapsed
+                pool_attempts.append({"pool_limit": pool_limit, "eligible_candidates": len(dense)})
+                if len(dense) >= candidate_limit:
+                    break
+            if len(pool_attempts) > 1:
+                strategy = "vector_first_expanded"
         if not use_exact and len(dense) < candidate_limit:
             phase_start = perf_counter()
             dense = [
@@ -196,7 +253,7 @@ def retrieve(
             ]
             timings["dense_fallback"] = perf_counter() - phase_start
             strategy = "exact_fallback"
-            warnings.append("ANN candidate underfill: exact search used for this query")
+            warnings.append("Vector pool underfill after bounded expansion: exact search used")
     if mode != "dense" and terms:
         lexical_params = {**params, **{f"term_{i}": t for i, t in enumerate(terms)}}
         phase_start = perf_counter()
@@ -261,6 +318,13 @@ def retrieve(
     return {
         "mode": mode,
         "dense_strategy": strategy,
+        "dense_diagnostics": {
+            "pool_attempts": pool_attempts,
+            "index_usage": "not_observed"
+            if not use_exact and mode != "lexical"
+            else "not_applicable",
+            "index_verification": "Use --explain --analyze; strategy names do not prove HNSW use",
+        },
         "lexical_terms": terms,
         "candidate_counts": {
             "dense": len(dense),

@@ -81,6 +81,7 @@ def setup_cli(tmp_path, monkeypatch):
             "results": [],
             "warnings": [],
             "candidate_counts": {},
+            "dense_diagnostics": {"pool_attempts": [], "index_usage": "not_observed"},
             "lexical_terms": ["매출"],
             "lexical_diagnostics": {"rank_policy": "candidate_midrank"},
             "timing_seconds": {"dense_initial": 0.1, "lexical": 0.2, "hydration": 0.03},

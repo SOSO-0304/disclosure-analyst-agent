@@ -6,7 +6,12 @@ from contextlib import contextmanager
 import pytest
 from sqlalchemy.exc import DBAPIError
 
-from disclosure_agent.retrieval.diagnostics import explain_retrieval, sanitize_plan, summarize_plan
+from disclosure_agent.retrieval.diagnostics import (
+    explain_retrieval,
+    sanitize_plan,
+    summarize_plan,
+    vector_index_check,
+)
 from disclosure_agent.retrieval.search import dense_sql, lexical_sql, scope_sql
 
 RUN = {
@@ -31,6 +36,7 @@ RAW = [
                     "Relation Name": "retrieval_embeddings",
                     "Plan Rows": 100,
                     "Actual Rows": 100,
+                    "Actual Loops": 1,
                     "Shared Read Blocks": 10,
                     "Order By": "PRIVATE_QUERY_VECTOR",
                     "Index Cond": "PRIVATE_LITERAL",
@@ -51,6 +57,9 @@ RAW = [
         "JIT": {"Functions": 10, "Timing": {"Total": 4, "Output": "PRIVATE_LITERAL"}},
     }
 ]
+INDEXES = [
+    {"index_name": "hnsw_cosine", "access_method": "hnsw", "is_valid": True, "is_ready": True}
+]
 
 
 class Result:
@@ -65,6 +74,9 @@ class Result:
 
     def one(self):
         return self.value
+
+    def __iter__(self):
+        return iter(self.value)
 
 
 class Connection:
@@ -86,6 +98,8 @@ class Connection:
         self.calls.append((sql, params))
         if "current_setting('server_version')" in sql:
             return Result({"postgres_version": "16", "work_mem": "4MB"})
+        if "FROM pg_index ix" in sql:
+            return Result(INDEXES)
         if sql.startswith("EXPLAIN"):
             if self.fail_dense and "AS similarity" in sql:
 
@@ -167,6 +181,78 @@ def test_lexical_only_diagnostic_requires_no_query_vector():
     report = explain_retrieval(Connection(), run=RUN, query="계약금액", vector=None, mode="lexical")
     assert set(report["stages"]) == {"lexical"}
     assert report["dense_strategy"] == "not_used"
+    assert report["initial_vector_pool_limit"] is None
+
+
+def test_vector_first_diagnostic_explains_only_shared_initial_query():
+    conn = Connection()
+    report = explain_retrieval(conn, run=RUN, query="계약금액", vector="[0]", analyze=True)
+    assert report["schema_version"] == "retrieval-explain-v2"
+    assert report["dense_strategy"] == "vector_first"
+    assert report["initial_vector_pool_limit"] == 200
+    assert report["candidate_select_attempts"] == 1
+    plans = [(sql, params) for sql, params in conn.calls if sql.startswith("EXPLAIN")]
+    where, _ = scope_sql(RUN)
+    assert len(plans) == 1
+    assert plans[0][0].endswith(dense_sql(where, exact=False))
+    assert plans[0][1]["pool_limit"] == 200
+    assert any(sql == "SET LOCAL hnsw.iterative_scan = 'strict_order'" for sql, _ in conn.calls)
+    assert report["stages"]["dense_initial"]["summary"]["vector_index_check"] == {
+        "status": "hnsw_used",
+        "index_names": ["hnsw_cosine"],
+    }
+
+
+@pytest.mark.parametrize("analyze,status", [(False, "hnsw_planned"), (True, "hnsw_used")])
+def test_hnsw_evidence_distinguishes_plan_from_execution(analyze, status):
+    assert vector_index_check(sanitize_plan(RAW[0]), INDEXES, analyze=analyze)["status"] == status
+
+
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        [],
+        [{**INDEXES[0], "access_method": "btree"}],
+        [{**INDEXES[0], "is_valid": False}],
+        [{**INDEXES[0], "is_ready": False}],
+    ],
+)
+def test_hnsw_name_alone_or_invalid_index_is_not_evidence(catalog):
+    assert (
+        vector_index_check(sanitize_plan(RAW[0]), catalog, analyze=True)["status"]
+        == "hnsw_not_used"
+    )
+
+
+def test_unexecuted_index_scan_does_not_count_as_hnsw_used():
+    plan = {"Plan": {"Index Name": "hnsw_cosine", "Actual Loops": 0}}
+    assert vector_index_check(plan, INDEXES, analyze=True)["status"] == "hnsw_not_used"
+    assert vector_index_check(plan, INDEXES, analyze=False)["status"] == "hnsw_planned"
+
+
+def test_sequential_scan_and_missing_catalog_are_explicit():
+    plan = {"Plan": {"Node Type": "Seq Scan", "Actual Loops": 1}}
+    assert vector_index_check(plan, INDEXES, analyze=True)["status"] == "hnsw_not_used"
+    assert vector_index_check(plan, None, analyze=True)["status"] == "unknown_catalog"
+
+
+def test_missing_index_catalog_is_partial_without_discarding_plan():
+    class MissingCatalog(Connection):
+        def execute(self, statement, params=None):
+            if "FROM pg_index ix" in str(statement):
+                raise DBAPIError("PRIVATE_SQL", {}, Exception("PRIVATE_KEY"))
+            return super().execute(statement, params)
+
+    conn = MissingCatalog()
+    report = explain_retrieval(conn, run=RUN, query="계약금액", vector="[0]", analyze=True)
+    assert report["status"] == "partial"
+    assert report["stages"]["dense_initial"]["status"] == "analyzed"
+    assert (
+        report["stages"]["dense_initial"]["summary"]["vector_index_check"]["status"]
+        == "unknown_catalog"
+    )
+    assert conn.rollbacks == 1
+    assert "PRIVATE" not in json.dumps(report)
 
 
 def test_dense_diagnostic_does_not_substitute_fake_vector():

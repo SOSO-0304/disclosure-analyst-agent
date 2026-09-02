@@ -12,7 +12,13 @@ from sqlalchemy import Connection, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from disclosure_agent.retrieval.hybrid import lexical_terms
-from disclosure_agent.retrieval.search import dense_sql, lexical_sql, scope_sql
+from disclosure_agent.retrieval.search import (
+    configure_dense_search,
+    dense_sql,
+    lexical_sql,
+    scope_sql,
+    vector_pool_limits,
+)
 
 _TEXT = {
     "Node Type",
@@ -172,6 +178,37 @@ def _failure(exc: SQLAlchemyError) -> dict[str, Any]:
     }
 
 
+def vector_index_check(
+    plan: Mapping[str, Any],
+    indexes: list[dict[str, Any]] | None,
+    *,
+    analyze: bool,
+) -> dict[str, Any]:
+    """Use catalog access methods, not an index-name substring, to identify HNSW."""
+    if indexes is None:
+        return {"status": "unknown_catalog", "index_names": []}
+    hnsw = {
+        row["index_name"]
+        for row in indexes
+        if row["access_method"] == "hnsw" and row["is_valid"] and row["is_ready"]
+    }
+    matched = set()
+
+    def visit(node):
+        if node.get("Index Name") in hnsw and (not analyze or node.get("Actual Loops", 0) > 0):
+            matched.add(node["Index Name"])
+        for child in node.get("Plans", []):
+            visit(child)
+
+    visit(plan.get("Plan", {}))
+    return {
+        "status": ("hnsw_used" if matched else "hnsw_not_used")
+        if analyze
+        else ("hnsw_planned" if matched else "hnsw_not_planned"),
+        "index_names": sorted(matched),
+    }
+
+
 def explain_retrieval(
     connection: Connection,
     *,
@@ -199,7 +236,8 @@ def explain_retrieval(
     narrowed = any(v is not None for k, v in filters.items() if k != "corrections") or (
         filters.get("corrections", "all") != "all"
     )
-    strategy = "exact_filtered" if narrowed else "exact" if exact else "ann"
+    strategy = "exact_filtered" if narrowed else "exact" if exact else "vector_first"
+    params["pool_limit"] = vector_pool_limits(candidate_limit)[0]
     terms = lexical_terms(query)
     queries = []
     if mode != "lexical":
@@ -213,7 +251,7 @@ def explain_retrieval(
             )
         )
     report = {
-        "schema_version": "retrieval-explain-v1",
+        "schema_version": "retrieval-explain-v2",
         "embedding_run_id": run["embedding_run_id"],
         "chunk_run_id": run["chunk_run_id"],
         "input_version": run.get("input_version"),
@@ -221,13 +259,16 @@ def explain_retrieval(
         "dense_strategy": strategy if mode != "lexical" else "not_used",
         "analyze": analyze,
         "candidate_limit": candidate_limit,
+        "initial_vector_pool_limit": (
+            params["pool_limit"] if mode != "lexical" and not (exact or narrowed) else None
+        ),
         "filters": filters,
         "database_writes": 0,
         "statement_timeout_seconds": 60,
         "candidate_select_attempts": 0,
         "stages": {},
         "notes": [
-            "No ordinary retrieval, ANN-underfill fallback or hydration is run in explain mode",
+            "Only the initial pool query is explained; no pool expansion, fallback or hydration",
             "ANALYZE runs selected queries and can use temporary disk/cache; data is read-only",
             "Plans omit expressions, input text/vector, SQL, credentials and connection URLs",
             "Node timing is off; execution_ms is server time, not end-to-end search latency",
@@ -235,7 +276,7 @@ def explain_retrieval(
     }
     connection.execute(text("SET TRANSACTION READ ONLY"))
     connection.execute(text("SET LOCAL statement_timeout = '60s'"))
-    connection.execute(text("SET LOCAL hnsw.ef_search = 200"))
+    configure_dense_search(connection, iterative=mode != "lexical" and not (exact or narrowed))
     try:
         with connection.begin_nested():
             report["environment"] = dict(
@@ -248,7 +289,8 @@ def explain_retrieval(
                     current_setting('shared_buffers') AS shared_buffers,
                     current_setting('effective_cache_size') AS effective_cache_size,
                     current_setting('track_io_timing') AS track_io_timing,
-                    current_setting('hnsw.ef_search') AS hnsw_ef_search
+                    current_setting('hnsw.ef_search') AS hnsw_ef_search,
+                    current_setting('hnsw.iterative_scan', true) AS hnsw_iterative_scan
             """)
                 )
                 .mappings()
@@ -256,6 +298,28 @@ def explain_retrieval(
             )
     except SQLAlchemyError as exc:
         report["environment"] = _failure(exc)
+    indexes = None
+    try:
+        with connection.begin_nested():
+            indexes = [
+                dict(row)
+                for row in connection.execute(
+                    text("""
+                SELECT i.relname AS index_name, am.amname AS access_method,
+                    ix.indisvalid AS is_valid, ix.indisready AS is_ready
+                FROM pg_index ix
+                JOIN pg_class t ON t.oid = ix.indrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                JOIN pg_class i ON i.oid = ix.indexrelid
+                JOIN pg_am am ON am.oid = i.relam
+                WHERE n.nspname = 'public' AND t.relname = 'retrieval_embeddings'
+                ORDER BY i.relname
+            """)
+                ).mappings()
+            ]
+            report["vector_indexes"] = indexes
+    except SQLAlchemyError as exc:
+        report["vector_indexes"] = _failure(exc)
     prefix = (
         "EXPLAIN (ANALYZE TRUE, BUFFERS TRUE, TIMING FALSE, FORMAT JSON) "
         if analyze
@@ -282,12 +346,17 @@ def explain_retrieval(
                     "plan": plan,
                     "summary": summarize_plan(plan),
                 }
+                if stage == "dense_initial":
+                    report["stages"][stage]["summary"]["vector_index_check"] = vector_index_check(
+                        plan, indexes, analyze=analyze
+                    )
         except SQLAlchemyError as exc:
             report["stages"][stage] = _failure(exc)
         report["stages"][stage]["elapsed_seconds"] = perf_counter() - started
     report["status"] = (
         "partial"
         if report["environment"].get("status") == "failed"
+        or indexes is None
         or any(stage["status"] == "failed" for stage in report["stages"].values())
         else "analyzed"
         if analyze

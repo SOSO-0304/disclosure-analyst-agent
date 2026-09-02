@@ -81,10 +81,20 @@ No relative-date inference or global "latest filing" guarantee is provided.
 
 1. Both candidate lanes use the same completed run, current content hashes and company/date/type
    scope. Punctuation-only chunks are excluded from search without modifying stored data.
-2. The dense lane uses HNSW-compatible ordering for unfiltered requests. Narrowed scopes use a
-   materialized candidate set and exact vector ranking to avoid ANN post-filter underfill.
-   Unfiltered ANN candidate underfill triggers exact fallback, never removal of filters.
-   A full ANN candidate list does not prove exact recall.
+2. Unfiltered dense search first selects a bounded pool from **only the embedding table**,
+   ordered by cosine distance, in a materialized CTE. Run IDs are checked before its LIMIT.
+   Only that pool is then joined to chunks/filings and validated against current hashes,
+   meaningful content and the same scope guards. At the default 100-candidate limit, pool
+   sizes are 200, 800, 3200; expansion stops as soon as 100 eligible candidates are found.
+   Each larger pool replaces the earlier ranking. After bounded underfill, exact search is
+   used without relaxing guards. Other candidate limits use at most three pools capped at
+   3200 rows. Narrowed company/date/type/correction scopes and `--exact` retain the existing
+   materialized eligible-set exact ranking, without the vector-pool attempts.
+   The vector-first path sets `hnsw.ef_search=200` and `hnsw.iterative_scan=strict_order`
+   **locally for the transaction** (requires pgvector >= 0.8; observed perf version: 0.8.6).
+   This enables HNSW-compatible ordering and iterative scanning; it does not force the
+   planner to choose HNSW or prove exact recall. See
+   [pgvector iterative scans](https://github.com/pgvector/pgvector#iterative-index-scans).
 3. The independent lexical lane scores substring term coverage over chunk content. It is a
    deterministic baseline, **not BM25 or Korean morphological analysis**. It scans eligible
    content and adds no disk-heavy index. Broad queries may be slower; timings are printed.
@@ -113,8 +123,9 @@ The CLI prints `search breakdown` in seconds:
 
 | Field | Measured work |
 |---|---|
-| `dense_initial` | Initial ANN or exact vector SQL, including row fetch and HNSW setting |
-| `dense_fallback` | Additional exact SQL after ANN underfill; zero when not used |
+| `dense_initial` | Initial vector-pool or exact SQL, including row fetch and local settings |
+| `dense_expansion` | Additional bounded vector-pool attempts; zero when not needed |
+| `dense_fallback` | Exact SQL after all vector pools underfill; zero when not used |
 | `lexical` | Keyword SQL, candidate-window tie ranks and row fetch; zero in default dense mode |
 | `fusion` | Rank fusion and candidate diagnostics |
 | `hydration` | Candidate content/provenance SQL and row fetch |
@@ -142,8 +153,12 @@ Both calls reuse the existing vectors and each embeds only its query:
 }
 ```
 
-No new migration, corpus embedding, or index is needed for this ranking change. It fixes
-ID-order bias and adds diagnostics; production latency and relevance must still be checked
+No new migration, corpus embedding, or index is needed for this query change. Normal output
+includes `dense candidates`: attempted pool sizes and eligible counts. `dense_strategy` is
+`vector_first`, `vector_first_expanded`, `exact_fallback`, `exact_filtered` or `exact`.
+It describes the requested path, **not observed index use**. Ordinary vector-first execution
+reports `index_usage=not_observed`; it does not run an extra EXPLAIN. Exact-only/lexical-only
+paths use `not_applicable`. Production latency and relevance must still be checked
 against actual results. `--json` continues to emit only the results list (now including tied
 lexical ranks/counts); timing and candidate-level diagnostics are console-mode output.
 
@@ -162,18 +177,20 @@ For actual row/buffer counts and server execution time, explicitly opt in to `--
 ```powershell
 python scripts/search_retrieval.py `
   "단일판매 공급계약의 계약상대방과 계약금액, 계약기간" `
-  --mode hybrid `
+  --mode dense `
   --explain `
   --analyze `
-  --explain-report data\quality\retrieval-explain-v1.json
+  --explain-report data\quality\retrieval-explain-v2.json
 ```
 
-This embeds only the question once and runs the initial dense SELECT and lexical SELECT
-once each, sequentially, with a 60-second timeout per statement. It does not also run normal
-retrieval, exact fallback on ANN underfill, or hydration. The existing company/date/type and
+This embeds only the question once and runs **one initial dense SELECT**, with a 60-second
+statement timeout. It does not also run normal retrieval, pool expansion, exact fallback,
+lexical search or hydration. The existing company/date/type and
 correction filters are shared with regular search; `--exact` uses the same exact dense SQL.
-Do not rerun it in a loop. The two candidate stages may take up to roughly two minutes if
-both hit the statement timeout, plus configuration/API overhead.
+Do not rerun it in a loop. Explicit `--mode hybrid` additionally explains the lexical SELECT,
+once, with its own 60-second timeout. It is not needed to verify this dense-query change.
+Ordinary search can execute up to three pool queries plus one exact fallback, so its worst
+case is not bounded by the diagnostic's single-query timeout.
 
 Safety and interpretation:
 
@@ -185,6 +202,12 @@ Safety and interpretation:
 - The report includes scan/index names, estimated vs actual rows, filter removals, root buffer
   counters, disk-sort information, JIT summary, PostgreSQL/pgvector versions and selected
   memory settings. Parent buffer counters already include children; do not sum them again.
+- Schema `retrieval-explain-v2` adds `initial_vector_pool_limit`, local iterative scan settings,
+  and index catalog access methods/validity/readiness. In `dense_initial.summary`,
+  `vector_index_check.status=hnsw_used` requires a valid, ready HNSW index in the catalog and
+  an index-plan node with actual execution loops. `hnsw_not_used` means no such execution
+  was observed, even if the strategy is `vector_first`. Plan-only reports use `hnsw_planned`
+  or `hnsw_not_planned`, never `hnsw_used`. Unavailable catalog data is `unknown_catalog`.
 - Node timing is disabled to reduce profiling overhead. `execution_ms` is server execution
   time, not normal client fetch/network/whole-search time; profiling can still change timing.
 - Raw SQL, bound query text/vector, connection URLs, credentials, Filter/Index Cond/Order By,
@@ -196,9 +219,17 @@ Safety and interpretation:
 The diagnostic inspects the current implementation, not a replay of the previous slower SQL.
 Its purpose is to decide from evidence whether scans, index selection, row-estimate errors,
 cache reads, sorts or temporary I/O need further work. Do not infer the cause merely from
-the presence of an index or the printed `ann` label. See
+the presence of an index or a printed strategy label. See
 [PostgreSQL EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html) and
 [using EXPLAIN](https://www.postgresql.org/docs/current/using-explain.html).
+
+The supplied `retrieval-explain-v1.json` showed the previous unfiltered dense query using
+sequential scans/hash joins before distance sorting, with **no index use**, despite its
+`ann` label. Dense server execution was about 6.855s; the hash join had eight batches and
+temporary I/O (not a disk-spilling sort). This motivated the vector-only candidate boundary.
+The new query's actual plan and latency are still unverified on the user's database. Shared
+buffer read counters alone do not prove physical disk reads. No memory settings, statistics,
+embedding data or index definitions are changed by this fix.
 
 ## Citations and correction boundary
 

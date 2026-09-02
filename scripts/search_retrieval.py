@@ -201,6 +201,7 @@ def main() -> None:
     print(f"corrections       {args.corrections}")
     print(f"query tokens      {query_tokens}")
     print(f"candidate counts  {payload['candidate_counts']}")
+    print(f"dense candidates  {payload['dense_diagnostics']}")
     print(f"lexical terms     {payload['lexical_terms']}")
     print(f"lexical ties      {payload['lexical_diagnostics']}")
     print(

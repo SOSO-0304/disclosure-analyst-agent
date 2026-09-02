@@ -43,7 +43,7 @@ def render_supply_contract_termination_answer(
     count = len(result.findings)
     lines = [
         (
-            f"네. {company}가 {result.year}년에 체결한 계약 중 이후 해지된 계약이 "
+            f"네. {company}의 {result.year}년 체결 계약 중 이후 해지된 계약이 "
             f"{count}건 확인됩니다 {_citation(tuple(existence_labels))}."
         )
     ]

@@ -70,7 +70,6 @@ _NARRATIVE_TERMS = (
     "영향",
     "변화",
     "변경",
-    "차이",
 )
 
 
@@ -106,7 +105,13 @@ def route_query(query: str) -> QueryRoute:
         rails.append(RetrievalRail.FUNDRAISING)
         matched_terms.extend(abbreviations)
 
-    narrative = any(term in normalized for term in _NARRATIVE_TERMS)
+    narrative_matches = [term for term in _NARRATIVE_TERMS if term in normalized]
+    closed_supply_termination_reason = (
+        RetrievalRail.SUPPLY_CONTRACT in rails
+        and "해지" in normalized
+        and set(narrative_matches).issubset({"이유"})
+    )
+    narrative = bool(narrative_matches) and not closed_supply_termination_reason
     needs_semantic = not rails or narrative or RetrievalRail.FACILITY_INVESTMENT in rails
     if needs_semantic:
         rails.append(RetrievalRail.SEMANTIC)

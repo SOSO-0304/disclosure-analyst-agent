@@ -461,7 +461,10 @@ class RevenueRepository:
         if caption_unit is not None:
             return caption_unit
 
-        statement_unit = extract_monetary_unit_before_value(table.normalized_text, candidate.raw_value)
+        statement_unit = extract_monetary_unit_before_value(
+            table.normalized_text,
+            candidate.raw_value,
+        )
         if statement_unit is not None:
             return statement_unit
 

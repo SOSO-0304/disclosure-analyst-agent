@@ -227,9 +227,85 @@ The supplied `retrieval-explain-v1.json` showed the previous unfiltered dense qu
 sequential scans/hash joins before distance sorting, with **no index use**, despite its
 `ann` label. Dense server execution was about 6.855s; the hash join had eight batches and
 temporary I/O (not a disk-spilling sort). This motivated the vector-only candidate boundary.
-The new query's actual plan and latency are still unverified on the user's database. Shared
-buffer read counters alone do not prove physical disk reads. No memory settings, statistics,
+The follow-up v2 diagnostic confirmed HNSW use for this query (results below). Shared buffer
+read counters alone do not prove physical disk reads. No memory settings, statistics,
 embedding data or index definitions are changed by this fix.
+
+## Supply-contract field answers (bounded vertical slice)
+
+The initial vector-first diagnostic on the user's perf DB (`retrieval-explain-v2.json`)
+confirmed actual use of `ix_retrieval_embeddings_hnsw_cosine`: 200 vector candidates,
+100 returned eligible candidates, 1.042s dense server execution versus 6.855s previously,
+and no temporary reads/writes. This is one query measurement, not a latency SLA or a
+recall benchmark. The previous overall diagnostic used hybrid; the new one used dense,
+so their whole-command times are not a controlled before/after comparison.
+
+Use `--contract-fields` to read the full Source Layer table referenced by each selected hit
+and produce four fields: counterparty, amount, contract start date, contract end date.
+It reuses `ExchangeFieldReader` and the existing supply-contract label aliases. It does not
+call a generation model or modify the older typed event/lifecycle DB projections.
+
+```powershell
+python scripts/search_retrieval.py `
+  "단일판매 공급계약의 계약상대방과 계약금액, 계약기간" `
+  --mode dense `
+  --top-k 5 `
+  --contract-fields `
+  --answer-report data\quality\retrieval-contract-fields-v1.json
+```
+
+The existing `.env.perf` configuration and company/receipt-date/correction filters apply.
+This runs one ordinary retrieval (including hydration) and one bounded table expansion SELECT
+in the same read-only transaction. Only the question is embedded; field extraction makes
+no API calls. No migration, corpus re-embedding, source reload or index rebuild is required.
+`--mode lexical` can also extract fields without any embedding call, but the broad lexical
+scan can be slower. Do not combine field extraction with `--explain`/`--analyze`.
+
+Boundaries and guarantees:
+
+- Only Exchange `document_subtype=단일판매공급계약체결` source tables are supported. A search
+  result from another filing type or narrative is explicitly marked unsupported, not converted
+  into a contract. This is a fixed four-field extraction mode, not a general question router.
+- Expansion is limited to at most 20 selected hits (`--top-k <= 20`), only their referenced
+  tables, and 50,000 logical cells / 2,000,000 JSON bytes per table. No sibling-table scan or
+  full-corpus pass is performed. Oversized grids are not transferred to the client.
+- Expansion rechecks the selected embedding/chunk run, current chunk hash, active completed
+  chunk snapshot, source-load identity, filing/document/table/block identity and original
+  company/date/type/correction scope. It never falls back to parsing a truncated chunk.
+- Rowspan/colspan validation happens before extraction. Values retain canonical raw text,
+  normalized text, table ID, anchor row/column, source locators, label locators and receipt URL.
+  JSON coordinates are zero-based; console coordinates are one-based. Missing locators stay
+  null; table coordinates remain available. URLs locate the filing, not a verified deep link.
+- Fields may lie outside the matched chunk's row window: `evidence_scope=full_source_table`
+  makes this expansion explicit. `table_snapshot_sha256` fingerprints the expanded canonical
+  table model, **not the original raw source file**, and is not an independent preservation audit.
+- Amounts are returned as exact decimal strings with `unit=KRW` only when the label, value
+  suffix or value-cell metadata explicitly supplies won/KRW. The unqualified label
+  `확정 계약금액` alone is insufficient. No unit inference from revenue, FX conversion,
+  billion/million scaling, rounding of fractional amounts or exponent parsing is performed.
+- Withheld/missing values stay null; raw evidence is retained where a field exists. A regional
+  description such as `아프리카 지역 선주` is preserved literally, not resolved to a named firm.
+- Conflicting aliases do not silently choose the first value. Invalid dates and reversed
+  periods are withheld from normalized output. Repeated form headers cause the table to be
+  marked ambiguous. Different tables/filings never fill each other's missing fields.
+- A recovered/partial source document is flagged for review. Correction status is shown, but
+  no correction/termination lineage or latest-effective-state claim is made by this path.
+
+The UTF-8 `--answer-report` refuses to overwrite existing files. It contains findings,
+per-field evidence/status, selected run IDs, search diagnostics and separate search/extraction
+timings; it excludes API keys, connection URLs, query vectors and full table grids. With
+`--contract-fields --json`, stdout is this structured report. Without `--contract-fields`,
+`--json` retains its existing results-list shape.
+
+Field statuses include `extracted`, `missing`, `withheld`, `invalid`, `unit_unknown`,
+`unsupported_unit`, `ambiguous` and `inconsistent_period`. Filing-level `partial` means
+some fields were not confirmed, not that the search job must be retried. No results means
+none found within the retrieval scope, **not that no contracts exist**. `completed` means
+all four fields were extracted for all returned findings, not globally verified answer quality.
+
+Local tests cover synthetic canonical grids, scope guard SQL and CLI behavior. Production
+table-form coverage, actual expansion latency and source-value correctness still need the
+single bounded report above; no full embedding evaluation is needed for this addition.
 
 ## Citations and correction boundary
 
@@ -242,8 +318,9 @@ be deep links to a specific table. See the
 The source DB has `is_correction`, but no populated original-to-correction relation in its filing
 table. Results therefore explicitly say `lineage_status=not_resolved`. Reports with the same title
 are not merged, later dates do not automatically supersede earlier contracts, and non-correction
-does not mean "latest effective version". Fact extraction, full table expansion and authoritative
-correction lineage remain subsequent work; these results are evidence candidates, not generated
+does not mean "latest effective version". The optional supply-contract field path above expands
+only referenced tables; broader fact extraction and authoritative correction lineage remain
+subsequent work. Ordinary search results are evidence candidates, not generated
 financial answers.
 
 Implementation references:

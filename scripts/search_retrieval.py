@@ -10,6 +10,7 @@ from pathlib import Path
 import orjson
 from sqlalchemy import text
 
+from disclosure_agent.retrieval.contract_answers import contract_findings, render_contract_findings
 from disclosure_agent.retrieval.diagnostics import explain_retrieval
 from disclosure_agent.retrieval.embeddings import (
     ClovaStudioEmbeddingClient,
@@ -50,6 +51,16 @@ def main() -> None:
         "--json", action="store_true", help="JSON results list, with source citations"
     )
     parser.add_argument(
+        "--contract-fields",
+        action="store_true",
+        help="Extract supply-contract fields from retrieved source tables (at most 20 hits)",
+    )
+    parser.add_argument(
+        "--answer-report",
+        type=Path,
+        help="With --contract-fields, save a new UTF-8 evidence report; never overwrite",
+    )
+    parser.add_argument(
         "--explain", action="store_true", help="Plan selected search SQL; no results"
     )
     parser.add_argument(
@@ -63,6 +74,14 @@ def main() -> None:
         help="Save sanitized plan JSON to a new file; never overwrite",
     )
     args = parser.parse_args()
+    if args.answer_report and not args.contract_fields:
+        parser.error("--answer-report requires --contract-fields")
+    if args.contract_fields and (args.explain or args.analyze or args.explain_report):
+        parser.error("--contract-fields cannot be combined with plan diagnostics")
+    if args.contract_fields and args.top_k > 20:
+        parser.error("--contract-fields supports --top-k up to 20")
+    if args.answer_report and args.answer_report.exists():
+        parser.error("--answer-report already exists; choose a new filename")
     if (args.analyze or args.explain_report) and not args.explain:
         parser.error("--analyze and --explain-report require --explain")
     if args.explain and args.json:
@@ -169,6 +188,8 @@ def main() -> None:
             raise SystemExit(1)
         return
     search_start = time.monotonic()
+    answer = None
+    extraction_seconds = 0.0
     with engine.connect() as connection, connection.begin():
         connection.execute(text("SET TRANSACTION READ ONLY"))
         connection.execute(text("SET LOCAL statement_timeout = '60s'"))
@@ -185,9 +206,46 @@ def main() -> None:
             company_cap=args.company_cap,
             filters=filters,
         )
-    search_seconds = time.monotonic() - search_start
+        if args.contract_fields:
+            extraction_start = time.monotonic()
+            answer = contract_findings(
+                connection, run=run, hits=payload["results"], filters=filters
+            )
+            extraction_seconds = time.monotonic() - extraction_start
+    search_seconds = time.monotonic() - search_start - extraction_seconds
+    if answer is not None:
+        answer["retrieval"] = {
+            "mode": args.mode,
+            "dense_strategy": payload["dense_strategy"],
+            "filters": filters,
+            "top_k": args.top_k,
+            "candidate_counts": payload["candidate_counts"],
+            "dense_diagnostics": payload["dense_diagnostics"],
+            "timing_seconds": payload["timing_seconds"],
+            "warnings": payload["warnings"],
+        }
+        answer["timing_seconds"] = {
+            "query_api": api_seconds,
+            "search": search_seconds,
+            "extraction": extraction_seconds,
+            "total": time.monotonic() - started,
+        }
+        answer["query_tokens"] = query_tokens
+        if args.answer_report:
+            args.answer_report.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with args.answer_report.open("xb") as stream:
+                    stream.write(orjson.dumps(answer, option=orjson.OPT_INDENT_2))
+            except FileExistsError:
+                parser.error("Report file appeared during search; nothing was overwritten")
+            if not args.json:
+                print(f"report            {args.answer_report}")
     if args.json:
-        print(orjson.dumps(payload["results"], option=orjson.OPT_INDENT_2).decode())
+        print(
+            orjson.dumps(
+                answer if answer is not None else payload["results"], option=orjson.OPT_INDENT_2
+            ).decode()
+        )
         return
     print("=== retrieval search ===")
     print(f"embedding run     {run['embedding_run_id']}")
@@ -216,6 +274,10 @@ def main() -> None:
     print("database writes   0")
     for warning in payload["warnings"]:
         print(f"note              {warning}")
+    if answer is not None:
+        print(f"extraction seconds {extraction_seconds:.3f}")
+        print(render_contract_findings(answer))
+        return
     for index, row in enumerate(payload["results"], 1):
         status = "정정공시" if row["is_correction"] else "비정정공시"
         print(f"\n{index}. {row['company_name']} ({row['corp_code']}) / {status}")

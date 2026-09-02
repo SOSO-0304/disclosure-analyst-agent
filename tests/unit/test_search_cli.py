@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -167,6 +168,116 @@ def test_cli_defaults_to_dense(setup_cli, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["search_retrieval.py", "매출", "--env-file", str(path)])
     cli.main()
     assert captured["mode"] == "dense"
+
+
+def test_contract_fields_reuses_single_search_and_embeds_only_query(
+    setup_cli, tmp_path, monkeypatch, capsys
+):
+    path, connection, captured = setup_cli
+    calls = []
+    report_path = tmp_path / "contract-fields.json"
+
+    class Client(Context):
+        def __init__(self, *args):
+            pass
+
+        def embed(self, query):
+            calls.append("query")
+            return EmbeddingResult(vector=tuple([0.1] * 1024), input_tokens=3, request_id="test")
+
+    def facts(conn, **kwargs):
+        assert conn is connection and kwargs["run"]["embedding_run_id"] == "v2"
+        assert kwargs["hits"] == [] and kwargs["filters"]["corp_code"] == "001"
+        calls.append("fields")
+        return {
+            "schema_version": "retrieval-contract-fields-v1",
+            "status": "no_results",
+            "findings": [],
+            "database_writes": 0,
+        }
+
+    monkeypatch.setattr(cli, "ClovaStudioEmbeddingClient", Client)
+    monkeypatch.setattr(cli, "contract_findings", facts)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "search_retrieval.py",
+            "삼성생명의 공급계약",
+            "--env-file",
+            str(path),
+            "--contract-fields",
+            "--answer-report",
+            str(report_path),
+            "--json",
+        ],
+    )
+    cli.main()
+    result = json.loads(capsys.readouterr().out)
+    assert calls == ["query", "fields"] and captured["mode"] == "dense"
+    assert result == json.loads(report_path.read_text(encoding="utf-8"))
+    assert "extraction" in result["timing_seconds"]
+    assert result["retrieval"]["filters"]["corp_code"] == "001"
+    assert "file-key" not in report_path.read_text() and "secret" not in report_path.read_text()
+    assert connection.statements.count("SET TRANSACTION READ ONLY") == 2
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--answer-report", "new.json"],
+        ["--contract-fields", "--explain"],
+        ["--contract-fields", "--top-k", "21"],
+    ],
+)
+def test_invalid_contract_flags_fail_before_any_configuration(monkeypatch, flags):
+    monkeypatch.setattr(cli, "runtime_from_args", lambda *a: pytest.fail("must fail before config"))
+    monkeypatch.setattr(sys, "argv", ["search_retrieval.py", "계약", *flags])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2
+
+
+def test_contract_report_never_overwrites_existing_file(tmp_path, monkeypatch):
+    destination = tmp_path / "keep.json"
+    destination.write_text("keep", encoding="utf-8")
+    monkeypatch.setattr(cli, "runtime_from_args", lambda *a: pytest.fail("must fail before config"))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["search_retrieval.py", "계약", "--contract-fields", "--answer-report", str(destination)],
+    )
+    with pytest.raises(SystemExit):
+        cli.main()
+    assert destination.read_text() == "keep"
+
+
+def test_contract_console_mode_renders_without_generation_api(setup_cli, monkeypatch, capsys):
+    path, _, _ = setup_cli
+    monkeypatch.setattr(
+        cli, "ClovaStudioEmbeddingClient", lambda *a: pytest.fail("no provider in lexical mode")
+    )
+    monkeypatch.setattr(
+        cli,
+        "contract_findings",
+        lambda *a, **k: {"findings": [], "limitations": [], "status": "no_results"},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "search_retrieval.py",
+            "계약",
+            "--mode",
+            "lexical",
+            "--env-file",
+            str(path),
+            "--contract-fields",
+        ],
+    )
+    cli.main()
+    output = capsys.readouterr().out
+    assert "계약 필드 추출" in output and "계약이 없다는 뜻은 아닙니다" in output
 
 
 def test_explain_mode_writes_new_report_without_normal_search(setup_cli, tmp_path, monkeypatch):

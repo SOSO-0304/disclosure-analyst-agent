@@ -12,6 +12,7 @@ from disclosure_agent.llm.clova_embedding_client import ClovaEmbeddingClient
 from disclosure_agent.llm.grounded_generation import generate_grounded_answer
 from disclosure_agent.llm.hcx_client import HCX_MODEL, HcxAnswerResult, HcxClient
 from disclosure_agent.llm.prompts import GROUNDING_SYSTEM_PROMPT, build_grounded_answer_prompt
+from disclosure_agent.rendering.metric import render_metric_answer
 from disclosure_agent.rendering.supply_contract import render_supply_contract_termination_answer
 from disclosure_agent.retrieval.answer_query_planner import (
     AnswerExecutionMode,
@@ -190,7 +191,6 @@ class AnswerService:
                 fallback_company=fallback_company,
                 fallback_year=fallback_year,
                 max_total_chars=max_total_chars,
-                max_completion_tokens=max_completion_tokens,
             )
         if plan.mode is AnswerExecutionMode.FUNDRAISING_STRUCTURED:
             return self._answer_fundraising(
@@ -270,7 +270,6 @@ class AnswerService:
         fallback_company: str | None,
         fallback_year: int | None,
         max_total_chars: int,
-        max_completion_tokens: int,
     ) -> AnswerResult:
         intent = plan_metric_query(query)
         if intent.metric is None or intent.operation is None:
@@ -326,20 +325,14 @@ class AnswerService:
                 metadata=metadata,
             )
 
-        model_result = self._generate(
-            query,
-            pack,
-            max_completion_tokens=max_completion_tokens,
-        )
         return AnswerResult(
             query=query,
             plan=plan,
             status=analysis.status,
-            answer=model_result.content,
-            generator=HCX_MODEL,
+            answer=render_metric_answer(analysis, pack),
+            generator="deterministic",
             evidence_pack=pack,
             source_references=references,
-            model_result=model_result,
             metadata=metadata,
         )
 

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from disclosure_agent.domain.fundraising_analysis import FundraisingAnalysisResult
+from disclosure_agent.extractors.fundraising import FundraisingInstrument
 from disclosure_agent.llm.clova_embedding_client import ClovaEmbeddingClient
 from disclosure_agent.llm.grounded_generation import generate_grounded_answer
 from disclosure_agent.llm.hcx_client import HCX_MODEL, HcxAnswerResult, HcxClient
@@ -28,7 +31,10 @@ from disclosure_agent.retrieval.evidence_pack import (
     EvidencePack,
     build_hybrid_evidence_pack,
 )
-from disclosure_agent.retrieval.fundraising_evidence import build_fundraising_evidence_pack
+from disclosure_agent.retrieval.fundraising_evidence import (
+    INSTRUMENT_LABELS,
+    build_fundraising_evidence_pack,
+)
 from disclosure_agent.retrieval.fundraising_query_resolver import resolve_fundraising_query_target
 from disclosure_agent.retrieval.hybrid_search import HybridRetriever
 from disclosure_agent.retrieval.metric_evidence import build_metric_evidence_pack
@@ -56,6 +62,12 @@ from disclosure_agent.storage.db_models import SourceCompanyRow, SourceFilingRow
 
 T = TypeVar("T")
 _REPORT_TYPES = ("사업보고서", "반기보고서", "분기보고서")
+_FUNDRAISING_REQUEST_TERMS = (
+    (FundraisingInstrument.RIGHTS_ISSUE, "유상증자", None),
+    (FundraisingInstrument.CONVERTIBLE_BOND, "전환사채", "CB"),
+    (FundraisingInstrument.BOND_WITH_WARRANTS, "신주인수권부사채", "BW"),
+    (FundraisingInstrument.EXCHANGEABLE_BOND, "교환사채", "EB"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +104,56 @@ def _generation_status(base_status: str, model_result: HcxAnswerResult) -> str:
     if model_result.finish_reason == "grounding_exhausted":
         return "PARTIAL"
     return base_status
+
+
+def _requested_fundraising_instruments(query: str) -> tuple[FundraisingInstrument, ...]:
+    upper = query.upper()
+    requested: list[FundraisingInstrument] = []
+    for instrument, korean_name, abbreviation in _FUNDRAISING_REQUEST_TERMS:
+        if korean_name in query:
+            requested.append(instrument)
+            continue
+        if abbreviation and re.search(
+            rf"(?<![A-Z]){abbreviation}(?![A-Z])",
+            upper,
+        ):
+            requested.append(instrument)
+    return tuple(dict.fromkeys(requested))
+
+
+def _render_requested_fundraising_absence(
+    query: str,
+    analysis: FundraisingAnalysisResult,
+    pack: EvidencePack,
+) -> str | None:
+    """Render requested zero-event categories without relying on model wording."""
+
+    requested = _requested_fundraising_instruments(query)
+    if not requested:
+        return None
+
+    category_by_instrument = {
+        category.instrument_type: category for category in analysis.categories
+    }
+    requested_categories = tuple(
+        category_by_instrument.get(instrument) for instrument in requested
+    )
+    if any(category is None for category in requested_categories):
+        return None
+    if not all(category.status == "NO_MATCH" for category in requested_categories if category):
+        return None
+
+    lines = [
+        f"{INSTRUMENT_LABELS[instrument]}: 확인된 내역 없음"
+        for instrument in requested
+    ]
+    lines.append(
+        "확인된 이벤트가 없다는 결과를 조달금액 0원으로 해석하지 않습니다."
+    )
+    citations = "".join(f"[E{item.rank}]" for item in pack.items)
+    if citations:
+        lines.append(f"집계 범위 근거: {citations}")
+    return "\n".join(lines)
 
 
 def _round_robin(groups: tuple[tuple[T, ...], ...], *, limit: int) -> tuple[T, ...]:
@@ -398,6 +460,19 @@ class AnswerService:
                 plan=plan,
                 status=analysis.status,
                 answer="제공된 공시에서 자금조달 금액을 모두 확정할 수 없습니다.",
+                generator="deterministic",
+                evidence_pack=pack,
+                source_references=references,
+                metadata=metadata,
+            )
+
+        absence_answer = _render_requested_fundraising_absence(query, analysis, pack)
+        if absence_answer is not None:
+            return AnswerResult(
+                query=query,
+                plan=plan,
+                status=analysis.status,
+                answer=absence_answer,
                 generator="deterministic",
                 evidence_pack=pack,
                 source_references=references,

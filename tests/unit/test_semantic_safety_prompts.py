@@ -104,5 +104,6 @@ def test_zero_event_subset_requires_explicit_absence_wording() -> None:
 
     prompt = build_grounded_answer_prompt(pack.query, pack)
 
-    assert "유상증자: 확인된 내역 없음" in prompt
+    assert "사용자가 명시적으로 요청한 자금조달 유형은 유상증자입니다" in prompt
+    assert "요청 유형이 0건이면 유형명을 생략하지 말고 '확인된 내역 없음'으로 답하세요" in prompt
     assert "0건 유형 문장 자체에는 다른 유형의 Evidence를 억지로 붙이지 마세요" in prompt

@@ -28,6 +28,16 @@ def test_facility_plan_query_keeps_semantic_rail() -> None:
     )
 
 
+def test_actual_investment_semantic_question_uses_facility_and_semantic_rails() -> None:
+    route = route_query("한화오션은 2025년에 실제로 6,008억 원을 투자한 것으로 보면 돼?")
+
+    assert route.rails == (
+        RetrievalRail.FACILITY_INVESTMENT,
+        RetrievalRail.SEMANTIC,
+    )
+    assert "실제 투자 의미 검증" in route.matched_terms
+
+
 def test_terminated_contract_query_uses_contract_sql() -> None:
     route = route_query("2025년에 체결한 공급계약 중 이후 계약 해지된 건이 있는가?")
 

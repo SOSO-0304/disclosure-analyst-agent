@@ -86,6 +86,14 @@ def _metadata(**values: object) -> tuple[tuple[str, str], ...]:
     return tuple((key, str(value)) for key, value in values.items())
 
 
+def _generation_status(base_status: str, model_result: HcxAnswerResult) -> str:
+    """Downgrade a safe grounding fallback so it is never reported as fully answerable."""
+
+    if model_result.finish_reason == "grounding_exhausted":
+        return "PARTIAL"
+    return base_status
+
+
 def _round_robin(groups: tuple[tuple[T, ...], ...], *, limit: int) -> tuple[T, ...]:
     """Interleave ranked groups so one comparison side cannot consume every slot."""
 
@@ -404,7 +412,7 @@ class AnswerService:
         return AnswerResult(
             query=query,
             plan=plan,
-            status=analysis.status,
+            status=_generation_status(analysis.status, model_result),
             answer=model_result.content,
             generator=HCX_MODEL,
             evidence_pack=pack,
@@ -754,7 +762,7 @@ class AnswerService:
         return AnswerResult(
             query=query,
             plan=plan,
-            status="ANSWERABLE",
+            status=_generation_status("ANSWERABLE", model_result),
             answer=model_result.content,
             generator=HCX_MODEL,
             evidence_pack=pack,

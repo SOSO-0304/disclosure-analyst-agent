@@ -222,9 +222,13 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
         )
         empty_labels = _empty_fundraising_labels(pack)
         if set(requested_labels).issubset(empty_labels):
+            canonical_absence = " / ".join(
+                f"{label}: 확인된 내역 없음" for label in requested_labels
+            )
             requirements.append(
-                "- 요청한 모든 유형이 0건이면 각 유형마다 '유형명: 확인된 내역 없음'이라는 "
-                "표현을 사용해 absence 의미를 명확히 유지하세요."
+                "- 요청한 모든 유형이 0건입니다. 최종 답변의 첫 부분에 다음 표준 표현을 "
+                f"그대로 포함하세요: {canonical_absence}. 이 표준 표현의 조사·어미를 바꾸거나 "
+                "'0원', '조달하지 않았다' 같은 단정 표현으로 치환하지 마세요."
             )
             scope_refs = _deterministic_scope_refs(pack)
             if scope_refs:
@@ -271,7 +275,7 @@ def build_grounded_answer_prompt(query: str, pack: EvidencePack) -> str:
         "- 공급계약 lifecycle 분석이면 원계약→정정공시→해지공시의 시간 순서를 유지하세요.",
         "- 공급계약 각 단계의 구체적 조건에는 해당 단계 Evidence를 바로 뒤에 인용하고, 해지일·해지 사유에는 해지 Evidence를 인용하세요.",
         "- 공급계약 해지 존재 여부를 첫 문장에서 답할 때 원계약과 해지 Evidence를 바로 인용하세요.",
-        "- 결론에서 해지일이나 해지 사유를 다시 말하면 해지 Evidence를 그 문장에도 다시 붙이세요.",
+        "- 결론에서 해지일이나 해지 사유를 다시 말하면 해지 Evidence를 그 문장에도 다시 인용하세요.",
         "- 공급계약 정정 단계의 값 차이만으로 정정 사유를 추론하지 말고, 정정공시에서 확인되는 값으로만 서술하세요.",
         "- 공급계약 정정 횟수나 정정 이력 전체를 요약하면 해당 모든 정정 Evidence를 바로 뒤에 인용하세요.",
         "- 공급계약 correction lineage가 불완전하면 관측 최신값을 최종 계약조건으로 단정하지 마세요.",

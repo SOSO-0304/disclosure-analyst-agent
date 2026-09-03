@@ -48,6 +48,13 @@ _FACILITY_TERMS = (
     "투자목적",
     "투자 목적",
 )
+_FACILITY_EXECUTION_MARKERS = (
+    "실제로",
+    "실제 집행",
+    "실제집행",
+    "실제 투자",
+    "실제투자",
+)
 _CONTRACT_TERMS = (
     "공급계약",
     "공급 계약",
@@ -95,6 +102,17 @@ def route_query(query: str) -> QueryRoute:
     add_rail(RetrievalRail.FUNDRAISING, _FUNDRAISING_TERMS)
     add_rail(RetrievalRail.FACILITY_INVESTMENT, _FACILITY_TERMS)
     add_rail(RetrievalRail.SUPPLY_CONTRACT, _CONTRACT_TERMS)
+
+    facility_execution_semantics = (
+        "투자" in normalized
+        and any(marker in normalized for marker in _FACILITY_EXECUTION_MARKERS)
+    )
+    if (
+        facility_execution_semantics
+        and RetrievalRail.FACILITY_INVESTMENT not in rails
+    ):
+        rails.append(RetrievalRail.FACILITY_INVESTMENT)
+        matched_terms.append("실제 투자 의미 검증")
 
     abbreviations = tuple(
         abbreviation

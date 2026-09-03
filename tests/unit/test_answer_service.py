@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
+from disclosure_agent.llm.hcx_client import HcxAnswerResult
 from disclosure_agent.services.answer_service import (
     AnswerService,
+    _generation_status,
     _grounding_prompt_for_query,
     _round_robin,
 )
@@ -12,6 +14,21 @@ def _runner(name: str):
         return name, query, plan.mode.value, kwargs
 
     return run
+
+
+def _model_result(finish_reason: str) -> HcxAnswerResult:
+    return HcxAnswerResult(
+        content="answer",
+        finish_reason=finish_reason,
+        prompt_tokens=1,
+        completion_tokens=1,
+        total_tokens=2,
+    )
+
+
+def test_generation_status_downgrades_grounding_exhaustion() -> None:
+    assert _generation_status("ANSWERABLE", _model_result("stop")) == "ANSWERABLE"
+    assert _generation_status("ANSWERABLE", _model_result("grounding_exhausted")) == "PARTIAL"
 
 
 def test_answer_service_dispatches_metric_query(monkeypatch) -> None:

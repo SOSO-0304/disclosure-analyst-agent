@@ -106,4 +106,8 @@ def test_zero_event_subset_requires_explicit_absence_wording() -> None:
 
     assert "사용자가 명시적으로 요청한 자금조달 유형은 유상증자입니다" in prompt
     assert "요청 유형이 0건이면 유형명을 생략하지 말고 '확인된 내역 없음'으로 답하세요" in prompt
+    assert (
+        "최종 답변의 첫 부분에 다음 표준 표현을 그대로 포함하세요: "
+        "유상증자: 확인된 내역 없음"
+    ) in prompt
     assert "0건 유형 문장 자체에는 다른 유형의 Evidence를 억지로 붙이지 마세요" in prompt

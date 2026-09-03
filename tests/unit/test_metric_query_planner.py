@@ -48,6 +48,16 @@ def test_ranking_query_is_detected() -> None:
     assert intent.operation is MetricOperation.RANKING
 
 
+def test_natural_ordering_phrase_is_ranking() -> None:
+    intent = plan_metric_query(
+        "삼성전자, 현대차, 카카오를 2025년 연결기준 매출액이 큰 순서대로 정리해줘"
+    )
+
+    assert intent.metric is MetricName.REVENUE
+    assert intent.operation is MetricOperation.RANKING
+    assert intent.is_analysis_query
+
+
 def test_ranking_has_priority_over_total_wording() -> None:
     intent = plan_metric_query("A와 B 중 신규시설투자 합계가 더 큰 기업은 어디인가?")
 

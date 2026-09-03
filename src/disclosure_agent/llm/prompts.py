@@ -158,20 +158,38 @@ def _future_plan_snippets(pack: EvidencePack) -> tuple[str, ...]:
 def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, ...]:
     requirements: list[str] = []
     compact = _compact(query)
+    upper_compact = compact.upper()
 
-    asks_actual_execution = (
-        "투자" in compact
-        and any(
-            marker in compact
-            for marker in ("실제로", "실제집행", "실제CAPEX", "실제투자")
-        )
+    investment_context = (
+        "투자" in compact or "집행" in compact or "CAPEX" in upper_compact
     )
+    actual_execution_marker = (
+        any(
+            marker in compact
+            for marker in ("실제로", "실제집행", "실제투자", "집행한", "집행액")
+        )
+        or "실제CAPEX" in upper_compact
+    )
+    asks_actual_execution = investment_context and actual_execution_marker
     if asks_actual_execution and _has_facility_decision_evidence(pack):
         requirements.append(
             "- 이 질문은 투자 결정 금액을 실제 집행액으로 해석해도 되는지 확인하는 "
             "의미 검증 질문입니다. Evidence가 실제 집행을 별도로 직접 증명하지 않는다면 "
             "첫 문장에서 '실제 집행액이라고 단정하기는 어렵다'는 취지로 직접 답하고, "
             "투자 결정 금액과 실제 집행액을 명확히 구분하세요."
+        )
+
+    correction_cause_question = (
+        "정정공시" in compact
+        and any(marker in compact for marker in ("위해", "이유", "목적", "때문"))
+    )
+    if correction_cause_question:
+        requirements.append(
+            "- 이 질문은 정정공시의 원인·목적을 묻는 질문입니다. Evidence가 정정 사유를 "
+            "직접 명시하지 않으면 첫 문장에서 '정정 사유는 제공된 공시에서 확인되지 않습니다'라고 "
+            "답하세요. 정정공시에서 거래상대방 값이 확인된 사실과 그 값 때문에 정정했다는 "
+            "인과 해석을 반드시 구분하고, '거래상대방을 변경하기 위해 정정했다'처럼 원인을 "
+            "추론하지 마세요. 거래상대방 등 확인되는 사실을 언급할 때는 해당 Evidence를 인용하세요."
         )
 
     excludes_completed = any(
@@ -204,6 +222,10 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
         )
         empty_labels = _empty_fundraising_labels(pack)
         if set(requested_labels).issubset(empty_labels):
+            requirements.append(
+                "- 요청한 모든 유형이 0건이면 각 유형마다 '유형명: 확인된 내역 없음'이라는 "
+                "표현을 사용해 absence 의미를 명확히 유지하세요."
+            )
             scope_refs = _deterministic_scope_refs(pack)
             if scope_refs:
                 citations = "".join(scope_refs)
@@ -249,7 +271,7 @@ def build_grounded_answer_prompt(query: str, pack: EvidencePack) -> str:
         "- 공급계약 lifecycle 분석이면 원계약→정정공시→해지공시의 시간 순서를 유지하세요.",
         "- 공급계약 각 단계의 구체적 조건에는 해당 단계 Evidence를 바로 뒤에 인용하고, 해지일·해지 사유에는 해지 Evidence를 인용하세요.",
         "- 공급계약 해지 존재 여부를 첫 문장에서 답할 때 원계약과 해지 Evidence를 바로 인용하세요.",
-        "- 결론에서 해지일이나 해지 사유를 다시 말하면 해지 Evidence를 그 문장에도 다시 인용하세요.",
+        "- 결론에서 해지일이나 해지 사유를 다시 말하면 해지 Evidence를 그 문장에도 다시 붙이세요.",
         "- 공급계약 정정 단계의 값 차이만으로 정정 사유를 추론하지 말고, 정정공시에서 확인되는 값으로만 서술하세요.",
         "- 공급계약 정정 횟수나 정정 이력 전체를 요약하면 해당 모든 정정 Evidence를 바로 뒤에 인용하세요.",
         "- 공급계약 correction lineage가 불완전하면 관측 최신값을 최종 계약조건으로 단정하지 마세요.",

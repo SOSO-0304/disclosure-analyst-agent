@@ -359,6 +359,31 @@ def _explicit_investment_purpose(block: str) -> bool:
     )
 
 
+def unsupported_unrequested_investment_amounts(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject completed investment amounts when a direction/purpose query did not ask for them."""
+
+    compact_query = "".join(_question_text(user_prompt).split())
+    asks_direction_or_purpose = (
+        "투자" in compact_query
+        and any(term in compact_query for term in ("방향", "목적"))
+    )
+    asks_amount = any(
+        term in compact_query for term in ("금액", "규모", "얼마", "투자액")
+    )
+    if not asks_direction_or_purpose or asks_amount:
+        return ()
+
+    return tuple(
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and _MONEY_LITERAL.search(line)
+    )
+
+
 def unsupported_investment_purpose_claims(
     content: str,
     *,
@@ -379,6 +404,8 @@ def unsupported_investment_purpose_claims(
         "위한 전략",
         "전략적 움직임",
         "대응하기 위한",
+        "위한 투자 방향",
+        "투자 방향을 설정",
     )
 
     for raw_line in content.splitlines():
@@ -622,6 +649,9 @@ def _strip_lines_with_grounding_violations(
     unsupported_purpose = set(
         unsupported_investment_purpose_claims(content, user_prompt=user_prompt)
     )
+    unsupported_unrequested_amounts = set(
+        unsupported_unrequested_investment_amounts(content, user_prompt=user_prompt)
+    )
     if (
         not unsupported_money
         and not unsupported_temporal
@@ -630,6 +660,7 @@ def _strip_lines_with_grounding_violations(
         and not unsupported_units
         and not unsupported_scope
         and not unsupported_purpose
+        and not unsupported_unrequested_amounts
     ):
         return content
 
@@ -642,6 +673,7 @@ def _strip_lines_with_grounding_violations(
             or stripped in unsupported_units
             or stripped in unsupported_scope
             or stripped in unsupported_purpose
+            or stripped in unsupported_unrequested_amounts
         ):
             continue
         if stripped in unsupported_structure:
@@ -684,6 +716,9 @@ def _all_invalid_grounding_tokens(
     invalid.extend(unsupported_business_unit_attributions(content, user_prompt=user_prompt))
     invalid.extend(unsupported_narrow_business_scope_claims(content, user_prompt=user_prompt))
     invalid.extend(unsupported_investment_purpose_claims(content, user_prompt=user_prompt))
+    invalid.extend(
+        unsupported_unrequested_investment_amounts(content, user_prompt=user_prompt)
+    )
     if evidence_report_years:
         invalid.extend(
             invalid_report_year_citations(

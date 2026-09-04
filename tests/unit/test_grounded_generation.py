@@ -4,7 +4,10 @@ from disclosure_agent.llm.grounded_generation import (
     generate_grounded_answer,
     invalid_citation_tokens,
     invalid_report_year_citations,
+    unsupported_business_unit_attributions,
+    unsupported_investment_purpose_claims,
     unsupported_money_literals,
+    unsupported_narrow_business_scope_claims,
     unsupported_temporal_claims,
 )
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
@@ -70,6 +73,77 @@ def test_invalid_report_year_citations_allows_multi_year_sentences_in_one_paragr
     )
 
     assert invalid == ()
+
+
+def test_unsupported_business_unit_attributions_reject_unlinked_sdc_grouping() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서에서 AI와 관련된 핵심 사업 전략을 정리해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+회사: 삼성전자
+공시: 사업보고서 (2025.12)
+섹션: 영상디스플레이 사업
+AI TV 라인업과 AI 홈 기능을 확대했습니다.
+"""
+    content = "\n".join(
+        (
+            "3. **SDC**:",
+            "- AI TV 라인업을 확대했습니다 [E1].",
+        )
+    )
+
+    invalid = unsupported_business_unit_attributions(content, user_prompt=prompt)
+
+    assert "3. **SDC**:" in invalid
+    assert "- AI TV 라인업을 확대했습니다 [E1]." in invalid
+
+
+def test_narrow_system_semiconductor_scope_rejects_memory_only_claim() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+메모리 차세대 기술 경쟁력 강화 및 중장기 수요 대비를 위한 투자를 지속 추진합니다.
+시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+"""
+    content = "- 메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진합니다 [E1]."
+
+    invalid = unsupported_narrow_business_scope_claims(content, user_prompt=prompt)
+
+    assert invalid == (content,)
+
+
+def test_investment_purpose_requires_explicit_purpose_relation_in_evidence() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+
+[E2] kind=semantic_chunk score=0.9
+text:
+AI 성장에 따른 중장기 수요 확대를 기회로 고부가 수주 확대와 수익 구조 개선을 추진합니다.
+"""
+    content = "\n".join(
+        (
+            "2. **투자 목적**:",
+            "- Advanced 노드 CAPA 확보를 위해 투자합니다 [E1].",
+            "- AI 수요 대응과 수익 구조 개선이 투자 목적입니다 [E2].",
+            "이는 AI 신기술 대응을 위한 전략적 움직임으로 해석됩니다.",
+        )
+    )
+
+    invalid = unsupported_investment_purpose_claims(content, user_prompt=prompt)
+
+    assert "- Advanced 노드 CAPA 확보를 위해 투자합니다 [E1]." not in invalid
+    assert "- AI 수요 대응과 수익 구조 개선이 투자 목적입니다 [E2]." in invalid
+    assert "이는 AI 신기술 대응을 위한 전략적 움직임으로 해석됩니다." in invalid
 
 
 def test_unsupported_money_literals_reject_changed_table_digits() -> None:

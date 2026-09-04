@@ -8,6 +8,8 @@ from disclosure_agent.api.main import (
     _render_api_answer,
     _render_execution_trace,
     _render_retrieved_context,
+    _renumber_top_level_items,
+    _strip_internal_evidence_labels,
     app,
 )
 from disclosure_agent.retrieval.answer_query_planner import plan_answer_query
@@ -79,9 +81,38 @@ def test_render_api_answer_appends_source_disclosure() -> None:
 
     rendered = _render_api_answer(result)
 
-    assert "근거 기반 답변 [E1]" in rendered
+    assert "근거 기반 답변" in rendered
+    assert "[E1]" not in rendered
     assert "근거 공시" in rendered
-    assert "사업보고서 (2025.12) | 공시일: 2026-03-10" in rendered
+    assert "- 사업보고서 (2025.12) | 공시일: 2026-03-10" in rendered
+
+
+def test_strip_internal_evidence_labels_keeps_natural_answer_text() -> None:
+    answer = "첫 번째 주장 [E1].\n두 번째 주장 [E3]."
+
+    rendered = _strip_internal_evidence_labels(answer)
+
+    assert rendered == "첫 번째 주장.\n두 번째 주장."
+
+
+def test_renumber_top_level_items_closes_removed_heading_gap() -> None:
+    answer = "\n".join(
+        (
+            "1. **DX 부문**:",
+            "   - 세부 내용",
+            "2. **DS 부문**:",
+            "   - 세부 내용",
+            "4. **기타**:",
+            "   - 세부 내용",
+        )
+    )
+
+    rendered = _renumber_top_level_items(answer)
+
+    assert "1. **DX 부문**:" in rendered
+    assert "2. **DS 부문**:" in rendered
+    assert "3. **기타**:" in rendered
+    assert "4. **기타**:" not in rendered
 
 
 def test_execution_trace_exposes_high_level_route_not_private_reasoning() -> None:
@@ -166,6 +197,8 @@ def test_answer_endpoint_matches_festival_schema(monkeypatch) -> None:
     }
     assert payload["question_id"] == "Q-001"
     assert payload["question"] == pack.query
-    assert "근거 기반 답변 [E1]" in payload["answer"]
+    assert "근거 기반 답변" in payload["answer"]
+    assert "[E1]" not in payload["answer"]
     assert "근거 공시" in payload["answer"]
-    assert "사업보고서 (2025.12)" in payload["answer"]
+    assert "- 사업보고서 (2025.12)" in payload["answer"]
+    assert "[E1]" in payload["retrieved_context"]

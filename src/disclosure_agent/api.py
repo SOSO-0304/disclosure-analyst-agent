@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 from disclosure_agent.config import get_settings
 from disclosure_agent.retrieval.evidence_pack import EvidencePack
+from disclosure_agent.retrieval.source_references import render_source_references
 from disclosure_agent.services.answer_service import AnswerResult, AnswerService
 from disclosure_agent.storage.database import get_engine, session_scope
 
@@ -49,6 +50,11 @@ def _render_retrieved_context(pack: EvidencePack) -> str:
             )
         )
     return "\n\n".join(blocks)
+
+
+def _render_api_answer(result: AnswerResult) -> str:
+    sources = render_source_references(result.source_references)
+    return f"{result.answer}\n\n{sources}"
 
 
 def _render_execution_trace(result: AnswerResult) -> str:
@@ -106,5 +112,5 @@ def answer(
         question=question,
         retrieved_context=_render_retrieved_context(result.evidence_pack),
         think_trace=_render_execution_trace(result),
-        answer=result.answer,
+        answer=_render_api_answer(result),
     )

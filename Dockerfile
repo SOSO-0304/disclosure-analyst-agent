@@ -11,11 +11,12 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install ".[dev]"
+    && python -m pip install .
 
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY config ./config
-COPY tests ./tests
 
-CMD ["python", "-m", "disclosure_agent.cli"]
+EXPOSE 8000
+
+CMD ["uvicorn", "disclosure_agent.api:app", "--host", "0.0.0.0", "--port", "8000"]

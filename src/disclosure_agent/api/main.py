@@ -54,8 +54,8 @@ def _render_retrieved_context(pack: EvidencePack) -> str:
     return "\n\n".join(blocks)
 
 
-_EVIDENCE_LABEL = re.compile(r"\\s*\\[E\\d+\\]")
-_NUMBERED_HEADING = re.compile(r"^(?P<indent>\\s*)(?P<number>\\d+)\\.\\s+(?P<body>.+)$")
+_EVIDENCE_LABEL = re.compile(r"\s*\[E\d+\]")
+_NUMBERED_HEADING = re.compile(r"^(?P<indent>\s*)(?P<number>\d+)\.\s+(?P<body>.+)$")
 
 
 def _strip_internal_evidence_labels(answer: str) -> str:

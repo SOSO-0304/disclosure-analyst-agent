@@ -73,9 +73,29 @@ _ABSENCE_PHRASES = (
 )
 _NEUTRAL_INVESTMENT_HEADING = "공시에서 확인되는 투자 관련 내용은 다음과 같습니다:"
 _BUSINESS_UNIT_ALIASES = {
-    "DX": ("dx 부문", "device experience"),
-    "DS": ("ds 부문", "device solutions"),
-    "SDC": ("sdc", "삼성디스플레이"),
+    "DX": (
+        "dx 부문",
+        "device experience",
+        "mobile experience",
+        "mx(",
+        "영상디스플레이",
+        "생활가전",
+    ),
+    "DS": (
+        "ds 부문",
+        "device solutions",
+        "메모리 사업",
+        "foundry",
+        "system lsi",
+        "시스템 반도체",
+    ),
+    "SDC": (
+        "sdc",
+        "삼성디스플레이",
+        "display panel",
+        "디스플레이 패널",
+        "oled",
+    ),
     "HARMAN": ("harman", "하만"),
 }
 

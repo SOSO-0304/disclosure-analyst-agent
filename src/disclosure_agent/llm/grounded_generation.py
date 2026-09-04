@@ -72,6 +72,12 @@ _ABSENCE_PHRASES = (
     "확인되지 않습니다",
 )
 _NEUTRAL_INVESTMENT_HEADING = "공시에서 확인되는 투자 관련 내용은 다음과 같습니다:"
+_BUSINESS_UNIT_ALIASES = {
+    "DX": ("dx 부문", "device experience"),
+    "DS": ("ds 부문", "device solutions"),
+    "SDC": ("sdc", "삼성디스플레이"),
+    "HARMAN": ("harman", "하만"),
+}
 
 
 class GroundedAnswerClient(Protocol):
@@ -193,6 +199,153 @@ def _quarter_period(match: re.Match[str]) -> tuple[int, int, int, int]:
 def _evidence_blocks(user_prompt: str) -> tuple[str, ...]:
     blocks = re.split(r"(?=^\[E\d+\]\s)", user_prompt, flags=re.MULTILINE)
     return tuple(block for block in blocks if re.match(r"^\[E\d+\]\s", block))
+
+
+def _question_text(user_prompt: str) -> str:
+    match = _USER_QUESTION.search(user_prompt)
+    return match.group("query").strip() if match is not None else ""
+
+
+def _evidence_by_number(user_prompt: str) -> dict[int, str]:
+    evidence: dict[int, str] = {}
+    for block in _evidence_blocks(user_prompt):
+        match = re.match(r"^\[E(?P<number>\d+)\]\s", block)
+        if match is not None:
+            evidence[int(match.group("number"))] = block
+    return evidence
+
+
+def _business_unit_heading(line: str) -> str | None:
+    upper = line.upper()
+    for unit in _BUSINESS_UNIT_ALIASES:
+        if re.search(rf"\*\*{unit}(?:\s*부문)?\*\*", upper):
+            return unit
+    return None
+
+
+def unsupported_business_unit_attributions(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject business-unit grouping not explicitly supported by cited Evidence."""
+
+    evidence = _evidence_by_number(user_prompt)
+    if not evidence:
+        return ()
+
+    lines = content.splitlines()
+    invalid: list[str] = []
+    active_unit: str | None = None
+    active_heading: str | None = None
+    supported_in_block = False
+
+    def close_block() -> None:
+        nonlocal active_unit, active_heading, supported_in_block
+        if active_heading is not None and not supported_in_block:
+            invalid.append(active_heading)
+        active_unit = None
+        active_heading = None
+        supported_in_block = False
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        unit = _business_unit_heading(line)
+        if unit is not None:
+            close_block()
+            active_unit = unit
+            active_heading = line
+            continue
+        if active_unit is None or not line:
+            continue
+        if re.match(r"^\d+\.\s+\*\*", line):
+            close_block()
+            continue
+
+        refs = [int(match.group(1)) for match in _EVIDENCE_CITATION.finditer(line)]
+        if not refs:
+            continue
+        aliases = _BUSINESS_UNIT_ALIASES[active_unit]
+        supported = any(
+            any(alias in evidence.get(number, "").lower() for alias in aliases)
+            for number in refs
+        )
+        if supported:
+            supported_in_block = True
+        else:
+            invalid.append(line)
+
+    close_block()
+    return tuple(dict.fromkeys(invalid))
+
+
+def unsupported_narrow_business_scope_claims(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Prevent adjacent business-scope facts from being reassigned to a narrow query."""
+
+    compact_query = "".join(_question_text(user_prompt).split())
+    if "시스템반도체" not in compact_query or "메모리" in compact_query:
+        return ()
+
+    return tuple(
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and "메모리" in line
+    )
+
+
+def _explicit_investment_purpose(block: str) -> bool:
+    compact = "".join(block.lower().split())
+    return any(
+        marker in compact
+        for marker in (
+            "투자목적",
+            "위한투자",
+            "투자를위해",
+            "투자하기위해",
+            "목적으로투자",
+        )
+    )
+
+
+def unsupported_investment_purpose_claims(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject strategy/context sentences relabeled as investment purpose."""
+
+    compact_query = "".join(_question_text(user_prompt).split())
+    if "투자" not in compact_query or "목적" not in compact_query:
+        return ()
+
+    evidence = _evidence_by_number(user_prompt)
+    invalid: list[str] = []
+    in_purpose_section = False
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "투자 목적" in line and line.endswith(":"):
+            in_purpose_section = True
+            continue
+        if in_purpose_section and re.match(r"^\d+\.\s+\*\*", line):
+            in_purpose_section = False
+        if not in_purpose_section:
+            continue
+
+        refs = [int(match.group(1)) for match in _EVIDENCE_CITATION.finditer(line)]
+        if not refs:
+            invalid.append(line)
+            continue
+        if not any(_explicit_investment_purpose(evidence.get(number, "")) for number in refs):
+            invalid.append(line)
+
+    return tuple(dict.fromkeys(invalid))
 
 
 def _completed_context(
@@ -399,18 +552,36 @@ def _strip_lines_with_grounding_violations(
     unsupported_structure = set(
         unsupported_investment_plan_structure(content, user_prompt=user_prompt)
     )
+    unsupported_units = set(
+        unsupported_business_unit_attributions(content, user_prompt=user_prompt)
+    )
+    unsupported_scope = set(
+        unsupported_narrow_business_scope_claims(content, user_prompt=user_prompt)
+    )
+    unsupported_purpose = set(
+        unsupported_investment_purpose_claims(content, user_prompt=user_prompt)
+    )
     if (
         not unsupported_money
         and not unsupported_temporal
         and not unsupported_exclusions
         and not unsupported_structure
+        and not unsupported_units
+        and not unsupported_scope
+        and not unsupported_purpose
     ):
         return content
 
     retained: list[str] = []
     for line in content.splitlines():
         stripped = line.strip()
-        if stripped in unsupported_temporal or stripped in unsupported_exclusions:
+        if (
+            stripped in unsupported_temporal
+            or stripped in unsupported_exclusions
+            or stripped in unsupported_units
+            or stripped in unsupported_scope
+            or stripped in unsupported_purpose
+        ):
             continue
         if stripped in unsupported_structure:
             indent = line[: len(line) - len(line.lstrip())]
@@ -449,6 +620,9 @@ def _all_invalid_grounding_tokens(
     invalid.extend(unsupported_temporal_claims(content, user_prompt=user_prompt))
     invalid.extend(unsupported_explicit_exclusions(content, user_prompt=user_prompt))
     invalid.extend(unsupported_investment_plan_structure(content, user_prompt=user_prompt))
+    invalid.extend(unsupported_business_unit_attributions(content, user_prompt=user_prompt))
+    invalid.extend(unsupported_narrow_business_scope_claims(content, user_prompt=user_prompt))
+    invalid.extend(unsupported_investment_purpose_claims(content, user_prompt=user_prompt))
     if evidence_report_years:
         invalid.extend(
             invalid_report_year_citations(
@@ -556,6 +730,12 @@ def generate_grounded_answer(
         "- 투자 계획 질의에서 이미 집행된 금액·기간은 '확인된 투자 실적'처럼 별도 구분하고, "
         "'주요 투자 계획' 또는 '세부 투자 계획' 아래에 배치하지 마세요.",
         "- 사용자가 특정 정보나 범위를 빼거나 제외하라고 명시했으면 답변에 다시 포함하지 마세요.",
+        "- DX, DS, SDC 같은 사업부별로 내용을 묶을 때는 인용한 Evidence가 그 사업부를 명시적으로 "
+        "식별하는 경우에만 해당 사업부에 귀속하세요. 그렇지 않으면 사업부 라벨을 붙이지 마세요.",
+        "- 사용자가 시스템 반도체처럼 특정 사업 범위를 물었다면 인접한 메모리 전용 설명을 "
+        "그 사업의 투자 방향이나 목적으로 옮기지 마세요.",
+        "- '투자 목적'으로 분류하는 문장은 Evidence가 목적 관계를 직접 표현할 때만 사용하세요. "
+        "시장 전망이나 사업 전략을 투자 목적이라고 재명명하지 마세요.",
     ]
     if evidence_report_years:
         repair_lines.append(

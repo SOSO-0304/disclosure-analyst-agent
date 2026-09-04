@@ -102,6 +102,36 @@ AI TV 라인업과 AI 홈 기능을 확대했습니다.
     assert "- AI TV 라인업을 확대했습니다 [E1]." in invalid
 
 
+def test_business_unit_attribution_check_is_skipped_for_multi_year_memory_strategy() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2023년과 2025년 사업보고서를 기준으로 메모리·반도체 사업 전략이 어떻게 달라졌는지 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+회사: 삼성전자
+공시: 사업보고서 (2023.12)
+섹션: 반도체 사업
+DDR5 대응을 강화했습니다.
+
+[E2] kind=semantic_chunk score=1.0
+text:
+회사: 삼성전자
+공시: 사업보고서 (2025.12)
+섹션: 반도체 사업
+HBM 중심의 고부가 제품 대응을 강화했습니다.
+"""
+    content = "\n".join(
+        (
+            "1. **DS 부문**:",
+            "- 2023년에는 DDR5 대응을 강화했습니다 [E1].",
+            "- 2025년에는 HBM 중심 대응을 강화했습니다 [E2].",
+        )
+    )
+
+    assert unsupported_business_unit_attributions(content, user_prompt=prompt) == ()
+
+
 def test_business_unit_attribution_does_not_use_body_only_oled_as_sdc_signal() -> None:
     prompt = """사용자 질문:
 삼성전자의 2025년 사업보고서에서 AI와 관련된 핵심 사업 전략을 정리해줘

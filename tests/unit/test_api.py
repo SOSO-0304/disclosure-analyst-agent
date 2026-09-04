@@ -1,11 +1,18 @@
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
-from disclosure_agent.api import _render_execution_trace, _render_retrieved_context, app
+from disclosure_agent.api import (
+    _render_api_answer,
+    _render_execution_trace,
+    _render_retrieved_context,
+    app,
+)
 from disclosure_agent.retrieval.answer_query_planner import plan_answer_query
 from disclosure_agent.retrieval.evidence_pack import EvidenceItem, EvidencePack
+from disclosure_agent.retrieval.source_references import SourceReference
 from disclosure_agent.services.answer_service import AnswerResult
 
 
@@ -43,6 +50,38 @@ def test_render_retrieved_context_keeps_evidence_label_and_text() -> None:
 
     assert "[E1] 삼성전자 | 사업보고서 (2025.12)" in rendered
     assert "HBM 판매를 확대했습니다." in rendered
+
+
+def test_render_api_answer_appends_source_disclosure() -> None:
+    item = _item()
+    pack = EvidencePack(
+        query="질문",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+    result = AnswerResult(
+        query=pack.query,
+        plan=plan_answer_query("삼성전자의 2025년 AI 전략을 설명해줘"),
+        status="ANSWERABLE",
+        answer="근거 기반 답변 [E1]",
+        generator="HCX-007",
+        evidence_pack=pack,
+        source_references=(
+            SourceReference(
+                filing_id="filing:1",
+                report_name="사업보고서 (2025.12)",
+                receipt_date=date(2026, 3, 10),
+                evidence_labels=("E1",),
+            ),
+        ),
+    )
+
+    rendered = _render_api_answer(result)
+
+    assert "근거 기반 답변 [E1]" in rendered
+    assert "근거 공시" in rendered
+    assert "사업보고서 (2025.12) | 공시일: 2026-03-10" in rendered
 
 
 def test_execution_trace_exposes_high_level_route_not_private_reasoning() -> None:
@@ -86,7 +125,14 @@ def test_answer_endpoint_matches_festival_schema(monkeypatch) -> None:
         answer="근거 기반 답변 [E1]",
         generator="HCX-007",
         evidence_pack=pack,
-        source_references=(),
+        source_references=(
+            SourceReference(
+                filing_id="filing:1",
+                report_name="사업보고서 (2025.12)",
+                receipt_date=date(2026, 3, 10),
+                evidence_labels=("E1",),
+            ),
+        ),
     )
 
     class FakeSessionScope:
@@ -120,4 +166,6 @@ def test_answer_endpoint_matches_festival_schema(monkeypatch) -> None:
     }
     assert payload["question_id"] == "Q-001"
     assert payload["question"] == pack.query
-    assert payload["answer"] == "근거 기반 답변 [E1]"
+    assert "근거 기반 답변 [E1]" in payload["answer"]
+    assert "근거 공시" in payload["answer"]
+    assert "사업보고서 (2025.12)" in payload["answer"]

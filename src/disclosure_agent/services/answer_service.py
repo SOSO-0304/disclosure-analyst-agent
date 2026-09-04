@@ -225,6 +225,66 @@ def _render_requested_fundraising_absence(
     return _render_fundraising_answer(query, analysis, pack)
 
 
+def _asks_actual_facility_execution(query: str) -> bool:
+    compact = "".join(query.split())
+    upper = compact.upper()
+    investment_context = "투자" in compact or "CAPEX" in upper
+    actual_marker = any(
+        marker in compact
+        for marker in ("실제로", "실제집행", "실제투자", "집행한", "집행액")
+    )
+    return investment_context and actual_marker
+
+
+def _facility_decision_amount(item: EvidenceItem) -> int | None:
+    match = re.search(r"^투자금액:\s*([\d,]+)원\s*$", item.content_text, re.MULTILINE)
+    if match is None:
+        return None
+    return int(match.group(1).replace(",", ""))
+
+
+def _render_facility_execution_semantic_answer(
+    query: str,
+    pack: EvidencePack,
+) -> str | None:
+    """Separate disclosed facility-investment decisions from actual cash execution."""
+
+    if not _asks_actual_facility_execution(query):
+        return None
+
+    facility_items = tuple(
+        item for item in pack.items if item.source_kind == "sql_facility_investment"
+    )
+    if not facility_items:
+        return None
+
+    amounts = tuple(_facility_decision_amount(item) for item in facility_items)
+    if any(amount is None for amount in amounts):
+        return None
+
+    total = sum(amount for amount in amounts if amount is not None)
+    years = extract_query_years(query)
+    year_text = f"{years[0]}년에 " if len(years) == 1 else ""
+    citations = "".join(f"[E{item.rank}]" for item in facility_items)
+
+    return "\n".join(
+        (
+            (
+                f"제공된 공시만으로 {year_text}실제 집행액이 {format_krw(total)}이었다고 "
+                f"단정하기는 어렵습니다 {citations}."
+            ),
+            (
+                f"확인되는 것은 {year_text}공시된 신규시설투자 결정 금액 합계 "
+                f"{format_krw(total)}입니다 {citations}."
+            ),
+            (
+                "신규시설투자 결정 금액은 투자 결정 내역이므로, 이 근거만으로 "
+                "실제 집행액과 동일하다고 볼 수 없습니다."
+            ),
+        )
+    )
+
+
 def _round_robin(groups: tuple[tuple[T, ...], ...], *, limit: int) -> tuple[T, ...]:
     """Interleave ranked groups so one comparison side cannot consume every slot."""
 
@@ -873,6 +933,22 @@ class AnswerService:
                 plan=plan,
                 status="NO_MATCH",
                 answer="제공된 공시에서 확인되지 않는다.",
+                generator="deterministic",
+                evidence_pack=pack,
+                source_references=references,
+                metadata=metadata,
+            )
+
+        facility_execution_answer = _render_facility_execution_semantic_answer(
+            query,
+            pack,
+        )
+        if facility_execution_answer is not None:
+            return AnswerResult(
+                query=query,
+                plan=plan,
+                status="ANSWERABLE",
+                answer=facility_execution_answer,
                 generator="deterministic",
                 evidence_pack=pack,
                 source_references=references,

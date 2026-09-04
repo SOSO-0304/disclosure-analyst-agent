@@ -105,6 +105,27 @@ def test_system_semiconductor_prompt_separates_memory_and_investment_purpose() -
     assert "투자 목적이라고 단정하지 마세요" in prompt
 
 
+def test_system_semiconductor_prompt_excludes_unrequested_completed_amounts() -> None:
+    item = _item(
+        content_text=(
+            "2025년 DS 부문 및 SDC 등의 첨단공정 증설·전환과 인프라 투자를 중심으로 "
+            "52.7조원의 시설투자가 이루어졌습니다. "
+            "시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다."
+        )
+    )
+    pack = EvidencePack(
+        query="삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    prompt = build_grounded_answer_prompt(pack.query, pack)
+
+    assert "이미 집행된 전체 시설투자 금액은 답변에서 제외하세요" in prompt
+    assert "수익성을 개선하기 위한 투자 방향" in prompt
+
+
 def test_zero_event_subset_requires_explicit_absence_wording() -> None:
     items = tuple(
         EvidenceItem(

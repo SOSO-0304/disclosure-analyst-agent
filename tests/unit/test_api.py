@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
-from disclosure_agent.api import (
+from disclosure_agent.api.main import (
     _render_api_answer,
     _render_execution_trace,
     _render_retrieved_context,
@@ -142,10 +142,10 @@ def test_answer_endpoint_matches_festival_schema(monkeypatch) -> None:
         def __exit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr("disclosure_agent.api.session_scope", lambda engine: FakeSessionScope())
-    monkeypatch.setattr("disclosure_agent.api.get_engine", lambda url: SimpleNamespace())
+    monkeypatch.setattr("disclosure_agent.api.main.session_scope", lambda engine: FakeSessionScope())
+    monkeypatch.setattr("disclosure_agent.api.main.get_engine", lambda url: SimpleNamespace())
     monkeypatch.setattr(
-        "disclosure_agent.api.AnswerService.answer",
+        "disclosure_agent.api.main.AnswerService.answer",
         lambda self, question: result,
     )
 

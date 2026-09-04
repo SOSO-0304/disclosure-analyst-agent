@@ -7,6 +7,7 @@ from disclosure_agent.services.answer_service import (
     _generation_status,
     _grounding_prompt_for_query,
     _render_facility_execution_semantic_answer,
+    _render_multi_year_comparison_fallback,
     _round_robin,
 )
 
@@ -145,6 +146,101 @@ def _facility_item(rank: int, amount: int, subject: str) -> EvidenceItem:
         block_ids=(),
         table_ids=(),
     )
+
+
+def _semantic_item(
+    rank: int,
+    year: int,
+    text: str,
+) -> EvidenceItem:
+    return EvidenceItem(
+        evidence_id=f"semantic:{rank}",
+        source_kind="semantic_chunk",
+        rank=rank,
+        score=1.0,
+        semantic_score=1.0,
+        lexical_score=1.0,
+        company_name="삼성전자",
+        filing_id=f"filing:{year}:{rank}",
+        report_name=f"사업보고서 ({year}.12)",
+        document_id=f"document:{year}:{rank}",
+        section_id=f"section:{year}:{rank}",
+        content_text="\n".join(
+            (
+                "회사: 삼성전자",
+                f"공시: 사업보고서 ({year}.12)",
+                "문서: 사업의 내용",
+                "섹션: 반도체 사업",
+                text,
+            )
+        ),
+        truncated=False,
+        matched_terms=(),
+        block_ids=(),
+        table_ids=(),
+    )
+
+
+def test_multi_year_comparison_fallback_preserves_years_strategy_terms_and_citations() -> None:
+    items = (
+        _semantic_item(
+            1,
+            2023,
+            "DDR5와 서버용 메모리 제품 대응을 강화하고 고부가 제품 비중을 확대했습니다.",
+        ),
+        _semantic_item(
+            2,
+            2023,
+            "메모리 시장 변화에 맞춰 제품 경쟁력을 강화했습니다.",
+        ),
+        _semantic_item(
+            3,
+            2025,
+            "HBM4 중심의 고부가 메모리 제품 공급을 확대하고 AI 서버 수요에 대응합니다.",
+        ),
+        _semantic_item(
+            4,
+            2025,
+            "서버향 제품 중심으로 수요 강세에 대응하고 있습니다.",
+        ),
+    )
+    query = (
+        "삼성전자의 2023년과 2025년 사업보고서를 기준으로 "
+        "메모리·반도체 사업 전략이 어떻게 달라졌는지 비교해줘"
+    )
+    pack = EvidencePack(
+        query=query,
+        retrieval_status="MATCHES_FOUND",
+        items=items,
+        total_chars=sum(len(item.content_text) for item in items),
+    )
+
+    answer = _render_multi_year_comparison_fallback(query, pack)
+
+    assert answer is not None
+    assert "2023년:" in answer
+    assert "2025년:" in answer
+    assert "DDR5" in answer
+    assert "HBM4" in answer
+    assert "[E1]" in answer
+    assert "[E3]" in answer
+
+
+def test_multi_year_comparison_fallback_skips_non_comparison_query() -> None:
+    item = _semantic_item(
+        1,
+        2025,
+        "HBM4 중심의 고부가 메모리 제품 공급을 확대합니다.",
+    )
+    query = "삼성전자의 2025년 사업보고서에서 메모리 전략을 정리해줘"
+    pack = EvidencePack(
+        query=query,
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    assert _render_multi_year_comparison_fallback(query, pack) is None
 
 
 def test_facility_execution_semantics_are_rendered_deterministically() -> None:

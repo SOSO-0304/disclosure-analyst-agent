@@ -64,6 +64,47 @@ def test_supply_correction_cause_question_forbids_causal_inference() -> None:
     assert "거래상대방을 변경하기 위해 정정했다" in prompt
 
 
+def test_ai_strategy_prompt_requires_explicit_business_unit_attribution() -> None:
+    item = _item(
+        content_text=(
+            "회사: 삼성전자\n섹션: 영상디스플레이 사업\n"
+            "AI TV 라인업과 AI 홈 기능을 확대했습니다."
+        )
+    )
+    pack = EvidencePack(
+        query="삼성전자의 2025년 사업보고서에서 AI와 관련된 핵심 사업 전략을 정리해줘",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    prompt = build_grounded_answer_prompt(pack.query, pack)
+
+    assert "사업부를 명시적으로 식별하는 경우에만" in prompt
+    assert "산업·시장 설명은 특정 사업부 전략으로 재분류하지 마세요" in prompt
+
+
+def test_system_semiconductor_prompt_separates_memory_and_investment_purpose() -> None:
+    item = _item(
+        content_text=(
+            "메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진합니다. "
+            "시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다."
+        )
+    )
+    pack = EvidencePack(
+        query="삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    prompt = build_grounded_answer_prompt(pack.query, pack)
+
+    assert "메모리 전용 투자 설명이나 목적을 시스템 반도체" in prompt
+    assert "사업 전략·시장 맥락" in prompt
+    assert "투자 목적이라고 단정하지 마세요" in prompt
+
+
 def test_zero_event_subset_requires_explicit_absence_wording() -> None:
     items = tuple(
         EvidenceItem(

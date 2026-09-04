@@ -126,6 +126,28 @@ def test_system_semiconductor_prompt_excludes_unrequested_completed_amounts() ->
     assert "수익성을 개선하기 위한 투자 방향" in prompt
 
 
+def test_system_semiconductor_prompt_requires_separate_strategy_section() -> None:
+    item = _item(
+        content_text=(
+            "시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다. "
+            "System LSI는 고부가 수주 확대를 통해 수익 구조를 개선하고 응용처를 다변화합니다."
+        )
+    )
+    pack = EvidencePack(
+        query="삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    prompt = build_grounded_answer_prompt(pack.query, pack)
+
+    assert "'직접 확인되는 투자 방향/목적'과 '관련 사업 전략'으로 분리" in prompt
+    assert "둘을 모두 '투자 방향과 목적'이라는 하나의 목록으로 묶지 마세요" in prompt
+    assert "시장 점유율을 높이고자 한다" in prompt
+    assert "~것으로 보인다" in prompt
+
+
 def test_zero_event_subset_requires_explicit_absence_wording() -> None:
     items = tuple(
         EvidenceItem(

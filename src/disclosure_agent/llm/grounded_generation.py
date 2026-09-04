@@ -243,17 +243,28 @@ def _business_unit_heading(line: str) -> str | None:
     return None
 
 
+def _evidence_section_context(block: str) -> str:
+    match = re.search(r"(?m)^섹션:\s*(?P<title>.+)$", block)
+    section = match.group("title").strip().lower() if match is not None else ""
+    prefix = "\n".join(block.splitlines()[:8]).lower()
+    return f"{section}\n{prefix}"
+
+
 def unsupported_business_unit_attributions(
     content: str,
     *,
     user_prompt: str,
 ) -> tuple[str, ...]:
-    """Reject business-unit grouping not explicitly supported by cited Evidence."""
+    """Reject business-unit grouping not supported by evidence section/context."""
 
     evidence = _evidence_by_number(user_prompt)
     if not evidence:
         return ()
 
+    evidence_context = {
+        number: _evidence_section_context(block)
+        for number, block in evidence.items()
+    }
     lines = content.splitlines()
     invalid: list[str] = []
     active_unit: str | None = None
@@ -287,7 +298,7 @@ def unsupported_business_unit_attributions(
             continue
         aliases = _BUSINESS_UNIT_ALIASES[active_unit]
         supported = any(
-            any(alias in evidence.get(number, "").lower() for alias in aliases)
+            any(alias in evidence_context.get(number, "") for alias in aliases)
             for number in refs
         )
         if supported:
@@ -345,6 +356,13 @@ def unsupported_investment_purpose_claims(
     evidence = _evidence_by_number(user_prompt)
     invalid: list[str] = []
     in_purpose_section = False
+    interpretive_markers = (
+        "투자 목적",
+        "목표",
+        "위한 전략",
+        "전략적 움직임",
+        "대응하기 위한",
+    )
 
     for raw_line in content.splitlines():
         line = raw_line.strip()
@@ -355,14 +373,20 @@ def unsupported_investment_purpose_claims(
             continue
         if in_purpose_section and re.match(r"^\d+\.\s+\*\*", line):
             in_purpose_section = False
-        if not in_purpose_section:
-            continue
 
         refs = [int(match.group(1)) for match in _EVIDENCE_CITATION.finditer(line)]
+        purpose_like = in_purpose_section or any(
+            marker in line for marker in interpretive_markers
+        )
+        if not purpose_like:
+            continue
         if not refs:
             invalid.append(line)
             continue
-        if not any(_explicit_investment_purpose(evidence.get(number, "")) for number in refs):
+        if not any(
+            _explicit_investment_purpose(evidence.get(number, ""))
+            for number in refs
+        ):
             invalid.append(line)
 
     return tuple(dict.fromkeys(invalid))

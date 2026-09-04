@@ -9,6 +9,7 @@ from disclosure_agent.llm.grounded_generation import (
     unsupported_money_literals,
     unsupported_narrow_business_scope_claims,
     unsupported_temporal_claims,
+    unsupported_unrequested_investment_amounts,
 )
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
 
@@ -167,6 +168,27 @@ text:
     invalid = unsupported_narrow_business_scope_claims(content, user_prompt=prompt)
 
     assert invalid == (content,)
+
+
+def test_direction_purpose_query_rejects_unrequested_completed_amount() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+2025년 DS 부문 및 SDC 등의 첨단공정 증설·전환과 인프라 투자를 중심으로
+52.7조원의 시설투자가 이루어졌습니다.
+시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+"""
+    content = (
+        "삼성전자는 2025년 DS 부문 및 SDC 등에 52.7조원의 시설투자를 진행했습니다 [E1]."
+    )
+
+    assert unsupported_unrequested_investment_amounts(
+        content,
+        user_prompt=prompt,
+    ) == (content,)
 
 
 def test_investment_purpose_rejects_uncited_interpretive_goal_sentence() -> None:

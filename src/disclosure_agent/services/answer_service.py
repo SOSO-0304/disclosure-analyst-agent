@@ -330,6 +330,112 @@ def _evidence_report_years(pack: EvidencePack) -> dict[int, int]:
     return years
 
 
+_COMPARISON_STRATEGY_MARKERS = (
+    "HBM",
+    "DDR5",
+    "DRAM",
+    "NAND",
+    "AI",
+    "서버",
+    "고부가",
+    "메모리",
+    "반도체",
+    "Foundry",
+    "System LSI",
+    "CAPA",
+)
+
+
+def _substantive_evidence_segments(item: EvidenceItem) -> tuple[str, ...]:
+    segments: list[str] = []
+    for raw in re.split(r"(?<=[.!?])\s+|\n+", item.content_text):
+        text = " ".join(raw.split()).strip()
+        if not text:
+            continue
+        if any(
+            text.startswith(prefix)
+            for prefix in ("회사:", "공시:", "문서:", "섹션:", "출처:")
+        ):
+            continue
+        if len(text) < 8:
+            continue
+        segments.append(text)
+    return tuple(segments)
+
+
+def _comparison_segment_score(text: str, query: str) -> tuple[int, int]:
+    marker_score = sum(
+        1 for marker in _COMPARISON_STRATEGY_MARKERS if marker.lower() in text.lower()
+    )
+    query_terms = tuple(
+        term
+        for term in re.findall(r"[A-Za-z0-9가-힣]+", query)
+        if len(term) >= 2
+        and term not in {"삼성전자", "사업보고서", "기준", "어떻게", "달라졌는지", "비교해줘"}
+    )
+    query_score = sum(1 for term in query_terms if term in text)
+    return marker_score + query_score, -len(text)
+
+
+def _year_comparison_snippets(
+    query: str,
+    *,
+    year: int,
+    pack: EvidencePack,
+    limit: int = 2,
+) -> tuple[tuple[str, int], ...]:
+    candidates: list[tuple[tuple[int, int], int, str]] = []
+    for item in pack.items:
+        report_years = extract_query_years(item.report_name)
+        if report_years != (year,):
+            continue
+        for segment in _substantive_evidence_segments(item):
+            candidates.append(
+                (_comparison_segment_score(segment, query), item.rank, segment)
+            )
+
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    selected: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for _, rank, segment in candidates:
+        if segment in seen:
+            continue
+        seen.add(segment)
+        selected.append((segment, rank))
+        if len(selected) >= limit:
+            break
+    return tuple(selected)
+
+
+def _render_multi_year_comparison_fallback(
+    query: str,
+    pack: EvidencePack,
+) -> str | None:
+    """Render a grounded extractive fallback for flaky multi-year report comparisons."""
+
+    years = extract_query_years(query)
+    compact = "".join(query.split())
+    comparison_query = len(years) > 1 and any(
+        marker in compact for marker in ("비교", "달라졌", "변화", "차이")
+    )
+    if not comparison_query or "사업보고서" not in query:
+        return None
+
+    year_blocks: list[str] = []
+    for year in years:
+        snippets = _year_comparison_snippets(query, year=year, pack=pack)
+        if not snippets:
+            return None
+        details = " ".join(
+            f"{text} [E{rank}]" for text, rank in snippets
+        )
+        year_blocks.append(f"{year}년: {details}")
+
+    if len(year_blocks) < 2:
+        return None
+    return "\n".join(year_blocks)
+
+
 def _grounding_prompt_for_query(query: str) -> str:
     extra_rules: list[str] = []
     compact = "".join(query.split())
@@ -960,6 +1066,21 @@ class AnswerService:
             pack,
             max_completion_tokens=max_completion_tokens,
         )
+        if model_result.finish_reason == "grounding_exhausted":
+            comparison_fallback = _render_multi_year_comparison_fallback(query, pack)
+            if comparison_fallback is not None:
+                return AnswerResult(
+                    query=query,
+                    plan=plan,
+                    status="ANSWERABLE",
+                    answer=comparison_fallback,
+                    generator="deterministic_fallback",
+                    evidence_pack=pack,
+                    source_references=references,
+                    model_result=model_result,
+                    metadata=metadata + _metadata(fallback="multi_year_comparison"),
+                )
+
         return AnswerResult(
             query=query,
             plan=plan,

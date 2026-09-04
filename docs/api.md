@@ -25,7 +25,7 @@ Response:
   "question": "평가 질의 원문",
   "retrieved_context": "[E1] ...",
   "think_trace": "mode=metric_structured; rails=...; retrieval_status=...; evidence_count=...; generator=...",
-  "answer": "최종 답변\n\n근거 공시\n- [E1] ..."
+  "answer": "최종 답변\n\n근거 공시\n- 사업보고서 (2025.12) | 공시일: ..."
 }
 ```
 
@@ -47,3 +47,10 @@ A healthy deployment returns:
 ```
 
 FastAPI OpenAPI documentation is available at `/docs`.
+
+
+## Evidence labels
+
+Internal evidence labels such as `[E1]` remain in `retrieved_context` for traceability and
+grounding validation. They are removed from the public `answer` field. The public answer ends
+with deduplicated disclosure names and receipt dates instead.

@@ -16,6 +16,7 @@ from disclosure_agent.llm.grounded_generation import generate_grounded_answer
 from disclosure_agent.llm.hcx_client import HCX_MODEL, HcxAnswerResult, HcxClient
 from disclosure_agent.llm.prompts import GROUNDING_SYSTEM_PROMPT, build_grounded_answer_prompt
 from disclosure_agent.rendering.metric import render_metric_answer
+from disclosure_agent.rendering.money import format_krw
 from disclosure_agent.rendering.supply_contract import render_supply_contract_termination_answer
 from disclosure_agent.retrieval.answer_query_planner import (
     AnswerExecutionMode,
@@ -121,39 +122,107 @@ def _requested_fundraising_instruments(query: str) -> tuple[FundraisingInstrumen
     return tuple(dict.fromkeys(requested))
 
 
+def _fundraising_event_ref(pack: EvidencePack, event_id: str) -> str:
+    for item in pack.items:
+        if event_id in item.event_ids:
+            return f"[E{item.rank}]"
+    return ""
+
+
+def _render_fundraising_answer(
+    query: str,
+    analysis: FundraisingAnalysisResult,
+    pack: EvidencePack,
+) -> str:
+    """Render structured fundraising answers directly from deterministic analysis."""
+
+    requested = _requested_fundraising_instruments(query)
+    selected = requested or tuple(
+        category.instrument_type for category in analysis.categories
+    )
+    category_by_instrument = {
+        category.instrument_type: category for category in analysis.categories
+    }
+    include_event_details = any(
+        marker in query for marker in ("회차", "날짜", "발행일")
+    )
+
+    lines: list[str] = []
+    has_absence = False
+    for instrument in selected:
+        category = category_by_instrument.get(instrument)
+        if category is None:
+            continue
+        label = INSTRUMENT_LABELS[instrument]
+
+        if category.status == "NO_MATCH":
+            lines.append(f"{label}: 확인된 내역 없음")
+            has_absence = True
+            continue
+
+        refs = "".join(
+            _fundraising_event_ref(pack, event.event_id)
+            for event in category.events
+        )
+        if category.status == "PARTIAL":
+            lines.append(
+                f"{label}: {category.event_count}건, 총 조달금액 확정 불가 "
+                f"(확인 금액 {format_krw(category.known_amount_sum_krw)}) {refs}".rstrip()
+            )
+        else:
+            lines.append(
+                f"{label}: {category.event_count}건, 총 조달금액 "
+                f"{format_krw(category.total_amount_krw)} {refs}".rstrip()
+            )
+
+        if include_event_details:
+            for event in category.events:
+                details: list[str] = []
+                if event.series:
+                    details.append(event.series)
+                details.append(event.issue_date.isoformat())
+                details.append(
+                    format_krw(event.amount_krw)
+                    if event.amount_krw is not None
+                    else "금액 확인 불가"
+                )
+                if event.security_name and event.security_name not in details:
+                    details.append(event.security_name)
+                ref = _fundraising_event_ref(pack, event.event_id)
+                suffix = f" {ref}" if ref else ""
+                lines.append(f"- {' | '.join(details)}{suffix}")
+
+    if has_absence:
+        lines.append(
+            "확인된 이벤트가 없다는 결과를 조달금액 0원으로 해석하지 않습니다."
+        )
+        if not any("[E" in line for line in lines):
+            citations = "".join(f"[E{item.rank}]" for item in pack.items)
+            if citations:
+                lines.append(f"집계 범위 근거: {citations}")
+
+    return "\n".join(lines)
+
+
 def _render_requested_fundraising_absence(
     query: str,
     analysis: FundraisingAnalysisResult,
     pack: EvidencePack,
 ) -> str | None:
-    """Render requested zero-event categories without relying on model wording."""
+    """Compatibility helper for callers/tests that only want all-zero subsets."""
 
     requested = _requested_fundraising_instruments(query)
     if not requested:
         return None
-
     category_by_instrument = {
         category.instrument_type: category for category in analysis.categories
     }
-    requested_categories = tuple(
-        category_by_instrument.get(instrument) for instrument in requested
-    )
-    if any(category is None for category in requested_categories):
+    categories = tuple(category_by_instrument.get(instrument) for instrument in requested)
+    if any(category is None for category in categories):
         return None
-    if not all(category.status == "NO_MATCH" for category in requested_categories if category):
+    if not all(category.status == "NO_MATCH" for category in categories if category):
         return None
-
-    lines = [
-        f"{INSTRUMENT_LABELS[instrument]}: 확인된 내역 없음"
-        for instrument in requested
-    ]
-    lines.append(
-        "확인된 이벤트가 없다는 결과를 조달금액 0원으로 해석하지 않습니다."
-    )
-    citations = "".join(f"[E{item.rank}]" for item in pack.items)
-    if citations:
-        lines.append(f"집계 범위 근거: {citations}")
-    return "\n".join(lines)
+    return _render_fundraising_answer(query, analysis, pack)
 
 
 def _round_robin(groups: tuple[tuple[T, ...], ...], *, limit: int) -> tuple[T, ...]:
@@ -466,33 +535,14 @@ class AnswerService:
                 metadata=metadata,
             )
 
-        absence_answer = _render_requested_fundraising_absence(query, analysis, pack)
-        if absence_answer is not None:
-            return AnswerResult(
-                query=query,
-                plan=plan,
-                status=analysis.status,
-                answer=absence_answer,
-                generator="deterministic",
-                evidence_pack=pack,
-                source_references=references,
-                metadata=metadata,
-            )
-
-        model_result = self._generate(
-            query,
-            pack,
-            max_completion_tokens=max_completion_tokens,
-        )
         return AnswerResult(
             query=query,
             plan=plan,
-            status=_generation_status(analysis.status, model_result),
-            answer=model_result.content,
-            generator=HCX_MODEL,
+            status=analysis.status,
+            answer=_render_fundraising_answer(query, analysis, pack),
+            generator="deterministic",
             evidence_pack=pack,
             source_references=references,
-            model_result=model_result,
             metadata=metadata,
         )
 

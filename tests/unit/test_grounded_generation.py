@@ -375,6 +375,47 @@ def test_unsupported_temporal_claims_reject_completed_investment_as_future_plan(
     )
 
 
+def test_generate_grounded_answer_keeps_multi_year_ds_comparison_without_attribution_repair() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2023년과 2025년 사업보고서를 기준으로 메모리·반도체 사업 전략이 어떻게 달라졌는지 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+회사: 삼성전자
+공시: 사업보고서 (2023.12)
+섹션: 반도체 사업
+DDR5 대응을 강화했습니다.
+
+[E2] kind=semantic_chunk score=1.0
+text:
+회사: 삼성전자
+공시: 사업보고서 (2025.12)
+섹션: 반도체 사업
+HBM 중심의 고부가 제품 대응을 강화했습니다.
+"""
+    answer_text = "\n".join(
+        (
+            "1. **DS 부문**:",
+            "- 2023년에는 DDR5 대응을 강화했습니다 [E1].",
+            "- 2025년에는 HBM 중심의 고부가 제품 대응을 강화했습니다 [E2].",
+        )
+    )
+    client = _FakeClient([answer_text])
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=2,
+        evidence_report_years={1: 2023, 2: 2025},
+    )
+
+    assert answer.content == answer_text
+    assert answer.finish_reason == "stop"
+    assert len(client.calls) == 1
+
+
 def test_generate_grounded_answer_repairs_invalid_citation_once() -> None:
     client = _FakeClient(
         [

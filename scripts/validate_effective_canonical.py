@@ -14,9 +14,7 @@ from disclosure_agent.storage.effective_canonical import (
 DEFAULT_BASE = Path("data/processed/canonical-v22-smoke.jsonl")
 DEFAULT_OVERLAY = Path("data/processed/canonical-dart-221-overlay.jsonl")
 DEFAULT_OVERLAY_MANIFEST = Path("data/processed/effective-canonical.manifest.json")
-DEFAULT_SNAPSHOT_MANIFEST = Path(
-    "data/processed/canonical-v221-final.manifest.json"
-)
+DEFAULT_SNAPSHOT_MANIFEST = Path("data/processed/canonical-v221-final.manifest.json")
 
 OVERLAY_EXPECTATIONS = EffectiveCanonicalExpectations(
     base_packages=4204,

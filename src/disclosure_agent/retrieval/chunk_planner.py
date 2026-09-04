@@ -180,9 +180,7 @@ class NarrativeChunkPlanner:
             emitted.extend(self._flush())
         return emitted
 
-    def _append_heading_marker(
-        self, block: SourceBlock
-    ) -> list[PlannedNarrativeChunk]:
+    def _append_heading_marker(self, block: SourceBlock) -> list[PlannedNarrativeChunk]:
         value = _clean(block.text)
         if not value:
             return []

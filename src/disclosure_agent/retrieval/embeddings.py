@@ -27,9 +27,7 @@ DEFAULT_PROVIDER = "clova-studio"
 DEFAULT_MODEL = "bge-m3"
 DEFAULT_DIMENSIONS = 1_024
 DEFAULT_DISTANCE_METRIC = "cosine"
-DEFAULT_ENDPOINT = (
-    "https://clovastudio.stream.ntruss.com/v1/api-tools/embedding/v2"
-)
+DEFAULT_ENDPOINT = "https://clovastudio.stream.ntruss.com/v1/api-tools/embedding/v2"
 MAX_INPUT_CHARS = 10_000
 DEFAULT_TARGET_QPM = 480
 DEFAULT_STARTUP_QPM = 54
@@ -57,9 +55,7 @@ class EmbeddingConfig:
         if self.distance_metric != DEFAULT_DISTANCE_METRIC:
             raise ValueError("CLOVA Studio bge-m3 uses cosine distance")
         if self.input_version not in SUPPORTED_INPUT_VERSIONS:
-            raise ValueError(
-                f"Unsupported embedding input version: {self.input_version}"
-            )
+            raise ValueError(f"Unsupported embedding input version: {self.input_version}")
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if self.max_retries < 0:
@@ -247,9 +243,7 @@ def compose_embedding_input(
     if not value:
         raise ValueError("Embedding input must not be empty")
     if len(value) > MAX_INPUT_CHARS:
-        raise ValueError(
-            f"Embedding input exceeds {MAX_INPUT_CHARS} characters: {len(value)}"
-        )
+        raise ValueError(f"Embedding input exceeds {MAX_INPUT_CHARS} characters: {len(value)}")
     return value
 
 
@@ -379,8 +373,7 @@ class ClovaStudioEmbeddingClient:
         status = payload.get("status") or {}
         if str(status.get("code")) != "20000":
             raise RuntimeError(
-                f"CLOVA Studio embedding failed: {status.get('code')} "
-                f"{status.get('message')}"
+                f"CLOVA Studio embedding failed: {status.get('code')} {status.get('message')}"
             )
         result = payload.get("result") or {}
         raw_vector = result.get("embedding")

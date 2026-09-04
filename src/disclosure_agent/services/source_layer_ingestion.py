@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from disclosure_agent.storage.source_layer_persistence import project_source_package
+from disclosure_agent.storage.source_layer_repository import SourceLayerRepository
 from sqlalchemy.orm import Session
 
 from disclosure_agent.storage.effective_canonical import (
@@ -15,8 +17,6 @@ from disclosure_agent.storage.effective_canonical import (
     EffectiveCanonicalManifest,
     EffectiveCanonicalReader,
 )
-from disclosure_agent.storage.source_layer_persistence import project_source_package
-from disclosure_agent.storage.source_layer_repository import SourceLayerRepository
 
 ProgressCallback = Callable[[int, dict[str, int]], None]
 

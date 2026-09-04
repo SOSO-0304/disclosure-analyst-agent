@@ -12,6 +12,7 @@ from sqlalchemy.engine import make_url
 
 DEPLOYMENT_DATABASE_URL_ENV = "DISCLOSURE_DATABASE_URL"
 DEPLOYMENT_DATABASE_HOST_ENV = "DISCLOSURE_DATABASE_HOST"
+DEPLOYMENT_DATABASE_PORT_ENV = "DISCLOSURE_DATABASE_PORT"
 DEPLOYMENT_DATABASE_NAME = "disclosure_perf"
 
 
@@ -36,7 +37,12 @@ def assert_perf_database(database_url: str) -> None:
         raise ValueError("Only localhost:55432/disclosure_perf is allowed")
 
 
-def assert_deployment_database(database_url: str, *, allowed_host: str) -> None:
+def assert_deployment_database(
+    database_url: str,
+    *,
+    allowed_host: str,
+    allowed_port: int = 5432,
+) -> None:
     """Allow one explicitly named deployment database and no implicit fallback.
 
     The API container needs to reach PostgreSQL by its private Docker DNS name rather
@@ -49,12 +55,12 @@ def assert_deployment_database(database_url: str, *, allowed_host: str) -> None:
     except Exception:
         raise ValueError("Invalid deployment database URL; credentials are not displayed") from None
     expected_host = allowed_host.strip()
-    if not expected_host:
+    if not expected_host or not 1 <= allowed_port <= 65_535:
         raise ValueError(f"Set {DEPLOYMENT_DATABASE_HOST_ENV} for deployment")
     if (
         url.get_backend_name() != "postgresql"
         or url.host != expected_host
-        or url.port != 5432
+        or url.port != allowed_port
         or url.database != DEPLOYMENT_DATABASE_NAME
     ):
         raise ValueError("Deployment database does not match the explicit host/port/name boundary")
@@ -112,7 +118,18 @@ def load_api_runtime(
     allowed_host = os.environ.get(DEPLOYMENT_DATABASE_HOST_ENV) or values.get(
         DEPLOYMENT_DATABASE_HOST_ENV
     )
-    assert_deployment_database(deployment_url.strip(), allowed_host=str(allowed_host or ""))
+    raw_port = os.environ.get(DEPLOYMENT_DATABASE_PORT_ENV) or values.get(
+        DEPLOYMENT_DATABASE_PORT_ENV
+    )
+    try:
+        allowed_port = int(raw_port or 5432)
+    except (TypeError, ValueError):
+        raise ValueError(f"Set a valid {DEPLOYMENT_DATABASE_PORT_ENV}") from None
+    assert_deployment_database(
+        deployment_url.strip(),
+        allowed_host=str(allowed_host or ""),
+        allowed_port=allowed_port,
+    )
     key = os.environ.get(api_key_env) or values.get(api_key_env) or ""
     return RetrievalRuntime(deployment_url.strip(), key.strip(), path)
 

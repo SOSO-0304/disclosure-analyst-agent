@@ -9,10 +9,10 @@ from time import perf_counter
 from typing import Any, BinaryIO
 
 import orjson
-
-from disclosure_agent.domain.models import FilingPackage, ParseStatus
 from disclosure_agent.inventory.builder import InventoryBuilder, validate_manifest_rows
 from disclosure_agent.parsing.document_parser import DocumentParser
+
+from disclosure_agent.domain.models import FilingPackage, ParseStatus
 from disclosure_agent.storage.jsonl import (
     COMPACT_CANONICAL_PROFILE,
     LEGACY_CANONICAL_PROFILE,
@@ -176,9 +176,7 @@ def parse_corpus(
                                 "serialize_ms": _milliseconds(
                                     serialization_started, serialization_finished
                                 ),
-                                "buffered_write_ms": _milliseconds(
-                                    write_started, write_finished
-                                ),
+                                "buffered_write_ms": _milliseconds(write_started, write_finished),
                                 "total_ms": _milliseconds(package_started, write_finished),
                                 **_content_counts(package),
                             },

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,9 +92,9 @@ def build_benchmark_cases(
         probe = content_probe(str(row.get("content") or ""))
         target_chunk_id = str(row["chunk_id"])
         company_ids = tuple(sorted(set(company_relevant[corp_code])))
-        topic_ids = tuple(
-            sorted(set(topic_relevant[(corp_code, _topic_relevance_key(row))]))
-        ) or (target_chunk_id,)
+        topic_ids = tuple(sorted(set(topic_relevant[(corp_code, _topic_relevance_key(row))]))) or (
+            target_chunk_id,
+        )
         common = {
             "target_chunk_id": target_chunk_id,
             "corp_code": corp_code,
@@ -139,9 +140,7 @@ def topic_from_row(row: Mapping[str, Any]) -> str:
 
     metadata = dict(row.get("metadata") or {})
     headings = [
-        str(value).strip()
-        for value in (row.get("heading_path") or [])
-        if str(value).strip()
+        str(value).strip() for value in (row.get("heading_path") or []) if str(value).strip()
     ]
     candidates = [
         str(metadata.get("caption") or "").strip(),
@@ -182,11 +181,7 @@ def score_ranking(
 
     relevant = set(case.relevant_chunk_ids)
     first_rank = next(
-        (
-            index
-            for index, hit in enumerate(hits, 1)
-            if str(hit["chunk_id"]) in relevant
-        ),
+        (index for index, hit in enumerate(hits, 1) if str(hit["chunk_id"]) in relevant),
         None,
     )
     top_corp = str(hits[0]["corp_code"]) if hits else None
@@ -224,21 +219,15 @@ def aggregate_metrics(outcomes: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         "hit_at_10",
         "reciprocal_rank_at_10",
     ):
-        result[key] = round(
-            sum(float(value[key]) for value in values) / len(values), 6
-        )
+        result[key] = round(sum(float(value[key]) for value in values) / len(values), 6)
     company_values = [
         float(value["company_match_at_1"])
         for value in values
         if value.get("company_match_at_1") is not None
     ]
     if company_values:
-        result["company_accuracy_at_1"] = round(
-            sum(company_values) / len(company_values), 6
-        )
-        result["wrong_company_at_1"] = round(
-            1.0 - result["company_accuracy_at_1"], 6
-        )
+        result["company_accuracy_at_1"] = round(sum(company_values) / len(company_values), 6)
+        result["wrong_company_at_1"] = round(1.0 - result["company_accuracy_at_1"], 6)
     return result
 
 
@@ -246,10 +235,7 @@ def metrics_by_suite(outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     grouped: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for outcome in outcomes:
         grouped[str(outcome["suite"])].append(outcome)
-    return {
-        suite: aggregate_metrics(values)
-        for suite, values in sorted(grouped.items())
-    }
+    return {suite: aggregate_metrics(values) for suite, values in sorted(grouped.items())}
 
 
 def metrics_by_dimension(
@@ -284,27 +270,23 @@ def automated_recommendation(
             >= v1["company_context"]["company_accuracy_at_1"] - 0.01
         ),
         "company_recall_not_regressed": (
-            v2["company_context"]["hit_at_10"]
-            >= v1["company_context"]["hit_at_10"] - 0.01
+            v2["company_context"]["hit_at_10"] >= v1["company_context"]["hit_at_10"] - 0.01
         ),
         "topic_recall_guardrail": (
-            v2["topic_filtered"]["hit_at_10"]
-            >= v1["topic_filtered"]["hit_at_10"] - 0.02
+            v2["topic_filtered"]["hit_at_10"] >= v1["topic_filtered"]["hit_at_10"] - 0.02
         ),
         "topic_mrr_guardrail": (
             v2["topic_filtered"]["reciprocal_rank_at_10"]
             >= v1["topic_filtered"]["reciprocal_rank_at_10"] - 0.03
         ),
         "content_recall_guardrail": (
-            v2["content_anchor"]["hit_at_10"]
-            >= v1["content_anchor"]["hit_at_10"] - 0.02
+            v2["content_anchor"]["hit_at_10"] >= v1["content_anchor"]["hit_at_10"] - 0.02
         ),
     }
     company_gain = max(
         v2["company_context"]["company_accuracy_at_1"]
         - v1["company_context"]["company_accuracy_at_1"],
-        v2["company_context"]["hit_at_10"]
-        - v1["company_context"]["hit_at_10"],
+        v2["company_context"]["hit_at_10"] - v1["company_context"]["hit_at_10"],
     )
     if not all(checks.values()):
         recommendation = "retain_v1_or_revise_v2"
@@ -328,9 +310,7 @@ def _topic_relevance_key(row: Mapping[str, Any]) -> str:
     if caption and table_id:
         return f"table:{table_id}"
     headings = [
-        str(value).strip()
-        for value in (row.get("heading_path") or [])
-        if str(value).strip()
+        str(value).strip() for value in (row.get("heading_path") or []) if str(value).strip()
     ]
     section_id = str(row.get("section_id") or "").strip()
     if headings and section_id:

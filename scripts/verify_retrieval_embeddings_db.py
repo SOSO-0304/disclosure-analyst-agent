@@ -31,9 +31,11 @@ def main() -> None:
                 text("SELECT count(*) FROM embedding_runs WHERE is_active")
             ).scalar_one()
         )
-        run = connection.execute(
-            text("SELECT * FROM embedding_runs WHERE is_active")
-        ).mappings().one_or_none()
+        run = (
+            connection.execute(text("SELECT * FROM embedding_runs WHERE is_active"))
+            .mappings()
+            .one_or_none()
+        )
         if run is None:
             raise SystemExit("No active completed embedding run")
         run_id = str(run["embedding_run_id"])
@@ -73,18 +75,24 @@ def main() -> None:
                     """
                 ),
                 {"run_id": run_id},
-            ).mappings().one()
+            )
+            .mappings()
+            .one()
         )
-        index = connection.execute(
-            text(
-                """
+        index = (
+            connection.execute(
+                text(
+                    """
                 SELECT i.indisvalid, i.indisready
                 FROM pg_class c
                 JOIN pg_index i ON i.indexrelid = c.oid
                 WHERE c.relname = 'ix_retrieval_embeddings_hnsw_cosine'
                 """
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
 
     stored_counts = dict(run["counts"] or {})
     checks = {
@@ -93,12 +101,9 @@ def main() -> None:
         "model": run["model"] == "bge-m3",
         "dimensions": int(run["dimensions"]) == 1024,
         "distance metric": run["distance_metric"] == "cosine",
-        "complete coverage": int(metrics["embeddings"])
-        == int(metrics["expected_chunks"]),
-        "distinct chunks": int(metrics["distinct_chunks"])
-        == int(metrics["expected_chunks"]),
-        "stored count": int(stored_counts.get("embedded_chunks", -1))
-        == int(metrics["embeddings"]),
+        "complete coverage": int(metrics["embeddings"]) == int(metrics["expected_chunks"]),
+        "distinct chunks": int(metrics["distinct_chunks"]) == int(metrics["expected_chunks"]),
+        "stored count": int(stored_counts.get("embedded_chunks", -1)) == int(metrics["embeddings"]),
         "content hashes": int(metrics["stale_content"]) == 0,
         "vector dimensions": int(metrics["wrong_dimensions"]) == 0,
         "input hashes": int(metrics["missing_input_hash"]) == 0,

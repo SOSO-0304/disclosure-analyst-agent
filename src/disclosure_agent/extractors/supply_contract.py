@@ -21,9 +21,7 @@ class SupplyContractExtraction:
 
 
 ALIASES: dict[str, tuple[str, ...]] = {
-    "contract_type": (
-        "1. 판매ㆍ공급계약 구분",
-    ),
+    "contract_type": ("1. 판매ㆍ공급계약 구분",),
     "contract_name": (
         "- 체결계약명",
         "- 세부내용",
@@ -54,12 +52,8 @@ ALIASES: dict[str, tuple[str, ...]] = {
         "4. 판매ㆍ공급지역",
         "4. 판매·공급지역",
     ),
-    "contract_start_date": (
-        "5. 계약기간 > 시작일",
-    ),
-    "contract_end_date": (
-        "5. 계약기간 > 종료일",
-    ),
+    "contract_start_date": ("5. 계약기간 > 시작일",),
+    "contract_end_date": ("5. 계약기간 > 종료일",),
     "contract_date": (
         "7. 계약(수주)일자",
         "7. 계약(수주)일",

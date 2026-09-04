@@ -251,6 +251,17 @@ docker compose \
 [Ncloud 배포 문서](docs/ncloud-deployment.md)를 따릅니다. 분산 QPM limiter를 구현하기
 전까지 API process와 replica는 각각 1개로 유지합니다.
 
+서버를 만들기 전에 Windows 로컬 Docker에서 실제 perf DB를 대상으로 전체 preflight를
+먼저 통과시킵니다. 이 명령은 API image build, 인증, 실제 검색, 동시 요청, container
+restart와 DB 무변경을 검사하고 preflight API container만 정리합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File scripts\test_local_deployment.ps1
+```
+
+마지막 `status verified` 전에는 Ncloud로 DB를 복사하지 않습니다.
+
 ## 테스트
 
 ```powershell

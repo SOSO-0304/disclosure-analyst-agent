@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 import orjson
 
@@ -107,8 +108,7 @@ def load_approved_plan(path: Path) -> ApprovedChunkPlan:
     payload = orjson.loads(raw)
     if payload.get("plan_version") != PLAN_VERSION:
         raise ValueError(
-            f"Expected retrieval plan {PLAN_VERSION}, got "
-            f"{payload.get('plan_version')!r}"
+            f"Expected retrieval plan {PLAN_VERSION}, got {payload.get('plan_version')!r}"
         )
     if payload.get("mode") not in {
         "read_only_dry_run",
@@ -136,9 +136,7 @@ def load_approved_plan(path: Path) -> ApprovedChunkPlan:
         for row in buckets
         if row.get("decision_bucket") in VECTOR_TABLE_BUCKETS
     )
-    estimated_table_chunks = int(
-        tables.get("initial_chunk_estimate_excluding_review_buckets") or 0
-    )
+    estimated_table_chunks = int(tables.get("initial_chunk_estimate_excluding_review_buckets") or 0)
     if vector_source_tables <= 0 or estimated_table_chunks < vector_source_tables:
         raise ValueError("Retrieval plan has an invalid vector table estimate")
     if policy.get("tables") != "vector_structured_lexical_lanes_not_persisted":
@@ -196,9 +194,7 @@ def table_chunks(
     text = table.normalized_text.strip()
     if not text:
         return []
-    heading_path = tuple(
-        value for value in (table.section_title,) if value and value.strip()
-    )
+    heading_path = tuple(value for value in (table.section_title,) if value and value.strip())
     metadata = {"caption": table.caption} if table.caption else {}
     if len(text) <= max_chars:
         return [
@@ -229,9 +225,7 @@ def table_chunks(
             for index, part in enumerate(parts, 1)
         ]
 
-    header_indices = {
-        int(value) for value in table.grid.get("header_row_indices", [])
-    }
+    header_indices = {int(value) for value in table.grid.get("header_row_indices", [])}
     header_lines = [line for index, line in rows if index in header_indices]
     prefix_lines = []
     if table.caption and table.caption.strip():

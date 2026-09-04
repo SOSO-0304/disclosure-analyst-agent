@@ -22,6 +22,7 @@ def clear_env(monkeypatch):
         "OTHER_API_KEY",
         "DISCLOSURE_DATABASE_URL",
         "DISCLOSURE_DATABASE_HOST",
+        "DISCLOSURE_DATABASE_PORT",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -118,6 +119,19 @@ def test_api_runtime_accepts_only_explicit_matching_deployment_database(tmp_path
     assert "secret" not in repr(runtime) and "service-key" not in repr(runtime)
 
 
+def test_api_runtime_accepts_explicit_local_preflight_port(tmp_path, monkeypatch):
+    path = tmp_path / ".env.perf"
+    path.write_text("", encoding="utf-8")
+    deployed = (
+        "postgresql+psycopg://disclosure_perf:secret@host.docker.internal:55432/disclosure_perf"
+    )
+    monkeypatch.setenv("DISCLOSURE_DATABASE_URL", deployed)
+    monkeypatch.setenv("DISCLOSURE_DATABASE_HOST", "host.docker.internal")
+    monkeypatch.setenv("DISCLOSURE_DATABASE_PORT", "55432")
+
+    assert load_api_runtime(env_file=path).database_url == deployed
+
+
 @pytest.mark.parametrize(
     ("url", "host"),
     [
@@ -140,4 +154,17 @@ def test_api_runtime_does_not_consume_generic_database_url(tmp_path, monkeypatch
     path.write_text("DATABASE_URL=postgresql://user:secret@remote/prod\n", encoding="utf-8")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:secret@remote/prod")
     with pytest.raises(ValueError, match="PERF_DATABASE_URL"):
+        load_api_runtime(env_file=path)
+
+
+def test_api_runtime_rejects_invalid_explicit_port(tmp_path, monkeypatch):
+    path = tmp_path / ".env.perf"
+    path.write_text("", encoding="utf-8")
+    monkeypatch.setenv(
+        "DISCLOSURE_DATABASE_URL",
+        "postgresql://user:secret@postgres:5432/disclosure_perf",
+    )
+    monkeypatch.setenv("DISCLOSURE_DATABASE_HOST", "postgres")
+    monkeypatch.setenv("DISCLOSURE_DATABASE_PORT", "not-a-port")
+    with pytest.raises(ValueError, match="DISCLOSURE_DATABASE_PORT"):
         load_api_runtime(env_file=path)

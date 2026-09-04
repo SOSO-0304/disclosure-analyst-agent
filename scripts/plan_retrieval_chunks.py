@@ -122,10 +122,7 @@ def _length_bucket(length: int) -> str:
 
 
 def _rows(connection: Connection, sql: str, **params: Any) -> list[dict[str, Any]]:
-    return [
-        dict(row)
-        for row in connection.execute(text(sql), params).mappings()
-    ]
+    return [dict(row) for row in connection.execute(text(sql), params).mappings()]
 
 
 def _record_chunk(
@@ -166,9 +163,7 @@ def _narrative_summary(
     }
 
 
-def _reuse_narrative(
-    path: Path, load: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, int]]:
+def _reuse_narrative(path: Path, load: dict[str, Any]) -> tuple[dict[str, Any], dict[str, int]]:
     previous = orjson.loads(path.read_bytes())
     previous_load = previous.get("load", {})
     for key in ("load_run_id", "manifest_sha256"):
@@ -235,7 +230,9 @@ def main() -> None:
                     LIMIT 1
                     """
                 )
-            ).mappings().one()
+            )
+            .mappings()
+            .one()
         )
         block_counts = _rows(connection, BLOCK_COUNTS_SQL)
         print("[2/3] Classifying table candidates...", flush=True)
@@ -247,16 +244,17 @@ def main() -> None:
 
         if args.tables_only:
             print("[3/3] Reusing approved narrative plan...", flush=True)
-            narrative, reused_source_types = _reuse_narrative(
-                args.reuse_narrative_plan, load
-            )
+            narrative, reused_source_types = _reuse_narrative(args.reuse_narrative_plan, load)
             source_types.update(reused_source_types)
             narrative_source = str(args.reuse_narrative_plan)
         else:
             print("[3/3] Streaming ordered blocks for narrative planning...", flush=True)
-            result = connection.execution_options(stream_results=True).execute(
-                text(BLOCK_STREAM_SQL)
-            ).mappings().yield_per(args.fetch_size)
+            result = (
+                connection.execution_options(stream_results=True)
+                .execute(text(BLOCK_STREAM_SQL))
+                .mappings()
+                .yield_per(args.fetch_size)
+            )
             for index, row in enumerate(result, 1):
                 block_type = str(row["block_type"])
                 source_types[block_type] += 1
@@ -309,9 +307,7 @@ def main() -> None:
             )
             narrative_source = "computed"
 
-    table_chunk_estimate = sum(
-        int(row["initial_chunk_estimate"] or 0) for row in table_buckets
-    )
+    table_chunk_estimate = sum(int(row["initial_chunk_estimate"] or 0) for row in table_buckets)
     plan = {
         "plan_version": "4.0.0",
         "mode": "read_only_table_dry_run" if args.tables_only else "read_only_dry_run",

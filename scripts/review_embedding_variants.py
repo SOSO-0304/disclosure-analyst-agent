@@ -8,10 +8,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import evaluate_embedding_variants as proxy
 import orjson
 from sqlalchemy import text
 
-import evaluate_embedding_variants as proxy
 from disclosure_agent.retrieval.embeddings import (
     DEFAULT_TARGET_QPM,
     EMBEDDING_INPUT_VERSION_V1,
@@ -85,9 +85,7 @@ def _review_cases(
         choices = by_target[str(target["chunk_id"])]
         selected.append(choices.get(mode) or choices["topic_filtered"])
     if len(selected) != REVIEW_QUESTIONS:
-        raise RuntimeError(
-            f"Expected {REVIEW_QUESTIONS} review questions, got {len(selected)}"
-        )
+        raise RuntimeError(f"Expected {REVIEW_QUESTIONS} review questions, got {len(selected)}")
     return selected
 
 
@@ -133,8 +131,7 @@ def _markdown(
 ) -> str:
     left_version, right_version = versions
     outcome_by_version = {
-        version: {row["case_id"]: row for row in outcomes[version]}
-        for version in versions
+        version: {row["case_id"]: row for row in outcomes[version]} for version in versions
     }
     lines = [
         f"# Embedding {left_version} / {right_version} manual review",
@@ -271,12 +268,15 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
     args.database_url = runtime.database_url
-    if min(
-        args.sample_per_stratum,
-        args.workers,
-        args.requests_per_minute,
-        args.top_k,
-    ) <= 0:
+    if (
+        min(
+            args.sample_per_stratum,
+            args.workers,
+            args.requests_per_minute,
+            args.top_k,
+        )
+        <= 0
+    ):
         parser.error("numeric arguments must be positive")
     if args.top_k < 5:
         parser.error("--top-k must be at least 5")
@@ -327,12 +327,8 @@ def main() -> None:
         requests_per_minute=args.requests_per_minute,
     )
 
-    outcomes: dict[str, list[dict[str, Any]]] = {
-        version: [] for version in versions
-    }
-    all_hits: dict[str, dict[str, list[dict[str, Any]]]] = {
-        version: {} for version in versions
-    }
+    outcomes: dict[str, list[dict[str, Any]]] = {version: [] for version in versions}
+    all_hits: dict[str, dict[str, list[dict[str, Any]]]] = {version: {} for version in versions}
     hit_ids: set[str] = set()
     with engine.connect() as connection, connection.begin():
         connection.execute(text("SET TRANSACTION READ ONLY"))
@@ -390,9 +386,7 @@ def main() -> None:
                 "filter_corp_code": case.filter_corp_code,
                 "outcomes": {
                     version: next(
-                        row
-                        for row in outcomes[version]
-                        if row["case_id"] == case.case_id
+                        row for row in outcomes[version] if row["case_id"] == case.case_id
                     )
                     for version in outcomes
                 },
@@ -401,9 +395,7 @@ def main() -> None:
         ],
     }
     args.json_report.parent.mkdir(parents=True, exist_ok=True)
-    args.json_report.write_bytes(
-        orjson.dumps(json_payload, option=orjson.OPT_INDENT_2) + b"\n"
-    )
+    args.json_report.write_bytes(orjson.dumps(json_payload, option=orjson.OPT_INDENT_2) + b"\n")
     print("\n=== embedding manual review generated ===")
     print(f"markdown report                 {args.report}")
     print(f"json report                     {args.json_report}")

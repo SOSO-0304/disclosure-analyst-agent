@@ -17,6 +17,44 @@ API process를 둘 이상 실행하면 각 process의 query embedding limiter가
 작동하여 CLOVA Studio 540 QPM을 초과할 수 있습니다. 분산 limiter를 구현하기 전까지
 `--workers 1`과 replica 1을 유지합니다.
 
+## 0. 서버 생성 전 로컬 gate
+
+Ncloud 리소스를 만들거나 DB dump를 생성하기 전에 Windows Docker Desktop에서 다음을
+실행합니다. `.env.perf`의 기존 서비스 키와 perf DB 설정을 사용하며 client-facing token은
+현재 PowerShell process에 임시 생성합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File scripts\test_local_deployment.ps1
+```
+
+검사 범위:
+
+- Linux API image 실제 build
+- container 내부에서 `host.docker.internal:55432/disclosure_perf` 연결
+- active v2 embedding/chunk run과 178,822개 coverage
+- liveness와 readiness
+- bearer token 누락 거절
+- 잘못된 request 거절
+- 합산 요청의 provider 호출 없는 거절
+- 실제 공급계약 질의와 citation
+- 기본 12건/동시성 4의 병렬 호출
+- API container restart 후 실제 질의
+- 전체 과정 전후 retrieval chunk/embedding/run 상태 동일
+
+스크립트 마지막이 다음과 같아야 이 문서의 서버 단계로 넘어갑니다.
+
+```text
+restart                         OK
+database unchanged             OK
+status                          verified
+```
+
+실패 시 `disclosure-perf-postgres`와 `disclosure_perf_pgdata`는 건드리지 않으며,
+`disclosure-local-preflight-api`만 정리합니다. 기본 실행은 실제 질문 embedding을 14회
+호출합니다. 호출 수를 줄여 구조만 확인하려면 `-LoadRequests 0`을 사용할 수 있지만 이는
+동시 요청 gate를 통과한 것으로 보지 않습니다.
+
 ## 1. 서버 준비
 
 Ubuntu의 기본 30 GB system disk에는 DB를 두지 않습니다. 100 GB CB1 block storage를

@@ -179,9 +179,7 @@ def _field(
         value_column_index=value_cell.column_index,
         value_locator=value_cell.source_locator,
         label_locators=tuple(
-            cell.source_locator
-            for cell in labels
-            if cell.text_normalized.strip()
+            cell.source_locator for cell in labels if cell.text_normalized.strip()
         ),
     )
 

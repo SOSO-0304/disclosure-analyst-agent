@@ -209,15 +209,19 @@ def _assert_perf_database(database_url: str) -> None:
 
 
 def _active_chunk_run(connection: Connection) -> dict[str, Any]:
-    row = connection.execute(
-        text(
-            """
+    row = (
+        connection.execute(
+            text(
+                """
             SELECT chunk_run_id, counts
             FROM public.retrieval_chunk_runs
             WHERE is_active AND status = 'completed'
             """
+            )
         )
-    ).mappings().one_or_none()
+        .mappings()
+        .one_or_none()
+    )
     if row is None:
         raise RuntimeError("No completed active retrieval chunk run")
     return dict(row)
@@ -278,10 +282,14 @@ def _prepare_run(
             "now": now,
         },
     )
-    row = connection.execute(
-        text("SELECT * FROM public.embedding_runs WHERE embedding_run_id = :run_id"),
-        {"run_id": run_id},
-    ).mappings().one()
+    row = (
+        connection.execute(
+            text("SELECT * FROM public.embedding_runs WHERE embedding_run_id = :run_id"),
+            {"run_id": run_id},
+        )
+        .mappings()
+        .one()
+    )
     contract = {
         "chunk_run_id": chunk_run_id,
         "provider": config.provider,
@@ -292,9 +300,7 @@ def _prepare_run(
         "input_version": config.input_version,
     }
     mismatches = {
-        key: (row[key], expected)
-        for key, expected in contract.items()
-        if row[key] != expected
+        key: (row[key], expected) for key, expected in contract.items() if row[key] != expected
     }
     if mismatches:
         raise RuntimeError(f"Existing embedding run contract mismatch: {mismatches}")
@@ -302,9 +308,10 @@ def _prepare_run(
 
 
 def _run_counts(connection: Connection, run_id: str, chunk_run_id: str) -> dict[str, int]:
-    row = connection.execute(
-        text(
-            """
+    row = (
+        connection.execute(
+            text(
+                """
             SELECT
                 count(*)::bigint AS embedded_chunks,
                 coalesce(sum(e.input_tokens), 0)::bigint AS input_tokens,
@@ -322,14 +329,15 @@ def _run_counts(connection: Connection, run_id: str, chunk_run_id: str) -> dict[
              AND c.chunk_id = e.chunk_id
             WHERE e.embedding_run_id = :run_id
             """
-        ),
-        {"run_id": run_id, "chunk_run_id": chunk_run_id},
-    ).mappings().one()
+            ),
+            {"run_id": run_id, "chunk_run_id": chunk_run_id},
+        )
+        .mappings()
+        .one()
+    )
     values = {key: int(value or 0) for key, value in row.items()}
     values["pending_chunks"] = (
-        values["total_chunks"]
-        - values["embedded_chunks"]
-        + values["stale_embeddings"]
+        values["total_chunks"] - values["embedded_chunks"] + values["stale_embeddings"]
     )
     return values
 
@@ -396,15 +404,19 @@ def _sample_counts(
     sample_per_stratum: int,
     sample_seed: str,
 ) -> dict[str, int]:
-    row = connection.execute(
-        text(SAMPLE_COUNTS_SQL),
-        {
-            "embedding_run_id": run_id,
-            "chunk_run_id": chunk_run_id,
-            "sample_per_stratum": sample_per_stratum,
-            "sample_seed": sample_seed,
-        },
-    ).mappings().one()
+    row = (
+        connection.execute(
+            text(SAMPLE_COUNTS_SQL),
+            {
+                "embedding_run_id": run_id,
+                "chunk_run_id": chunk_run_id,
+                "sample_per_stratum": sample_per_stratum,
+                "sample_seed": sample_seed,
+            },
+        )
+        .mappings()
+        .one()
+    )
     return {key: int(value or 0) for key, value in row.items()}
 
 
@@ -613,12 +625,11 @@ def _load(
                 current_telemetry = telemetry.snapshot()
                 counts["provider_attempts"] = attempts
                 counts["provider_failures"] = failures_total
-                counts["provider_http_requests"] = (
-                    prior["provider_http_requests"]
-                    + int(current_telemetry["http_requests"])
+                counts["provider_http_requests"] = prior["provider_http_requests"] + int(
+                    current_telemetry["http_requests"]
                 )
-                counts["provider_retries"] = (
-                    prior["provider_retries"] + int(current_telemetry["retries"])
+                counts["provider_retries"] = prior["provider_retries"] + int(
+                    current_telemetry["retries"]
                 )
                 _update_run(
                     connection,
@@ -655,13 +666,10 @@ def _load(
         provider_telemetry = telemetry.snapshot()
         counts["provider_attempts"] = attempts
         counts["provider_failures"] = failures_total
-        counts["provider_http_requests"] = (
-            prior["provider_http_requests"]
-            + int(provider_telemetry["http_requests"])
+        counts["provider_http_requests"] = prior["provider_http_requests"] + int(
+            provider_telemetry["http_requests"]
         )
-        counts["provider_retries"] = (
-            prior["provider_retries"] + int(provider_telemetry["retries"])
-        )
+        counts["provider_retries"] = prior["provider_retries"] + int(provider_telemetry["retries"])
         completed = counts["pending_chunks"] == 0
         status = "completed" if completed else "partial"
         if sample_per_stratum is not None:
@@ -754,14 +762,8 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
     args.database_url = runtime.database_url
-    if (
-        args.workers <= 0
-        or args.page_size <= 0
-        or args.requests_per_minute <= 0
-    ):
-        parser.error(
-            "--workers, --page-size, and --requests-per-minute must be positive"
-        )
+    if args.workers <= 0 or args.page_size <= 0 or args.requests_per_minute <= 0:
+        parser.error("--workers, --page-size, and --requests-per-minute must be positive")
     if args.limit is not None and args.limit <= 0:
         parser.error("--limit must be positive")
     if args.sample_per_stratum is not None and args.sample_per_stratum <= 0:
@@ -779,10 +781,7 @@ def main() -> None:
         chunk_run = _active_chunk_run(connection)
         run_id = embedding_run_id(str(chunk_run["chunk_run_id"]), config)
         existing = connection.execute(
-            text(
-                "SELECT counts FROM public.embedding_runs "
-                "WHERE embedding_run_id = :run_id"
-            ),
+            text("SELECT counts FROM public.embedding_runs WHERE embedding_run_id = :run_id"),
             {"run_id": run_id},
         ).scalar_one_or_none()
         counts = dict(existing or {})

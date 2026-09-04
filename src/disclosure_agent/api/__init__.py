@@ -1,1 +1,1 @@
-"""HTTP API layer."""
+"""HTTP interface for the bounded disclosure retrieval service."""

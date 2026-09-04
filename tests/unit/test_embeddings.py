@@ -30,10 +30,7 @@ def test_compose_embedding_input_adds_provenance_context() -> None:
         ["주요사항보고서", "단일판매·공급계약"],
     )
 
-    assert value == (
-        "[문맥] 주요사항보고서 > 단일판매·공급계약\n\n"
-        "계약금액은 100억원입니다."
-    )
+    assert value == ("[문맥] 주요사항보고서 > 단일판매·공급계약\n\n계약금액은 100억원입니다.")
     assert embedding_input_sha256(value) == embedding_input_sha256(value)
 
 
@@ -162,9 +159,7 @@ def test_clova_client_parses_native_v2_response() -> None:
 def test_rate_limiter_clamps_to_provider_advertised_qpm() -> None:
     limiter = GlobalRateLimiter(target_qpm=480, startup_qpm=54)
 
-    limiter.observe_headers(
-        httpx.Headers({"x-ratelimit-limit-requests": "60"})
-    )
+    limiter.observe_headers(httpx.Headers({"x-ratelimit-limit-requests": "60"}))
 
     assert limiter.observed_limit_qpm == 60
     assert limiter.effective_qpm == 54

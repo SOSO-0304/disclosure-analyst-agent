@@ -61,10 +61,13 @@ class EffectiveCanonicalManifest:
     def to_json_bytes(self) -> bytes:
         """Serialize deterministically so equal inputs produce equal manifests."""
 
-        return orjson.dumps(
-            self.to_dict(),
-            option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
-        ) + b"\n"
+        return (
+            orjson.dumps(
+                self.to_dict(),
+                option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
+            )
+            + b"\n"
+        )
 
     @property
     def sha256(self) -> str:
@@ -240,9 +243,7 @@ def _validate_replacement_identity(base: FilingPackage, overlay: FilingPackage) 
         raise ValueError(f"Overlay source_file_id set mismatch for {base.filing_id}")
 
     if _document_signature(base) != _document_signature(overlay):
-        raise ValueError(
-            f"Overlay document identity/role/source set mismatch for {base.filing_id}"
-        )
+        raise ValueError(f"Overlay document identity/role/source set mismatch for {base.filing_id}")
 
 
 def _assert_expectations(

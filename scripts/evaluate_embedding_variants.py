@@ -244,12 +244,15 @@ def _embed_queries(
     telemetry = EmbeddingTelemetry()
     results: dict[str, EmbeddingResult] = {}
     errors: list[tuple[str, Exception]] = []
-    with ClovaStudioEmbeddingClient(
-        api_key,
-        EmbeddingConfig(),
-        rate_limiter=limiter,
-        telemetry=telemetry,
-    ) as client, ThreadPoolExecutor(max_workers=workers) as executor:
+    with (
+        ClovaStudioEmbeddingClient(
+            api_key,
+            EmbeddingConfig(),
+            rate_limiter=limiter,
+            telemetry=telemetry,
+        ) as client,
+        ThreadPoolExecutor(max_workers=workers) as executor,
+    ):
         futures: dict[Future[EmbeddingResult], str] = {
             executor.submit(client.embed, query): query for query in queries
         }
@@ -262,8 +265,7 @@ def _embed_queries(
     if errors:
         query, error = errors[0]
         raise RuntimeError(
-            f"Query embedding failed ({len(errors)} failures), "
-            f"example={query!r}: {error}"
+            f"Query embedding failed ({len(errors)} failures), example={query!r}: {error}"
         )
     return results, {
         **telemetry.snapshot(),
@@ -397,13 +399,16 @@ def main() -> None:
     except ValueError as exc:
         parser.error(str(exc))
     args.database_url = runtime.database_url
-    if min(
-        args.sample_per_stratum,
-        args.max_targets,
-        args.top_k,
-        args.workers,
-        args.requests_per_minute,
-    ) <= 0:
+    if (
+        min(
+            args.sample_per_stratum,
+            args.max_targets,
+            args.top_k,
+            args.workers,
+            args.requests_per_minute,
+        )
+        <= 0
+    ):
         parser.error("numeric arguments must be positive")
     if args.top_k < 10:
         parser.error("--top-k must be at least 10 for Recall@10")
@@ -445,10 +450,7 @@ def main() -> None:
     print(f"unique query calls              {len(unique_queries)}")
     for version in versions:
         print(f"{version} run      {run_ids[version]}")
-        print(
-            f"{version} coverage {coverage[version]['current_chunks']}/"
-            f"{len(sample_ids)}"
-        )
+        print(f"{version} coverage {coverage[version]['current_chunks']}/{len(sample_ids)}")
     if args.dry_run:
         print("provider calls                  0")
         print("database writes                 0")
@@ -464,9 +466,7 @@ def main() -> None:
         requests_per_minute=args.requests_per_minute,
     )
 
-    outcomes: dict[str, list[dict[str, Any]]] = {
-        version: [] for version in versions
-    }
+    outcomes: dict[str, list[dict[str, Any]]] = {version: [] for version in versions}
     with engine.connect() as connection, connection.begin():
         connection.execute(text("SET TRANSACTION READ ONLY"))
         for version, run_id in run_ids.items():
@@ -490,9 +490,7 @@ def main() -> None:
         }
         for version, values in outcomes.items()
     }
-    suite_metrics = {
-        version: values["by_suite"] for version, values in metrics.items()
-    }
+    suite_metrics = {version: values["by_suite"] for version, values in metrics.items()}
     decision = automated_recommendation(
         suite_metrics[versions[0]],
         suite_metrics[versions[1]],
@@ -500,9 +498,7 @@ def main() -> None:
     if decision["recommendation"] == "v2_candidate":
         decision["recommendation"] = f"{versions[1]}_candidate"
     elif decision["recommendation"] == "retain_v1_or_revise_v2":
-        decision["recommendation"] = (
-            f"retain_{versions[0]}_or_revise_{versions[1]}"
-        )
+        decision["recommendation"] = f"retain_{versions[0]}_or_revise_{versions[1]}"
     report = {
         "contract": {
             "benchmark_version": "retrieval-proxy-v2",
@@ -535,9 +531,7 @@ def main() -> None:
     }
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_bytes(
-            orjson.dumps(report, option=orjson.OPT_INDENT_2) + b"\n"
-        )
+        args.report.write_bytes(orjson.dumps(report, option=orjson.OPT_INDENT_2) + b"\n")
 
     print("\n=== embedding variant evaluation ===")
     for version in versions:

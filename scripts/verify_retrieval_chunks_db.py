@@ -30,15 +30,19 @@ def main() -> None:
         active_runs = connection.execute(
             text("SELECT count(*) FROM retrieval_chunk_runs WHERE is_active")
         ).scalar_one()
-        run = connection.execute(
-            text(
-                """
+        run = (
+            connection.execute(
+                text(
+                    """
                 SELECT *
                 FROM retrieval_chunk_runs
                 WHERE is_active
                 """
+                )
             )
-        ).mappings().one_or_none()
+            .mappings()
+            .one_or_none()
+        )
         if run is None:
             raise SystemExit("No active retrieval chunk run")
         run_id = str(run["chunk_run_id"])
@@ -77,7 +81,9 @@ def main() -> None:
                     """
                 ),
                 {"run_id": run_id},
-            ).mappings().one()
+            )
+            .mappings()
+            .one()
         )
 
     stored_counts: dict[str, Any] = dict(run["counts"] or {})
@@ -87,8 +93,7 @@ def main() -> None:
         "source load identity": str(run["source_load_run_id"]) == plan.load_run_id,
         "plan sha256": str(run["plan_sha256"]) == plan.sha256,
         "narrative count": int(metrics["narrative_chunks"]) == plan.narrative_chunks,
-        "vector table coverage": int(metrics["vector_source_tables"])
-        == plan.vector_source_tables,
+        "vector table coverage": int(metrics["vector_source_tables"]) == plan.vector_source_tables,
         "stored total count": int(metrics["total_chunks"])
         == int(stored_counts.get("total_chunks", -1)),
         "content integrity": int(metrics["invalid_content"]) == 0,

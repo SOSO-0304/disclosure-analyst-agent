@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import orjson
 from sqlalchemy import Connection, text
@@ -173,9 +174,12 @@ def _narrative_chunks(
         overlap_chars=int(plan.policy["narrative_overlap_chars"]),
     )
     planner = NarrativeChunkPlanner(policy)
-    result = connection.execution_options(stream_results=True).execute(
-        text(BLOCK_STREAM_SQL)
-    ).mappings().yield_per(fetch_size)
+    result = (
+        connection.execution_options(stream_results=True)
+        .execute(text(BLOCK_STREAM_SQL))
+        .mappings()
+        .yield_per(fetch_size)
+    )
     for index, row in enumerate(result, 1):
         source = SourceBlock(
             document_group=str(row["document_group"]),
@@ -204,9 +208,12 @@ def _table_chunks(
     progress_every: int,
     max_chars: int,
 ) -> Iterator[tuple[str, list[MaterializedChunk]]]:
-    result = connection.execution_options(stream_results=True).execute(
-        text(TABLE_STREAM_SQL)
-    ).mappings().yield_per(fetch_size)
+    result = (
+        connection.execution_options(stream_results=True)
+        .execute(text(TABLE_STREAM_SQL))
+        .mappings()
+        .yield_per(fetch_size)
+    )
     for index, row in enumerate(result, 1):
         source = SourceTable(
             table_id=str(row["table_id"]),
@@ -227,17 +234,21 @@ def _table_chunks(
 
 
 def _latest_source_load(connection: Connection) -> dict[str, Any]:
-    row = connection.execute(
-        text(
-            """
+    row = (
+        connection.execute(
+            text(
+                """
             SELECT load_run_id, manifest_sha256
             FROM public.load_runs
             WHERE status = 'completed'
             ORDER BY completed_at DESC
             LIMIT 1
             """
+            )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     return dict(row)
 
 
@@ -263,10 +274,7 @@ def _create_run(
     run_id: str,
 ) -> None:
     existing = connection.execute(
-        text(
-            "SELECT status FROM public.retrieval_chunk_runs "
-            "WHERE chunk_run_id = :run_id"
-        ),
+        text("SELECT status FROM public.retrieval_chunk_runs WHERE chunk_run_id = :run_id"),
         {"run_id": run_id},
     ).scalar_one_or_none()
     if existing is not None:
@@ -355,9 +363,10 @@ def _validate_materialized(
             f"plan={plan.vector_source_tables}, "
             f"actual={counts['vector_source_tables']}"
         )
-    checks = connection.execute(
-        text(
-            """
+    checks = (
+        connection.execute(
+            text(
+                """
             SELECT
                 count(*) FILTER (WHERE content = '')::bigint AS empty_chunks,
                 max(char_count) FILTER (
@@ -372,9 +381,12 @@ def _validate_materialized(
             FROM public.retrieval_chunks
             WHERE chunk_run_id = :run_id
             """
-        ),
-        {"run_id": run_id},
-    ).mappings().one()
+            ),
+            {"run_id": run_id},
+        )
+        .mappings()
+        .one()
+    )
     expected_narrative_max = int(plan.policy["narrative_max_chars"])
     expected_table_max = int(plan.policy["table_max_chars"])
     if int(checks["empty_chunks"] or 0):
@@ -401,9 +413,7 @@ def _load(
     buffer: list[MaterializedChunk] = []
 
     with engine.connect() as read_connection, read_connection.begin():
-        read_connection.execute(
-            text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        )
+        read_connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
         _validate_source_identity(read_connection, plan)
 
         with engine.begin() as write_connection:
@@ -443,9 +453,7 @@ def _load(
             _insert_batch(write_connection, buffer, run_id)
             buffer.clear()
 
-            counts["total_chunks"] = (
-                counts["narrative_chunks"] + counts["table_chunks"]
-            )
+            counts["total_chunks"] = counts["narrative_chunks"] + counts["table_chunks"]
             _validate_source_identity(write_connection, plan)
             _validate_materialized(write_connection, plan, run_id, counts)
             _complete_run(write_connection, run_id, counts)
@@ -465,7 +473,7 @@ def main() -> None:
 
     plan = load_approved_plan(args.plan)
     print("=== retrieval chunk load contract ===")
-    print(f"plan version                    4.0.0")
+    print("plan version                    4.0.0")
     print(f"source load run                 {plan.load_run_id}")
     print(f"planned narrative chunks        {plan.narrative_chunks}")
     print(f"approved vector source tables   {plan.vector_source_tables}")

@@ -110,26 +110,6 @@ def _requested_fundraising_labels(query: str) -> tuple[str, ...]:
 
 
 def _empty_fundraising_labels(pack: EvidencePack) -> set[str]:
-    if "AI" in upper_compact and "전략" in compact:
-        requirements.append(
-            "- AI 전략을 사업부별로 묶을 때는 해당 Evidence가 DX, DS, SDC 등 사업부를 "
-            "명시적으로 식별하는 경우에만 그 사업부에 귀속하세요. 사업부가 명시되지 않은 "
-            "산업·시장 설명은 특정 사업부 전략으로 재분류하지 마세요."
-        )
-
-    if "시스템반도체" in compact:
-        requirements.append(
-            "- 질문 범위는 시스템 반도체입니다. Evidence에 함께 등장하는 메모리 전용 투자 "
-            "설명이나 목적을 시스템 반도체의 투자 방향·목적으로 재귀속하지 마세요."
-        )
-        if "투자" in compact and "목적" in compact:
-            requirements.append(
-                "- '투자 목적'은 Evidence가 '위한 투자', '투자 목적'처럼 목적 관계를 직접 "
-                "표현하는 경우에만 사용하세요. AI 수요, 고부가 수주, 수익 구조 개선, 응용처 "
-                "다변화 같은 사업 전략·시장 맥락은 명시적 연결이 없으면 '관련 사업 방향'으로 "
-                "구분하고 투자 목적이라고 단정하지 마세요."
-            )
-
     analysis = pack.deterministic_analysis or ""
     return {
         label
@@ -229,6 +209,26 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
         if snippets:
             requirements.append(
                 "- 누락 방지용 계획 표현 체크리스트: " + " | ".join(snippets)
+            )
+
+    if "AI" in upper_compact and "전략" in compact:
+        requirements.append(
+            "- AI 전략을 사업부별로 묶을 때는 해당 Evidence가 DX, DS, SDC 등 사업부를 "
+            "명시적으로 식별하는 경우에만 그 사업부에 귀속하세요. 사업부가 명시되지 않은 "
+            "산업·시장 설명은 특정 사업부 전략으로 재분류하지 마세요."
+        )
+
+    if "시스템반도체" in compact:
+        requirements.append(
+            "- 질문 범위는 시스템 반도체입니다. Evidence에 함께 등장하는 메모리 전용 투자 "
+            "설명이나 목적을 시스템 반도체의 투자 방향·목적으로 재귀속하지 마세요."
+        )
+        if "투자" in compact and "목적" in compact:
+            requirements.append(
+                "- '투자 목적'은 Evidence가 '위한 투자', '투자 목적'처럼 목적 관계를 직접 "
+                "표현하는 경우에만 사용하세요. AI 수요, 고부가 수주, 수익 구조 개선, 응용처 "
+                "다변화 같은 사업 전략·시장 맥락은 명시적 연결이 없으면 '관련 사업 방향'으로 "
+                "구분하고 투자 목적이라고 단정하지 마세요."
             )
 
     analysis = pack.deterministic_analysis or ""

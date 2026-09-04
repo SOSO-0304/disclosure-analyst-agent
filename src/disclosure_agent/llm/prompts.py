@@ -236,6 +236,16 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
                 "투자 목적과 관련 사업 전략을 구분해 서술하고, 결론에서 사업 전략을 다시 "
                 "투자 목적이나 '수익성을 개선하기 위한 투자 방향'으로 재해석하지 마세요."
             )
+            requirements.append(
+                "- 답변 구조를 '직접 확인되는 투자 방향/목적'과 '관련 사업 전략'으로 분리하세요. "
+                "Advanced 노드 CAPA 확보처럼 Evidence가 투자와 목적 관계를 직접 연결한 내용만 "
+                "첫 범주에 두고, 고부가 수주 확대·수익 구조 개선·응용처 다변화는 두 번째 범주에 "
+                "두세요. 둘을 모두 '투자 방향과 목적'이라는 하나의 목록으로 묶지 마세요."
+            )
+            requirements.append(
+                "- 답변 마지막에 Evidence에 없는 '시장 점유율을 높이고자 한다', '~것으로 보인다' "
+                "같은 추론형 결론을 덧붙이지 마세요."
+            )
 
     analysis = pack.deterministic_analysis or ""
     requested_labels = _requested_fundraising_labels(query)

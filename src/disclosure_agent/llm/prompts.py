@@ -230,6 +230,12 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
                 "다변화 같은 사업 전략·시장 맥락은 명시적 연결이 없으면 '관련 사업 방향'으로 "
                 "구분하고 투자 목적이라고 단정하지 마세요."
             )
+            requirements.append(
+                "- 사용자가 투자 방향·목적을 물었고 금액이나 규모를 요청하지 않았으므로, "
+                "이미 집행된 전체 시설투자 금액은 답변에서 제외하세요. 공시가 직접 연결한 "
+                "투자 목적과 관련 사업 전략을 구분해 서술하고, 결론에서 사업 전략을 다시 "
+                "투자 목적이나 '수익성을 개선하기 위한 투자 방향'으로 재해석하지 마세요."
+            )
 
     analysis = pack.deterministic_analysis or ""
     requested_labels = _requested_fundraising_labels(query)

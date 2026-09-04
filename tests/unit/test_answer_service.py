@@ -1,10 +1,12 @@
 from types import SimpleNamespace
 
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
+from disclosure_agent.retrieval.evidence_pack import EvidenceItem, EvidencePack
 from disclosure_agent.services.answer_service import (
     AnswerService,
     _generation_status,
     _grounding_prompt_for_query,
+    _render_facility_execution_semantic_answer,
     _round_robin,
 )
 
@@ -116,6 +118,65 @@ def test_round_robin_balances_comparison_groups() -> None:
     merged = _round_robin(groups, limit=5)
 
     assert merged == ("2023-a", "2025-a", "2023-b", "2025-b", "2023-c")
+
+
+def _facility_item(rank: int, amount: int, subject: str) -> EvidenceItem:
+    return EvidenceItem(
+        evidence_id=f"facility:{rank}",
+        source_kind="sql_facility_investment",
+        rank=rank,
+        score=1.0,
+        semantic_score=0.0,
+        lexical_score=0.0,
+        company_name="한화오션",
+        filing_id=f"filing:{rank}",
+        report_name="신규시설투자등",
+        document_id=f"document:{rank}",
+        section_id=f"section:{rank}",
+        content_text="\n".join(
+            (
+                f"투자대상: {subject}",
+                f"투자금액: {amount:,}원",
+                "이사회결정일: 2025-01-01",
+            )
+        ),
+        truncated=False,
+        matched_terms=(),
+        block_ids=(),
+        table_ids=(),
+    )
+
+
+def test_facility_execution_semantics_are_rendered_deterministically() -> None:
+    items = (
+        _facility_item(1, 332_800_000_000, "Floating Dock 확장"),
+        _facility_item(2, 268_000_000_000, "6,500톤급 Floating Crane"),
+    )
+    pack = EvidencePack(
+        query="한화오션은 2025년에 실제로 6,008억 원을 투자한 것으로 보면 돼?",
+        retrieval_status="MATCHES_FOUND",
+        items=items,
+        total_chars=sum(len(item.content_text) for item in items),
+    )
+
+    answer = _render_facility_execution_semantic_answer(pack.query, pack)
+
+    assert answer is not None
+    assert "실제 집행액이 6,008억 원이었다고 단정하기는 어렵습니다" in answer
+    assert "신규시설투자 결정 금액 합계 6,008억 원" in answer
+    assert "[E1][E2]" in answer
+
+
+def test_non_execution_investment_query_keeps_model_path() -> None:
+    item = _facility_item(1, 332_800_000_000, "Floating Dock 확장")
+    pack = EvidencePack(
+        query="한화오션의 2025년 투자 목적을 설명해줘",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    assert _render_facility_execution_semantic_answer(pack.query, pack) is None
 
 
 def test_investment_plan_prompt_excludes_shareholder_return_by_default() -> None:

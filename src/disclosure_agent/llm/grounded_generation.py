@@ -384,6 +384,51 @@ def unsupported_unrequested_investment_amounts(
     )
 
 
+def unsupported_investment_scope_structure(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Require non-purpose strategy facts to be separated from investment purpose."""
+
+    compact_query = "".join(_question_text(user_prompt).split())
+    if (
+        "시스템반도체" not in compact_query
+        or "투자" not in compact_query
+        or "목적" not in compact_query
+    ):
+        return ()
+
+    evidence = _evidence_by_number(user_prompt)
+    lines = content.splitlines()
+    combined_scope_lines = [
+        line.strip()
+        for line in lines
+        if line.strip() and "투자 방향과 목적" in line
+    ]
+    if not combined_scope_lines:
+        return ()
+
+    invalid: list[str] = []
+    nonpurpose_numbered = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not re.match(r"^\d+\.\s+", line):
+            continue
+        refs = [int(match.group(1)) for match in _EVIDENCE_CITATION.finditer(line)]
+        if not refs:
+            continue
+        if any(_explicit_investment_purpose(evidence.get(number, "")) for number in refs):
+            continue
+        invalid.append(line)
+        nonpurpose_numbered = True
+
+    if nonpurpose_numbered:
+        invalid.extend(combined_scope_lines)
+
+    return tuple(dict.fromkeys(invalid))
+
+
 def unsupported_investment_purpose_claims(
     content: str,
     *,
@@ -406,6 +451,9 @@ def unsupported_investment_purpose_claims(
         "대응하기 위한",
         "위한 투자 방향",
         "투자 방향을 설정",
+        "투자 방향과 목적을 통해",
+        "것으로 보입니다",
+        "시장 점유율",
     )
 
     for raw_line in content.splitlines():
@@ -649,6 +697,9 @@ def _strip_lines_with_grounding_violations(
     unsupported_purpose = set(
         unsupported_investment_purpose_claims(content, user_prompt=user_prompt)
     )
+    unsupported_purpose_structure = set(
+        unsupported_investment_scope_structure(content, user_prompt=user_prompt)
+    )
     unsupported_unrequested_amounts = set(
         unsupported_unrequested_investment_amounts(content, user_prompt=user_prompt)
     )
@@ -660,6 +711,7 @@ def _strip_lines_with_grounding_violations(
         and not unsupported_units
         and not unsupported_scope
         and not unsupported_purpose
+        and not unsupported_purpose_structure
         and not unsupported_unrequested_amounts
     ):
         return content
@@ -673,6 +725,7 @@ def _strip_lines_with_grounding_violations(
             or stripped in unsupported_units
             or stripped in unsupported_scope
             or stripped in unsupported_purpose
+            or stripped in unsupported_purpose_structure
             or stripped in unsupported_unrequested_amounts
         ):
             continue
@@ -716,6 +769,9 @@ def _all_invalid_grounding_tokens(
     invalid.extend(unsupported_business_unit_attributions(content, user_prompt=user_prompt))
     invalid.extend(unsupported_narrow_business_scope_claims(content, user_prompt=user_prompt))
     invalid.extend(unsupported_investment_purpose_claims(content, user_prompt=user_prompt))
+    invalid.extend(
+        unsupported_investment_scope_structure(content, user_prompt=user_prompt)
+    )
     invalid.extend(
         unsupported_unrequested_investment_amounts(content, user_prompt=user_prompt)
     )
@@ -832,6 +888,11 @@ def generate_grounded_answer(
         "그 사업의 투자 방향이나 목적으로 옮기지 마세요.",
         "- '투자 목적'으로 분류하는 문장은 Evidence가 목적 관계를 직접 표현할 때만 사용하세요. "
         "시장 전망이나 사업 전략을 투자 목적이라고 재명명하지 마세요.",
+        "- 시스템 반도체의 투자 방향·목적 질의에서는 답변을 '직접 확인되는 투자 방향/목적'과 "
+        "'관련 사업 전략'으로 구분하세요. 고부가 수주, 수익 구조 개선, 응용처 다변화처럼 "
+        "직접적인 투자 목적 관계가 없는 사실을 '투자 방향과 목적' 목록에 넣지 마세요.",
+        "- Evidence에 없는 '시장 점유율을 높이고자 한다', '~것으로 보인다' 같은 해석적 "
+        "결론을 추가하지 마세요.",
     ]
     if evidence_report_years:
         repair_lines.append(

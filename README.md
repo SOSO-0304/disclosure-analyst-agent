@@ -3,13 +3,14 @@
 공시 원문을 손실을 추적할 수 있는 Canonical JSON으로 변환하고, 이후 Facts/Events
 추출·PostgreSQL/pgvector 검색·HyperCLOVA X 답변으로 연결하기 위한 프로젝트입니다.
 
-현재 작업 단계는 **Canonical Parsing**입니다. Markdown은 원본 저장 형식이 아니라 검색 및
-LLM context를 만들기 위한 파생 산출물로 취급합니다.
+현재 구현 범위는 **Canonical Parsing → Facts/Events → PostgreSQL/pgvector 검색 →
+질의 라우팅 → HyperCLOVA X 기반 근거 답변 → 평가용 FastAPI**입니다.
+Markdown/검색 context는 원본 저장 형식이 아니라 파생 산출물로 취급합니다.
 
 ## 개발 환경
 
 - Python 3.12 권장 (`>=3.11,<3.13`)
-- 작업 브랜치: `chatgpt/canonical-parsing`
+- 작업 브랜치: `model/data-pipeline`
 - 원본 corpus root: `data/`
 
 Windows PowerShell 최초 설정:
@@ -22,6 +23,26 @@ python -m pip install -e ".[dev]"
 
 `pyproject.toml`이 바뀌었으므로 기존 가상환경에서도 위의 마지막 설치 명령을 다시
 실행해야 합니다. PDF 원문 처리를 위해 `pypdf`가 추가되었습니다.
+
+## 평가용 API 및 배포
+
+대회 평가용 API:
+
+```text
+GET /answer?question_id={id}&question={질의}
+GET /health
+```
+
+로컬 Docker 실행:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+curl http://localhost:8000/health
+```
+
+API 요청/응답 스키마는 `docs/api.md`, 네이버클라우드 배포 절차와 PostgreSQL 데이터
+이관 방법은 `docs/deployment.md`를 참고합니다.
 
 ## 데이터 계약
 

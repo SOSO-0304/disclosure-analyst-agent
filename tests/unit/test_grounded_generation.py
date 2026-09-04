@@ -60,6 +60,18 @@ def test_invalid_report_year_citations_reject_wrong_year_inside_scoped_paragraph
     assert invalid == ("[E3]",)
 
 
+def test_invalid_report_year_citations_allows_multi_year_sentences_in_one_paragraph() -> None:
+    invalid = invalid_report_year_citations(
+        (
+            "2023년 사업보고서에서는 DDR5 중심의 대응이 강조됩니다 [E1]. "
+            "반면 2025년에는 HBM 중심의 대응이 강화됩니다 [E2]."
+        ),
+        evidence_report_years={1: 2023, 2: 2025},
+    )
+
+    assert invalid == ()
+
+
 def test_unsupported_money_literals_reject_changed_table_digits() -> None:
     prompt = """text:
 (단위 : 억원)

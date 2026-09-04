@@ -214,7 +214,7 @@ def _grounding_prompt_for_query(query: str) -> str:
     if len(years) > 1 and "사업보고서" in query:
         extra_rules.append(
             "연도별 사업보고서를 비교할 때 한 연도의 Evidence에 적힌 과거 실적이나 미래 계획을 "
-            "다른 연도의 사업보고서 내용으로 재귀속하지 마세요. 각 연도 단락은 같은 연도의 "
+            "다른 연도의 사업보고서 내용으로 재귀속하지 마세요. 각 연도 사실을 말하는 문장이나 항목은 같은 연도의 "
             "사업보고서 Evidence를 우선 인용하세요."
         )
     if not extra_rules:

@@ -113,17 +113,23 @@ def invalid_report_year_citations(
     *,
     evidence_report_years: dict[int, int],
 ) -> tuple[str, ...]:
-    """Reject citations from the wrong annual-report year inside a year-scoped paragraph."""
+    """Reject wrong-year citations using the nearest explicit sentence/line year."""
 
     invalid: list[str] = []
-    for paragraph in re.split(r"\n\s*\n", content):
+    segments = re.split(r"(?<=[.!?])\s+|\n+", content)
+    for segment in segments:
+        if not segment.strip():
+            continue
+
         context_years = {
-            int(match.group("year")) for match in _REPORT_CONTEXT.finditer(paragraph)
+            int(match.group("year"))
+            for match in re.finditer(r"(?P<year>20\d{2})년", segment)
         }
         if len(context_years) != 1:
             continue
+
         context_year = next(iter(context_years))
-        for match in _EVIDENCE_CITATION.finditer(paragraph):
+        for match in _EVIDENCE_CITATION.finditer(segment):
             number = int(match.group(1))
             evidence_year = evidence_report_years.get(number)
             if evidence_year is None or evidence_year == context_year:

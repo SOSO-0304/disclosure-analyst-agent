@@ -100,6 +100,58 @@ AI TV 라인업과 AI 홈 기능을 확대했습니다.
     assert "- AI TV 라인업을 확대했습니다 [E1]." in invalid
 
 
+def test_business_unit_attribution_does_not_use_body_only_oled_as_sdc_signal() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서에서 AI와 관련된 핵심 사업 전략을 정리해줘
+
+=== EVIDENCE PACK ===
+[E4] kind=semantic_chunk score=1.0
+text:
+회사: 삼성전자
+공시: 사업보고서 (2025.12)
+문서: 사업의 내용
+섹션: 영상디스플레이 사업
+
+AI TV 라인업을 확대했습니다.
+모바일 산업에서는 OLED 적용도 확대되고 있습니다.
+"""
+    content = "\n".join(
+        (
+            "3. **SDC**:",
+            "- AI TV 라인업을 확대했습니다 [E4].",
+        )
+    )
+
+    invalid = unsupported_business_unit_attributions(content, user_prompt=prompt)
+
+    assert "3. **SDC**:" in invalid
+    assert "- AI TV 라인업을 확대했습니다 [E4]." in invalid
+
+
+def test_business_unit_attribution_accepts_shared_explicit_subunit() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서에서 AI와 관련된 핵심 사업 전략을 정리해줘
+
+=== EVIDENCE PACK ===
+[E3] kind=semantic_chunk score=1.0
+text:
+회사: 삼성전자
+공시: 사업보고서 (2025.12)
+문서: 사업의 내용
+섹션: 모바일 사업
+
+MX(Mobile eXperience) 사업은 Galaxy AI 도입을 확대합니다.
+"""
+    content = "\n".join(
+        (
+            "1. **DX 부문**:",
+            "- MX(Mobile eXperience) 사업은 Galaxy AI 도입을 확대합니다 [E3].",
+        )
+    )
+
+    assert unsupported_business_unit_attributions(content, user_prompt=prompt) == ()
+
+
 def test_narrow_system_semiconductor_scope_rejects_memory_only_claim() -> None:
     prompt = """사용자 질문:
 삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
@@ -115,6 +167,27 @@ text:
     invalid = unsupported_narrow_business_scope_claims(content, user_prompt=prompt)
 
     assert invalid == (content,)
+
+
+def test_investment_purpose_rejects_uncited_interpretive_goal_sentence() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+
+[E3] kind=semantic_chunk score=0.9
+text:
+System LSI는 고부가 수주 확대를 통해 수익 구조를 개선하고 응용처를 다변화합니다.
+"""
+    content = (
+        "이와 같이 삼성전자는 시스템 반도체 분야에서 기술 혁신과 응용처 다변화를 통해 "
+        "시장 경쟁력을 강화하고, 고부가가치 제품 중심의 수익 구조 개선을 목표로 하고 있습니다."
+    )
+
+    assert unsupported_investment_purpose_claims(content, user_prompt=prompt) == (content,)
 
 
 def test_investment_purpose_requires_explicit_purpose_relation_in_evidence() -> None:

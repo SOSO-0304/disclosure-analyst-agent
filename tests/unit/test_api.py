@@ -115,6 +115,12 @@ def test_renumber_top_level_items_closes_removed_heading_gap() -> None:
     assert "4. **기타**:" not in rendered
 
 
+def test_renumber_top_level_items_does_not_rewrite_year_sentence() -> None:
+    answer = "2025. 사업 전략은 다음과 같습니다."
+
+    assert _renumber_top_level_items(answer) == answer
+
+
 def test_execution_trace_exposes_high_level_route_not_private_reasoning() -> None:
     item = _item()
     pack = EvidencePack(

@@ -262,12 +262,27 @@ def _shared_business_alias(
     )
 
 
+def _requires_business_unit_attribution_check(user_prompt: str) -> bool:
+    query = _question_text(user_prompt)
+    compact = "".join(query.split())
+    upper = compact.upper()
+    return (
+        ("AI" in upper and "전략" in compact)
+        or "사업부별" in compact
+        or "부문별" in compact
+        or "사업부" in compact
+    )
+
+
 def unsupported_business_unit_attributions(
     content: str,
     *,
     user_prompt: str,
 ) -> tuple[str, ...]:
     """Reject business-unit grouping not supported by evidence section/context."""
+
+    if not _requires_business_unit_attribution_check(user_prompt):
+        return ()
 
     evidence = _evidence_by_number(user_prompt)
     if not evidence:
@@ -882,8 +897,6 @@ def generate_grounded_answer(
         "- 투자 계획 질의에서 이미 집행된 금액·기간은 '확인된 투자 실적'처럼 별도 구분하고, "
         "'주요 투자 계획' 또는 '세부 투자 계획' 아래에 배치하지 마세요.",
         "- 사용자가 특정 정보나 범위를 빼거나 제외하라고 명시했으면 답변에 다시 포함하지 마세요.",
-        "- DX, DS, SDC 같은 사업부별로 내용을 묶을 때는 인용한 Evidence가 그 사업부를 명시적으로 "
-        "식별하는 경우에만 해당 사업부에 귀속하세요. 그렇지 않으면 사업부 라벨을 붙이지 마세요.",
         "- 사용자가 시스템 반도체처럼 특정 사업 범위를 물었다면 인접한 메모리 전용 설명을 "
         "그 사업의 투자 방향이나 목적으로 옮기지 마세요.",
         "- '투자 목적'으로 분류하는 문장은 Evidence가 목적 관계를 직접 표현할 때만 사용하세요. "
@@ -894,6 +907,12 @@ def generate_grounded_answer(
         "- Evidence에 없는 '시장 점유율을 높이고자 한다', '~것으로 보인다' 같은 해석적 "
         "결론을 추가하지 마세요.",
     ]
+    if _requires_business_unit_attribution_check(user_prompt):
+        repair_lines.append(
+            "- DX, DS, SDC 같은 사업부별로 내용을 묶을 때는 인용한 Evidence가 그 사업부를 "
+            "명시적으로 식별하는 경우에만 해당 사업부에 귀속하세요. 그렇지 않으면 사업부 "
+            "라벨을 붙이지 마세요."
+        )
     if evidence_report_years:
         repair_lines.append(
             "- 연도별 사업보고서 비교에서는 각 연도 사실을 말하는 문장이나 행에 같은 연도의 "

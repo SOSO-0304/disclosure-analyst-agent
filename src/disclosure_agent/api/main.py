@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import re
+
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from disclosure_agent.config import get_settings
 from disclosure_agent.retrieval.evidence_pack import EvidencePack
-from disclosure_agent.retrieval.source_references import render_source_references
+from disclosure_agent.retrieval.source_references import SourceReference
 from disclosure_agent.services.answer_service import AnswerResult, AnswerService
 from disclosure_agent.storage.database import get_engine, session_scope
 
@@ -52,9 +54,51 @@ def _render_retrieved_context(pack: EvidencePack) -> str:
     return "\n\n".join(blocks)
 
 
+_EVIDENCE_LABEL = re.compile(r"\\s*\\[E\\d+\\]")
+_NUMBERED_HEADING = re.compile(r"^(?P<indent>\\s*)(?P<number>\\d+)\\.\\s+(?P<body>.+)$")
+
+
+def _strip_internal_evidence_labels(answer: str) -> str:
+    return _EVIDENCE_LABEL.sub("", answer)
+
+
+def _renumber_top_level_items(answer: str) -> str:
+    lines = answer.splitlines()
+    counter = 0
+    rendered: list[str] = []
+    for line in lines:
+        match = _NUMBERED_HEADING.match(line)
+        if match is None or match.group("indent"):
+            rendered.append(line)
+            continue
+        counter += 1
+        rendered.append(f"{counter}. {match.group('body')}")
+    return "\n".join(rendered)
+
+
+def _render_public_source_references(
+    references: tuple[SourceReference, ...],
+) -> str:
+    lines = ["근거 공시"]
+    if not references:
+        lines.append("- 확인된 근거 공시 없음")
+        return "\n".join(lines)
+
+    for reference in references:
+        receipt_date = (
+            reference.receipt_date.isoformat()
+            if reference.receipt_date is not None
+            else "확인되지 않음"
+        )
+        lines.append(f"- {reference.report_name} | 공시일: {receipt_date}")
+    return "\n".join(lines)
+
+
 def _render_api_answer(result: AnswerResult) -> str:
-    sources = render_source_references(result.source_references)
-    return f"{result.answer}\n\n{sources}"
+    answer = _strip_internal_evidence_labels(result.answer)
+    answer = _renumber_top_level_items(answer)
+    sources = _render_public_source_references(result.source_references)
+    return f"{answer}\n\n{sources}"
 
 
 def _render_execution_trace(result: AnswerResult) -> str:

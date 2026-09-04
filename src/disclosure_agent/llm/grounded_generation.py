@@ -245,9 +245,21 @@ def _business_unit_heading(line: str) -> str | None:
 
 def _evidence_section_context(block: str) -> str:
     match = re.search(r"(?m)^섹션:\s*(?P<title>.+)$", block)
-    section = match.group("title").strip().lower() if match is not None else ""
-    prefix = "\n".join(block.splitlines()[:8]).lower()
-    return f"{section}\n{prefix}"
+    return match.group("title").strip().lower() if match is not None else ""
+
+
+def _shared_business_alias(
+    unit: str,
+    *,
+    claim: str,
+    evidence_block: str,
+) -> bool:
+    lowered_claim = claim.lower()
+    lowered_evidence = evidence_block.lower()
+    return any(
+        alias in lowered_claim and alias in lowered_evidence
+        for alias in _BUSINESS_UNIT_ALIASES[unit]
+    )
 
 
 def unsupported_business_unit_attributions(
@@ -299,6 +311,11 @@ def unsupported_business_unit_attributions(
         aliases = _BUSINESS_UNIT_ALIASES[active_unit]
         supported = any(
             any(alias in evidence_context.get(number, "") for alias in aliases)
+            or _shared_business_alias(
+                active_unit,
+                claim=line,
+                evidence_block=evidence.get(number, ""),
+            )
             for number in refs
         )
         if supported:

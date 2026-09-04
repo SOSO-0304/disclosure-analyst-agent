@@ -4,8 +4,9 @@
 PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 근거가 포함된 답변을
 만드는 프로젝트입니다.
 
-현재 브랜치는 `perf/canonical-pipeline`입니다. Canonical parser와 최종 snapshot은
-확정됐고, 격리된 Source Layer와 Retrieval Chunk 적재·검증까지 완료한 상태입니다.
+현재 브랜치는 `perf/canonical-pipeline`입니다. Canonical Source Layer, retrieval chunks,
+`bge-m3` embedding과 공급계약 4개 필드 검색을 완료했고, 검증된 검색 계약을 읽기 전용
+HTTP API로 제공하는 단계입니다.
 
 ## 현재 상태
 
@@ -15,13 +16,15 @@ PostgreSQL 기반 구조화 검색과 pgvector 기반 의미 검색을 거쳐 �
 | Canonical schema | 확정 | schema `2.2.0`, DART parser `2.2.1` |
 | 최종 snapshot | 확정 | `canonical-v221-final.jsonl.gz`, 약 1.43 GB |
 | Canonical 품질 | 승인 | 4,619 documents, failed 0 |
-| Source Layer 코드 | 구현 | migration, staging, atomic promotion, 검증기 |
-| Source Layer DB | 완료 | 70 companies, 4,204 filings, 2,700,533 blocks |
-| 공급계약 vertical slice | 구현 | 1,106 packages, correction 563건 |
-| Retrieval chunks | 완료 | 178,822 chunks, provenance/coverage 검증 |
-| Embedding layer | 구현 | CLOVA bge-m3 1,024D, resumable loader/검증/검색 CLI |
-| Generic facts | 진행 중 | periodic numeric table structured lane 예정 |
-| Retrieval / API / LLM | 진행 중 | embedding 적재 후 hybrid planner/HyperCLOVA X 연결 |
+| Source Layer DB | 완료 | 2,700,533 blocks, 1,580,832 tables |
+| Retrieval chunks | 완료·검증 | 178,822 chunks, run `c700b5a3a6cfa055be147bc71dd478ca` |
+| Embedding | 완료·검증 | `bge-m3` 1024차원 178,822개, input v2 |
+| 검색 | 완료·검증 | pgvector HNSW, dense vector-first, provenance/citation |
+| 공급계약 vertical | 개발 검증 완료 | 계약상대방·금액·시작일·종료일, QA v2 40/40 |
+| 읽기 전용 API | 구현 | `/v1/query`, liveness/readiness, 안전한 오류 계약 |
+| Ncloud 배포 기반 | 구현 | Linux container, private DB network, bearer token, healthcheck |
+| 정정·해지 lineage | 미구현 | 최신 유효 계약·잔여 수주에는 사용하지 않음 |
+| 범용 공시 Agent | 미구현 | 공급계약 외 vertical은 별도 확장 필요 |
 
 최종 Canonical 상태는 다음과 같습니다.
 
@@ -45,12 +48,11 @@ flowchart TD
     A["DART 원본 4,204건"] --> B["Canonical parser"]
     B --> C["최종 gzip snapshot"]
     C --> D["PostgreSQL Source Layer"]
-    D --> E["Generic facts / events"]
-    D --> F["Retrieval chunks"]
-    F --> G["bge-m3 / pgvector"]
-    E --> H["Query planner"]
-    G --> H
-    H --> I["HyperCLOVA X + citations"]
+    D --> E["Retrieval chunks 178,822개"]
+    E --> F["bge-m3 + pgvector HNSW"]
+    F --> G["공급계약 query planner"]
+    G --> H["원문 필드 + citations"]
+    H --> I["읽기 전용 HTTP API"]
 ```
 
 Canonical은 보존·재처리를 위한 기준 데이터이고, 온라인 질의는 PostgreSQL과 pgvector를
@@ -149,61 +151,8 @@ python scripts/verify_source_layer_db.py `
 ```
 
 Loader는 `source_staging`에 먼저 적재하고 전체 count와 참조 무결성을 검사한 뒤 하나의
-transaction으로 public Source Layer에 반영합니다. 성공하면 같은 transaction에서 staging을
-비우며, 중간 실패 시 기존 public snapshot은 변경되지 않습니다.
-
-## Retrieval chunk 계획과 적재
-
-Source Layer를 바꾸지 않는 read-only planner로 narrative 병합과 table lane을 결정합니다.
-승인된 v4 정책은 narrative 133,092개와 vector 대상 table 33,136개를 계약으로 고정합니다.
-table chunk 36,959개는 문자 길이 기반 사전 추정값이므로 실제 행 경계 분할 결과와 다를 수
-있습니다.
-
-```powershell
-python scripts/plan_retrieval_chunks.py `
-  --database-url $PerfDatabaseUrl `
-  --tables-only `
-  --reuse-narrative-plan data\quality\retrieval-chunk-plan-v3.json `
-  --output data\quality\retrieval-chunk-plan-v4.json
-```
-
-Periodic 숫자표는 SQL structured lane, 나머지 periodic 표는 lexical lane으로 보내며
-1,580,832개 원본 표는 Source Layer에 모두 유지합니다.
-
-```powershell
-alembic upgrade head
-
-python scripts/load_retrieval_chunks.py `
-  --database-url $PerfDatabaseUrl `
-  --plan data\quality\retrieval-chunk-plan-v4.json
-
-python scripts/verify_retrieval_chunks_db.py `
-  --database-url $PerfDatabaseUrl `
-  --plan data\quality\retrieval-chunk-plan-v4.json
-```
-
-Loader는 전체 작업을 하나의 transaction으로 처리합니다. 검증까지 성공한 run만 active로
-전환되고, 실패하면 새 chunk와 run metadata가 모두 rollback되어 기존 active run을 보존합니다.
-각 chunk에는 filing/document/section, source block/table ID와 content SHA-256이 남습니다.
-Embedding 모델과 차원이 확정되기 전까지 vector 컬럼은 의도적으로 만들지 않습니다.
-
-## Embedding 적재와 검색
-
-검증된 active chunk run은 178,822개입니다. CLOVA Studio Embedding v2의 `bge-m3`
-(1,024 dimensions, cosine)을 별도 versioned run으로 적재합니다. 먼저 migration과 dry-run,
-100건 API smoke를 통과한 뒤 전체 적재를 재개합니다.
-
-```powershell
-alembic upgrade head
-
-python scripts/load_retrieval_embeddings.py `
-  --database-url $PerfDatabaseUrl `
-  --dry-run
-```
-
-API 키·100건 smoke·전체 resume·검증·검색 명령은
-[Retrieval embeddings](docs/retrieval-embeddings.md)에 정리되어 있습니다. API 키는 Git,
-DB, 명령행 인자에 저장하지 않습니다.
+transaction으로 public Source Layer에 반영합니다. 중간 실패 시 기존 public snapshot은
+변경되지 않습니다.
 
 ## 폴더 구조
 
@@ -230,14 +179,77 @@ DB, 명령행 인자에 저장하지 않습니다.
 │   ├── subsets/                     # 공급계약 subset과 lifecycle
 │   ├── storage/                     # JSONL reader, ORM, repositories
 │   ├── services/                    # ingestion과 application orchestration
-│   ├── api/                         # 향후 HTTP API namespace
-│   ├── retrieval/                   # chunk planner와 materialization policy
+│   ├── api/                         # FastAPI endpoint와 공개 schema
+│   ├── retrieval/                   # chunks, embedding, search, query service
 │   └── llm/                         # 향후 HyperCLOVA X namespace
 └── tests/
     ├── unit/                        # parser, extractor, storage 단위 테스트
-    ├── integration/                 # 향후 DB/API 통합 테스트
+    ├── integration/                 # PostgreSQL/API 통합 테스트
     └── fixtures/                    # 재현 가능한 소형 원본 표본
 ```
+
+## 읽기 전용 공급계약 API
+
+API는 active embedding run이 승인된 `retrieval-embedding-v2`인지 확인하고 모든 DB
+transaction에 `READ ONLY`를 적용합니다. 클라이언트는 embedding run, 검색 모드,
+document subtype을 변경할 수 없습니다.
+
+실제 키는 Git에서 제외되는 `.env.perf`에만 저장합니다.
+
+```text
+CLOVASTUDIO_API_KEY=실제_서비스_API_키
+```
+
+로컬 전용으로 실행합니다.
+
+```powershell
+python -m uvicorn disclosure_agent.api.main:app `
+  --host 127.0.0.1 `
+  --port 8000
+```
+
+다른 PowerShell 창에서 확인합니다.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health/live
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+
+$Body = @{
+  question = "삼성중공업의 단일판매 공급계약 상대방과 계약금액, 계약기간"
+  company = "삼성중공업"
+  top_k = 5
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/v1/query `
+  -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($Body))
+```
+
+지원 범위, 응답 schema와 오류 계약은 [API 운영 문서](docs/contract-query-api.md)에
+정리되어 있습니다.
+
+## Ncloud 배포 준비
+
+검증된 DB를 새로 계산하지 않고 PostgreSQL custom-format dump로 옮기는 단일 Linux 서버
+배포 구성이 준비되어 있습니다. 배포 API는 비루트·읽기 전용 container로 실행하고,
+PostgreSQL port는 공개하지 않으며 query endpoint에 별도 bearer token을 요구합니다.
+
+```bash
+cp .env.deploy.example .env.deploy
+chmod 600 .env.deploy
+
+docker compose \
+  -p disclosure-deploy \
+  -f compose.deploy.yaml \
+  --env-file .env.deploy \
+  config --quiet
+```
+
+서버·스토리지 준비, 기존 178,822개 embedding DB의 dump/restore, localhost smoke 순서는
+[Ncloud 배포 문서](docs/ncloud-deployment.md)를 따릅니다. 분산 QPM limiter를 구현하기
+전까지 API process와 replica는 각각 1개로 유지합니다.
 
 ## 테스트
 

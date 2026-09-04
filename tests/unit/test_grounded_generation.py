@@ -6,6 +6,7 @@ from disclosure_agent.llm.grounded_generation import (
     invalid_report_year_citations,
     unsupported_business_unit_attributions,
     unsupported_investment_purpose_claims,
+    unsupported_investment_scope_structure,
     unsupported_money_literals,
     unsupported_narrow_business_scope_claims,
     unsupported_temporal_claims,
@@ -186,6 +187,57 @@ text:
     )
 
     assert unsupported_unrequested_investment_amounts(
+        content,
+        user_prompt=prompt,
+    ) == (content,)
+
+
+def test_investment_scope_structure_separates_related_strategy_from_purpose() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+
+[E3] kind=semantic_chunk score=0.9
+text:
+System LSI 사업은 AI 성장에 따른 중장기 수요 확대를 기회로
+고부가 수주 확대를 통해 수익 구조를 개선하고 응용처를 다변화합니다.
+"""
+    content = "\n".join(
+        (
+            "삼성전자의 시스템 반도체 투자 방향과 목적은 다음과 같습니다:",
+            "1. **Advanced 노드 CAPA 확보**: 투자가 진행 중입니다 [E1].",
+            "2. **고부가 수주 확대 및 수익 구조 개선**: 전략을 추진합니다 [E3].",
+            "3. **응용처 다변화**: 신규 사업 기회를 검토합니다 [E3].",
+        )
+    )
+
+    invalid = unsupported_investment_scope_structure(content, user_prompt=prompt)
+
+    assert "삼성전자의 시스템 반도체 투자 방향과 목적은 다음과 같습니다:" in invalid
+    assert "2. **고부가 수주 확대 및 수익 구조 개선**: 전략을 추진합니다 [E3]." in invalid
+    assert "3. **응용처 다변화**: 신규 사업 기회를 검토합니다 [E3]." in invalid
+    assert "1. **Advanced 노드 CAPA 확보**: 투자가 진행 중입니다 [E1]." not in invalid
+
+
+def test_investment_purpose_rejects_uncited_market_share_inference() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+시스템 반도체 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+"""
+    content = (
+        "이러한 투자 방향과 목적을 통해 삼성전자는 시장 점유율을 "
+        "높이고자 하는 것으로 보입니다."
+    )
+
+    assert unsupported_investment_purpose_claims(
         content,
         user_prompt=prompt,
     ) == (content,)

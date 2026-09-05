@@ -4,6 +4,7 @@ from disclosure_agent.llm.grounded_generation import (
     generate_grounded_answer,
     invalid_citation_tokens,
     invalid_report_year_citations,
+    missing_required_company_mentions,
     unsupported_business_unit_attributions,
     unsupported_investment_purpose_claims,
     unsupported_investment_scope_structure,
@@ -414,6 +415,67 @@ HBM 중심의 고부가 제품 대응을 강화했습니다.
     assert answer.content == answer_text
     assert answer.finish_reason == "stop"
     assert len(client.calls) == 1
+
+
+def test_missing_required_company_mentions_detects_omitted_comparison_side() -> None:
+    prompt = """사용자 질문:
+삼성전자와 카카오의 2025년 사업보고서에서 핵심 사업 전략을 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=삼성전자 report=사업보고서 (2025.12)
+text:
+AI 제품 전략을 확대합니다.
+
+[E2] kind=semantic_chunk score=1.0
+company=카카오 report=사업보고서 (2025.12)
+text:
+AI 서비스 전략을 확대합니다.
+"""
+    content = "삼성전자는 AI 제품 전략을 확대합니다 [E1]."
+
+    assert missing_required_company_mentions(
+        content,
+        user_prompt=prompt,
+    ) == ("카카오",)
+
+
+def test_generate_grounded_answer_repairs_missing_comparison_company() -> None:
+    prompt = """사용자 질문:
+삼성전자와 카카오의 2025년 사업보고서에서 핵심 사업 전략을 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=삼성전자 report=사업보고서 (2025.12)
+text:
+AI 제품 전략을 확대합니다.
+
+[E2] kind=semantic_chunk score=1.0
+company=카카오 report=사업보고서 (2025.12)
+text:
+AI 서비스 전략을 확대합니다.
+"""
+    client = _FakeClient(
+        [
+            "삼성전자는 AI 제품 전략을 확대합니다 [E1].",
+            (
+                "삼성전자는 AI 제품 전략을 확대합니다 [E1]. "
+                "카카오는 AI 서비스 전략을 확대합니다 [E2]."
+            ),
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=2,
+    )
+
+    assert "삼성전자" in answer.content
+    assert "카카오" in answer.content
+    assert len(client.calls) == 2
+    assert "비교 대상: 삼성전자, 카카오" in client.calls[1]
 
 
 def test_generate_grounded_answer_repairs_invalid_citation_once() -> None:

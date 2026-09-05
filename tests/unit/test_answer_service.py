@@ -7,6 +7,7 @@ from disclosure_agent.services.answer_service import (
     _generation_status,
     _grounding_prompt_for_query,
     _render_facility_execution_semantic_answer,
+    _render_multi_scope_comparison_fallback,
     _render_multi_year_comparison_fallback,
     _round_robin,
 )
@@ -199,6 +200,72 @@ def _semantic_item(
         block_ids=(),
         table_ids=(),
     )
+
+
+def _company_semantic_item(
+    rank: int,
+    company_name: str,
+    year: int,
+    text: str,
+) -> EvidenceItem:
+    return EvidenceItem(
+        evidence_id=f"semantic:{company_name}:{year}:{rank}",
+        source_kind="semantic_chunk",
+        rank=rank,
+        score=1.0,
+        semantic_score=1.0,
+        lexical_score=1.0,
+        company_name=company_name,
+        filing_id=f"filing:{company_name}:{year}:{rank}",
+        report_name=f"사업보고서 ({year}.12)",
+        document_id=f"document:{company_name}:{year}:{rank}",
+        section_id=f"section:{company_name}:{year}:{rank}",
+        content_text="\n".join(
+            (
+                f"회사: {company_name}",
+                f"공시: 사업보고서 ({year}.12)",
+                "문서: 사업의 내용",
+                "섹션: 핵심 사업",
+                text,
+            )
+        ),
+        truncated=False,
+        matched_terms=(),
+        block_ids=(),
+        table_ids=(),
+    )
+
+
+def test_multi_scope_comparison_fallback_preserves_company_and_year_scopes() -> None:
+    query = (
+        "A사와 B사의 2024년 및 2025년 사업보고서를 비교해서 "
+        "두 기업의 핵심 사업 전략 변화가 어떻게 달랐는지 설명해줘"
+    )
+    items = (
+        _company_semantic_item(1, "A사", 2024, "AI 제품 사업을 확대했습니다."),
+        _company_semantic_item(2, "A사", 2025, "신규 서비스 사업을 강화했습니다."),
+        _company_semantic_item(3, "B사", 2024, "해외 시장 투자를 확대했습니다."),
+        _company_semantic_item(4, "B사", 2025, "고객 플랫폼 전략을 강화했습니다."),
+    )
+    pack = EvidencePack(
+        query=query,
+        retrieval_status="MATCHES_FOUND",
+        items=items,
+        total_chars=sum(len(item.content_text) for item in items),
+    )
+
+    answer = _render_multi_scope_comparison_fallback(query, pack)
+
+    assert answer is not None
+    assert "A사:" in answer
+    assert "B사:" in answer
+    assert "2024년:" in answer
+    assert "2025년:" in answer
+    assert "[E1]" in answer
+    assert "[E2]" in answer
+    assert "[E3]" in answer
+    assert "[E4]" in answer
+    assert "비교하면" in answer
 
 
 def test_multi_year_comparison_fallback_preserves_years_strategy_terms_and_citations() -> None:

@@ -514,6 +514,32 @@ AI 서비스 전략을 확대합니다.
     ) == ()
 
 
+def test_multi_company_comparison_accepts_company_specific_citations_across_answer() -> None:
+    prompt = """사용자 질문:
+A사와 B사의 2025년 사업보고서에서 전략 차이를 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=A사 report=사업보고서 (2025.12)
+text:
+AI 제품 전략을 확대합니다.
+
+[E2] kind=semantic_chunk score=1.0
+company=B사 report=사업보고서 (2025.12)
+text:
+플랫폼 서비스 전략을 확대합니다.
+"""
+    content = (
+        "A사는 AI 제품 전략을 확대합니다 [E1]. "
+        "반면 B사는 플랫폼 서비스 전략을 확대합니다 [E2]."
+    )
+
+    assert missing_multi_company_comparison_synthesis(
+        content,
+        user_prompt=prompt,
+    ) == ()
+
+
 def test_generate_grounded_answer_repairs_missing_comparison_synthesis() -> None:
     prompt = """사용자 질문:
 삼성전자와 카카오의 2025년 사업보고서에서 핵심 사업 전략을 비교해줘

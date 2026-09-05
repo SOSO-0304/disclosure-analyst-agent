@@ -26,11 +26,34 @@ python -m pip install -e ".[dev]"
 
 ## 평가용 API 및 배포
 
-대회 평가용 API:
+평가용 Public Endpoint:
 
 ```text
-GET /answer?question_id={id}&question={질의}
-GET /health
+http://49.50.142.34/answer
+```
+
+요청 방식:
+
+```text
+GET http://49.50.142.34/answer?question_id={id}&question={질의}
+```
+
+응답은 `application/json`이며 모든 필드 값은 문자열입니다.
+
+```json
+{
+  "question_id": "Q-001",
+  "question": "평가 질의 원문",
+  "retrieved_context": "답변 생성에 참고한 검색 문서",
+  "think_trace": "사고·추론·도구 사용 과정의 실행 요약",
+  "answer": "최종 생성 답변"
+}
+```
+
+헬스체크:
+
+```text
+GET http://49.50.142.34/health
 ```
 
 로컬 Docker 실행:

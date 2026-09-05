@@ -75,6 +75,19 @@ _ABSENCE_PHRASES = (
     "확인되지 않습니다",
 )
 _NEUTRAL_INVESTMENT_HEADING = "공시에서 확인되는 투자 관련 내용은 다음과 같습니다:"
+_MEMORY_ONLY_SCOPE_MARKERS = (
+    "메모리",
+    "DRAM",
+    "NAND",
+    "HBM",
+    "DDR",
+    "GDDR",
+    "LPDDR",
+    "SOCAMM",
+    "SSD",
+)
+
+
 _BUSINESS_UNIT_ALIASES = {
     "DX": (
         "dx 부문",
@@ -435,17 +448,21 @@ def unsupported_narrow_business_scope_claims(
     *,
     user_prompt: str,
 ) -> tuple[str, ...]:
-    """Prevent adjacent business-scope facts from being reassigned to a narrow query."""
+    """Prevent memory-only facts from leaking into a system-semiconductor query."""
 
     compact_query = "".join(_question_text(user_prompt).split())
     if "시스템반도체" not in compact_query or "메모리" in compact_query:
         return ()
 
-    return tuple(
-        line.strip()
-        for line in content.splitlines()
-        if line.strip() and "메모리" in line
-    )
+    invalid: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        upper = stripped.upper()
+        if any(marker.upper() in upper for marker in _MEMORY_ONLY_SCOPE_MARKERS):
+            invalid.append(stripped)
+    return tuple(dict.fromkeys(invalid))
 
 
 def _explicit_investment_purpose(block: str) -> bool:
@@ -1000,7 +1017,8 @@ def generate_grounded_answer(
         "- 사용자가 특정 정보나 범위를 빼거나 제외하라고 명시했으면 답변에 다시 포함하지 마세요.",
         "- 사용자가 시스템 반도체처럼 특정 사업 범위를 물었다면 인접한 메모리 전용 설명을 "
         "그 사업의 투자 방향이나 목적으로 옮기지 마세요. 질문이 메모리를 함께 요청하지 않았다면 "
-        "메모리 전용 내용은 '관련 사업 전략' 등 다른 섹션으로 옮겨서도 답변에 포함하지 마세요.",
+        "메모리 전용 내용은 '관련 사업 전략' 등 다른 섹션으로 옮겨서도 답변에 포함하지 마세요. "
+        "DRAM, NAND, HBM, DDR, GDDR, LPDDR, SOCAMM, SSD 등 메모리 제품·기술 설명도 제외하세요.",
         "- '투자 목적'으로 분류하는 문장은 Evidence가 목적 관계를 직접 표현할 때만 사용하세요. "
         "시장 전망이나 사업 전략을 투자 목적이라고 재명명하지 마세요.",
         "- 시스템 반도체의 투자 방향·목적 질의에서는 답변을 '직접 확인되는 투자 방향/목적'과 "

@@ -212,6 +212,36 @@ text:
     assert invalid == (content,)
 
 
+def test_narrow_system_semiconductor_scope_rejects_memory_product_claims() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+시스템 반도체는 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+
+[E2] kind=semantic_chunk score=0.9
+text:
+2026년에는 HBM4와 고용량 DDR5 수요 확대가 예상됩니다.
+"""
+    content = "\n".join(
+        (
+            "- Advanced 노드 CAPA 확보를 위한 투자 진행 중입니다 [E1].",
+            "- 2026년에는 HBM4와 고용량 DDR5 수요 확대가 예상됩니다 [E2].",
+        )
+    )
+
+    invalid = unsupported_narrow_business_scope_claims(
+        content,
+        user_prompt=prompt,
+    )
+
+    assert invalid == (
+        "- 2026년에는 HBM4와 고용량 DDR5 수요 확대가 예상됩니다 [E2].",
+    )
+
+
 def test_direction_purpose_query_rejects_unrequested_completed_amount() -> None:
     prompt = """사용자 질문:
 삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘

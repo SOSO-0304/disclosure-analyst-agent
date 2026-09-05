@@ -537,10 +537,24 @@ class AnswerService:
         if self.api_key is None:
             raise RuntimeError("HyperCLOVA X API key is required for grounded generation")
         prompt = build_grounded_answer_prompt(query, pack)
+        system_prompt = _grounding_prompt_for_query(query)
+        companies = tuple(dict.fromkeys(item.company_name for item in pack.items))
+        if len(companies) > 1:
+            system_prompt = "\n".join(
+                (
+                    system_prompt,
+                    "",
+                    "다중기업 비교 규칙:",
+                    f"- 비교 대상 기업은 {', '.join(companies)}입니다.",
+                    "- 각 기업에 대한 사실은 반드시 같은 기업의 Evidence에 근거해 서술하세요.",
+                    "- 한 기업의 제품, 전략, 수치, 계획을 다른 기업의 사실로 재귀속하지 마세요.",
+                    "- 비교 결론은 양쪽 기업의 근거가 모두 확보된 항목에 대해서만 제시하세요.",
+                )
+            )
         with HcxClient(self.api_key) as client:
             return generate_grounded_answer(
                 client,
-                system_prompt=_grounding_prompt_for_query(query),
+                system_prompt=system_prompt,
                 user_prompt=prompt,
                 evidence_count=len(pack.items),
                 max_completion_tokens=max_completion_tokens,
@@ -774,21 +788,19 @@ class AnswerService:
             metadata=metadata,
         )
 
-    def _resolve_hybrid_company(
+    def _resolve_hybrid_companies(
         self,
         query: str,
         fallback_company: str | None,
-    ) -> tuple[str | None, str | None]:
+    ) -> tuple[tuple[str, ...], str | None]:
         mentions = match_query_companies(self.session, query)
-        if len(mentions) == 1:
-            return mentions[0].listed_name, None
-        if len(mentions) > 1:
-            return None, "multiple_companies_in_hybrid_query"
+        if mentions:
+            return tuple(company.listed_name for company in mentions), None
         if fallback_company:
             company = resolve_company(self.session, fallback_company)
             if company is not None:
-                return company.listed_name, None
-        return None, "company_unresolved"
+                return (company.listed_name,), None
+        return (), "company_unresolved"
 
     @staticmethod
     def _infer_report_type(query: str) -> str | None:
@@ -857,28 +869,32 @@ class AnswerService:
         *,
         query: str,
         plan: AnswerQueryPlan,
-        company_name: str,
-        years: tuple[int, ...],
+        requested_scopes: tuple[tuple[str, int], ...],
         report_type: str,
-        missing_years: tuple[int, ...],
+        missing_scopes: tuple[tuple[str, int], ...],
     ) -> AnswerResult:
-        missing_text = ", ".join(str(year) for year in missing_years)
+        missing_text = ", ".join(
+            f"{company_name} {year}년 {report_type}"
+            for company_name, year in missing_scopes
+        )
+        companies = tuple(dict.fromkeys(company for company, _ in requested_scopes))
+        years = tuple(dict.fromkeys(year for _, year in requested_scopes))
         return AnswerResult(
             query=query,
             plan=plan,
             status="PARTIAL",
             answer=(
-                f"제공된 공시에서 {company_name}의 {missing_text}년 {report_type}를 확인하지 못해 "
+                f"제공된 공시에서 {missing_text}를 확인하지 못해 "
                 "요청한 범위 전체를 비교하거나 정리할 수 없습니다."
             ),
             generator="deterministic",
             evidence_pack=_empty_pack(query),
             source_references=(),
             metadata=_metadata(
-                company=company_name,
+                company=",".join(companies),
                 year=",".join(str(year) for year in years) or "unfiltered",
                 report_scope=report_type,
-                missing_years=missing_text,
+                missing_scopes=missing_text,
             ),
         )
 
@@ -896,13 +912,24 @@ class AnswerService:
         max_total_chars: int,
         max_completion_tokens: int,
     ) -> AnswerResult:
-        company_name, company_error = self._resolve_hybrid_company(query, fallback_company)
-        if company_name is None:
+        company_names, company_error = self._resolve_hybrid_companies(
+            query,
+            fallback_company,
+        )
+        if not company_names:
             return self._unresolved(
                 query,
                 plan,
-                "질의에서 분석 대상 기업을 하나로 확정할 수 없습니다.",
+                "질의에서 분석 대상 기업을 확정할 수 없습니다.",
                 reason=company_error or "company_unresolved",
+            )
+
+        if filing_id is not None and len(company_names) > 1:
+            return self._unresolved(
+                query,
+                plan,
+                "하나의 공시 식별자로 여러 기업을 동시에 비교할 수 없습니다.",
+                reason="filing_id_with_multiple_companies",
             )
 
         years = self._hybrid_years(
@@ -923,22 +950,33 @@ class AnswerService:
                 query_vector = client.embed(query).vector
 
         retriever = HybridRetriever(self.session)
-        multi_year = len(years) > 1 and filing_id is None and report_name is None
+        scoped_years: tuple[int | None, ...] = years if years else (None,)
+        requested_scopes = tuple(
+            (company_name, scoped_year)
+            for company_name in company_names
+            for scoped_year in scoped_years
+            if scoped_year is not None
+        )
 
-        if multi_year:
-            retrievals = []
-            missing_years: list[int] = []
-            for scoped_year in years:
-                scoped_report_name = None
-                if report_type is not None:
-                    scoped_report_name = self._resolve_report_name(
+        retrievals = []
+        missing_scopes: list[tuple[str, int]] = []
+        for company_name in company_names:
+            for scoped_year in scoped_years:
+                effective_report_name = report_name
+                if (
+                    effective_report_name is None
+                    and report_type is not None
+                    and scoped_year is not None
+                ):
+                    effective_report_name = self._resolve_report_name(
                         company_name=company_name,
                         year=scoped_year,
                         report_type=report_type,
                     )
-                    if scoped_report_name is None:
-                        missing_years.append(scoped_year)
+                    if effective_report_name is None:
+                        missing_scopes.append((company_name, scoped_year))
                         continue
+
                 retrievals.append(
                     retriever.retrieve(
                         query=query,
@@ -946,88 +984,46 @@ class AnswerService:
                         query_vector=query_vector,
                         company_name=company_name,
                         year=scoped_year,
-                        filing_id=None,
-                        report_name=scoped_report_name,
+                        filing_id=filing_id,
+                        report_name=effective_report_name,
                         top_k=top_k,
                         candidate_k=candidate_k,
                     )
                 )
 
-            if missing_years and report_type is not None:
-                return self._missing_report_scope_result(
-                    query=query,
-                    plan=plan,
-                    company_name=company_name,
-                    years=years,
-                    report_type=report_type,
-                    missing_years=tuple(missing_years),
-                )
-
-            structured_items = _dedupe_evidence_items(
-                tuple(retrieval.structured_items for retrieval in retrievals)
-            )
-            semantic_hits = _round_robin(
-                tuple(retrieval.semantic_hits for retrieval in retrievals),
-                limit=top_k,
-            )
-            chars_per_item = min(3200, max(1, max_total_chars // top_k))
-            pack = build_hybrid_evidence_pack(
-                query,
-                structured_items=structured_items,
-                semantic_hits=semantic_hits,
-                max_semantic_items=top_k,
-                max_chars_per_item=chars_per_item,
-                max_total_chars=max_total_chars,
-            )
-        else:
-            year = years[0] if len(years) == 1 else None
-            effective_report_name = report_name
-            if (
-                effective_report_name is None
-                and report_type is not None
-                and year is not None
-            ):
-                effective_report_name = self._resolve_report_name(
-                    company_name=company_name,
-                    year=year,
-                    report_type=report_type,
-                )
-                if effective_report_name is None:
-                    return self._missing_report_scope_result(
-                        query=query,
-                        plan=plan,
-                        company_name=company_name,
-                        years=years,
-                        report_type=report_type,
-                        missing_years=(year,),
-                    )
-
-            retrieval = retriever.retrieve(
+        if missing_scopes and report_type is not None:
+            return self._missing_report_scope_result(
                 query=query,
-                route=plan.route,
-                query_vector=query_vector,
-                company_name=company_name,
-                year=year,
-                filing_id=filing_id,
-                report_name=effective_report_name,
-                top_k=top_k,
-                candidate_k=candidate_k,
+                plan=plan,
+                requested_scopes=requested_scopes,
+                report_type=report_type,
+                missing_scopes=tuple(missing_scopes),
             )
-            pack = build_hybrid_evidence_pack(
-                query,
-                structured_items=retrieval.structured_items,
-                semantic_hits=retrieval.semantic_hits,
-                max_semantic_items=top_k,
-                max_total_chars=max_total_chars,
-            )
+
+        structured_items = _dedupe_evidence_items(
+            tuple(retrieval.structured_items for retrieval in retrievals)
+        )
+        semantic_hits = _round_robin(
+            tuple(retrieval.semantic_hits for retrieval in retrievals),
+            limit=top_k,
+        ) if retrievals else ()
+
+        chars_per_item = min(3200, max(1, max_total_chars // top_k))
+        pack = build_hybrid_evidence_pack(
+            query,
+            structured_items=structured_items,
+            semantic_hits=semantic_hits,
+            max_semantic_items=top_k,
+            max_chars_per_item=chars_per_item,
+            max_total_chars=max_total_chars,
+        )
 
         references = build_source_references(self.session, pack)
-        year_text = (
-            ",".join(str(year) for year in years) if years else "unfiltered"
-        )
+        year_text = ",".join(str(year) for year in years) if years else "unfiltered"
         report_scope = report_name or report_type or "unfiltered"
         metadata = _metadata(
-            company=company_name,
+            company=",".join(company_names),
+            company_count=len(company_names),
             year=year_text,
             report_scope=report_scope,
             rails=",".join(rail.value for rail in plan.route.rails),

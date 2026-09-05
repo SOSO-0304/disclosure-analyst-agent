@@ -31,6 +31,7 @@ class RegressionCase:
     must_not_include: tuple[str, ...] = ()
     evidence_report_contains: str | None = None
     min_evidence_per_year: tuple[tuple[int, int], ...] = ()
+    min_evidence_per_company: tuple[tuple[str, int], ...] = ()
     require_citations: bool = False
     manual_review: bool = False
     note: str = ""
@@ -53,6 +54,10 @@ class RegressionCase:
         year_counts = payload.get("min_evidence_per_year", {})
         if not isinstance(year_counts, dict):
             raise ValueError(f"{case_id}: min_evidence_per_year must be an object")
+
+        company_counts = payload.get("min_evidence_per_company", {})
+        if not isinstance(company_counts, dict):
+            raise ValueError(f"{case_id}: min_evidence_per_company must be an object")
 
         include_any = payload.get("must_include_any", [])
         if not all(isinstance(group, list) and group for group in include_any):
@@ -79,6 +84,9 @@ class RegressionCase:
             ),
             min_evidence_per_year=tuple(
                 sorted((int(year), int(count)) for year, count in year_counts.items())
+            ),
+            min_evidence_per_company=tuple(
+                sorted((str(company), int(count)) for company, count in company_counts.items())
             ),
             require_citations=bool(payload.get("require_citations", False)),
             manual_review=bool(payload.get("manual_review", False)),
@@ -303,6 +311,19 @@ def evaluate_answer(
                 )
             )
 
+    if case.min_evidence_per_company:
+        counts = _evidence_company_counts(result)
+        for company, minimum in case.min_evidence_per_company:
+            actual = counts.get(company, 0)
+            checks.append(
+                _check(
+                    f"evidence_company:{company}",
+                    actual >= minimum,
+                    f"expected {company} evidence>={minimum}, actual={actual}",
+                    "retrieval",
+                )
+            )
+
     if case.require_citations:
         citations = tuple(
             int(match.group("number")) for match in _EVIDENCE_CITATION.finditer(result.answer)
@@ -362,6 +383,13 @@ def _evidence_year_counts(result: AnswerResult) -> dict[int, int]:
             continue
         year = int(match.group("year"))
         counts[year] = counts.get(year, 0) + 1
+    return counts
+
+
+def _evidence_company_counts(result: AnswerResult) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in result.evidence_pack.items:
+        counts[item.company_name] = counts.get(item.company_name, 0) + 1
     return counts
 
 

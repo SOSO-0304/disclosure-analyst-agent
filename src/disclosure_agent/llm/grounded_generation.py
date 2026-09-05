@@ -263,6 +263,54 @@ def missing_required_company_mentions(
     return tuple(company for company in companies if company not in content)
 
 
+def _evidence_company_by_number(user_prompt: str) -> dict[int, str]:
+    """Map each Evidence number to its canonical company name."""
+
+    mapping: dict[int, str] = {}
+    for number, block in _evidence_by_number(user_prompt).items():
+        match = _EVIDENCE_COMPANY.search(block)
+        if match is not None:
+            company = match.group("company").strip()
+            if company:
+                mapping[number] = company
+    return mapping
+
+
+def missing_multi_company_comparison_synthesis(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Require a grounded cross-company comparison for explicit comparison questions."""
+
+    query = _question_text(user_prompt)
+    compact = "".join(query.split())
+    comparison_intent = any(
+        marker in compact
+        for marker in ("비교", "차이", "다른지", "어떻게다른", "공통점")
+    )
+    companies = _evidence_companies(user_prompt)
+    if not comparison_intent or len(companies) <= 1:
+        return ()
+
+    evidence_company = _evidence_company_by_number(user_prompt)
+    segments = re.split(r"(?<=[.!?])\s+|\n+", content)
+    for segment in segments:
+        refs = {
+            int(match.group(1))
+            for match in _EVIDENCE_CITATION.finditer(segment)
+        }
+        cited_companies = {
+            evidence_company[number]
+            for number in refs
+            if number in evidence_company
+        }
+        if len(cited_companies) >= 2:
+            return ()
+
+    return ("[MULTI_COMPANY_COMPARISON_REQUIRED]",)
+
+
 def _business_unit_heading(line: str) -> str | None:
     upper = line.upper()
     for unit in _BUSINESS_UNIT_ALIASES:
@@ -825,6 +873,12 @@ def _all_invalid_grounding_tokens(
             user_prompt=user_prompt,
         )
     )
+    invalid.extend(
+        missing_multi_company_comparison_synthesis(
+            content,
+            user_prompt=user_prompt,
+        )
+    )
     if evidence_report_years:
         invalid.extend(
             invalid_report_year_citations(
@@ -960,6 +1014,16 @@ def generate_grounded_answer(
             "명시하고, 각 기업의 내용을 해당 기업 Evidence에 근거해 설명하세요. "
             f"비교 대상: {', '.join(evidence_companies)}."
         )
+        compact_query = "".join(_question_text(user_prompt).split())
+        if any(
+            marker in compact_query
+            for marker in ("비교", "차이", "다른지", "어떻게다른", "공통점")
+        ):
+            repair_lines.append(
+                "- 비교를 요청한 질의에서는 기업별 요약만 나열하지 말고, 공통점 또는 차이점을 "
+                "직접 설명하는 비교 문장을 최소 하나 포함하세요. 그 비교 문장에는 비교에 사용한 "
+                "둘 이상의 기업 Evidence를 함께 인용하세요."
+            )
     repair_prompt = "\n".join(repair_lines)
     repaired = client.answer(
         system_prompt=system_prompt,

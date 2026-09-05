@@ -306,7 +306,7 @@ def missing_multi_company_comparison_synthesis(
     *,
     user_prompt: str,
 ) -> tuple[str, ...]:
-    """Require a grounded cross-company comparison for explicit comparison questions."""
+    """Require explicit comparison language backed by evidence from every target company."""
 
     query = _question_text(user_prompt)
     compact = "".join(query.split())
@@ -318,22 +318,30 @@ def missing_multi_company_comparison_synthesis(
     if not comparison_intent or len(companies) <= 1:
         return ()
 
-    evidence_company = _evidence_company_by_number(user_prompt)
-    segments = re.split(r"(?<=[.!?])\s+|\n+", content)
-    for segment in segments:
-        refs = {
-            int(match.group(1))
-            for match in _EVIDENCE_CITATION.finditer(segment)
-        }
-        cited_companies = {
-            evidence_company[number]
-            for number in refs
-            if number in evidence_company
-        }
-        if len(cited_companies) >= 2:
-            return ()
+    comparison_markers = (
+        "비교",
+        "반면",
+        "차이",
+        "공통",
+        "달리",
+        "이에 비해",
+        "한편",
+        "각각",
+    )
+    if not any(marker in content for marker in comparison_markers):
+        return ("[MULTI_COMPANY_COMPARISON_REQUIRED]",)
 
-    return ("[MULTI_COMPANY_COMPARISON_REQUIRED]",)
+    evidence_company = _evidence_company_by_number(user_prompt)
+    cited_companies = {
+        evidence_company[int(match.group(1))]
+        for match in _EVIDENCE_CITATION.finditer(content)
+        if int(match.group(1)) in evidence_company
+    }
+    missing = tuple(company for company in companies if company not in cited_companies)
+    if missing:
+        return tuple(f"[UNCITED_COMPANY:{company}]" for company in missing)
+
+    return ()
 
 
 def _business_unit_heading(line: str) -> str | None:
@@ -1051,9 +1059,11 @@ def generate_grounded_answer(
             for marker in ("비교", "차이", "다른지", "어떻게다른", "공통점")
         ):
             repair_lines.append(
-                "- 비교를 요청한 질의에서는 기업별 요약만 나열하지 말고, 공통점 또는 차이점을 "
-                "직접 설명하는 비교 문장을 최소 하나 포함하세요. 그 비교 문장에는 비교에 사용한 "
-                "둘 이상의 기업 Evidence를 함께 인용하세요."
+                "- 비교를 요청한 질의에서는 기업별 요약만 나열하지 말고, '반면', '차이', "
+                "'비교하면' 등으로 공통점 또는 차이점을 직접 설명하는 비교 문장을 최소 하나 "
+                "포함하세요. 최종 답변 전체에서 각 비교 대상 기업의 사실에는 해당 기업 Evidence가 "
+                "최소 하나 이상 인용되어야 합니다. 비교 문장에 모든 Evidence를 억지로 한꺼번에 "
+                "붙일 필요는 없지만, 다른 기업의 Evidence로 사실을 뒷받침하지 마세요."
             )
     repair_prompt = "\n".join(repair_lines)
     repaired = client.answer(

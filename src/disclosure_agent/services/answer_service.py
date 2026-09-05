@@ -1003,17 +1003,21 @@ class AnswerService:
         structured_items = _dedupe_evidence_items(
             tuple(retrieval.structured_items for retrieval in retrievals)
         )
+        semantic_limit = max(top_k, len(retrievals))
         semantic_hits = _round_robin(
             tuple(retrieval.semantic_hits for retrieval in retrievals),
-            limit=top_k,
+            limit=semantic_limit,
         ) if retrievals else ()
 
-        chars_per_item = min(3200, max(1, max_total_chars // top_k))
+        chars_per_item = min(
+            3200,
+            max(1, max_total_chars // max(1, semantic_limit)),
+        )
         pack = build_hybrid_evidence_pack(
             query,
             structured_items=structured_items,
             semantic_hits=semantic_hits,
-            max_semantic_items=top_k,
+            max_semantic_items=semantic_limit,
             max_chars_per_item=chars_per_item,
             max_total_chars=max_total_chars,
         )

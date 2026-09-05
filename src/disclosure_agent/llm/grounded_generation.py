@@ -142,18 +142,30 @@ def invalid_report_year_citations(
     *,
     evidence_report_years: dict[int, int],
 ) -> tuple[str, ...]:
-    """Reject wrong-year citations using the nearest explicit sentence/line year."""
+    """Reject report-year misattribution without confusing content years with filing years."""
 
     invalid: list[str] = []
+    distinct_report_years = set(evidence_report_years.values())
     segments = re.split(r"(?<=[.!?])\s+|\n+", content)
     for segment in segments:
         if not segment.strip():
             continue
 
+        # An explicit "YYYY년 사업보고서" always identifies report scope.
         context_years = {
             int(match.group("year"))
-            for match in re.finditer(r"(?P<year>20\d{2})년", segment)
+            for match in _REPORT_CONTEXT.finditer(segment)
         }
+
+        # In a genuine multi-report-year comparison, a bare "YYYY년에는" also
+        # acts as attribution. In a single-report answer it may instead be a
+        # future/past period discussed inside that report, so do not reject it.
+        if not context_years and len(distinct_report_years) > 1:
+            context_years = {
+                int(match.group("year"))
+                for match in re.finditer(r"(?P<year>20\d{2})년", segment)
+            }
+
         if len(context_years) != 1:
             continue
 
@@ -987,7 +999,8 @@ def generate_grounded_answer(
         "'주요 투자 계획' 또는 '세부 투자 계획' 아래에 배치하지 마세요.",
         "- 사용자가 특정 정보나 범위를 빼거나 제외하라고 명시했으면 답변에 다시 포함하지 마세요.",
         "- 사용자가 시스템 반도체처럼 특정 사업 범위를 물었다면 인접한 메모리 전용 설명을 "
-        "그 사업의 투자 방향이나 목적으로 옮기지 마세요.",
+        "그 사업의 투자 방향이나 목적으로 옮기지 마세요. 질문이 메모리를 함께 요청하지 않았다면 "
+        "메모리 전용 내용은 '관련 사업 전략' 등 다른 섹션으로 옮겨서도 답변에 포함하지 마세요.",
         "- '투자 목적'으로 분류하는 문장은 Evidence가 목적 관계를 직접 표현할 때만 사용하세요. "
         "시장 전망이나 사업 전략을 투자 목적이라고 재명명하지 마세요.",
         "- 시스템 반도체의 투자 방향·목적 질의에서는 답변을 '직접 확인되는 투자 방향/목적'과 "

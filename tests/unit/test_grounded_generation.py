@@ -67,6 +67,15 @@ def test_invalid_report_year_citations_reject_wrong_year_inside_scoped_paragraph
     assert invalid == ("[E3]",)
 
 
+def test_invalid_report_year_citations_allows_future_period_inside_single_report() -> None:
+    invalid = invalid_report_year_citations(
+        "2026년에는 선단 노드 HPC 수요가 확대될 전망입니다 [E1].",
+        evidence_report_years={1: 2025},
+    )
+
+    assert invalid == ()
+
+
 def test_invalid_report_year_citations_allows_multi_year_sentences_in_one_paragraph() -> None:
     invalid = invalid_report_year_citations(
         (
@@ -636,6 +645,53 @@ def test_generate_grounded_answer_repairs_wrong_annual_report_year_citation() ->
     assert answer.content.endswith("[E2].")
     assert len(client.calls) == 2
     assert "같은 연도의 사업보고서 Evidence" in client.calls[1]
+
+
+def test_generate_grounded_answer_repairs_narrow_scope_without_rejecting_forecast_year() -> None:
+    prompt = """사용자 질문:
+삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+시스템 반도체는 Advanced 노드 CAPA 확보를 위한 투자도 진행 중입니다.
+메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진하였습니다.
+
+[E3] kind=semantic_chunk score=0.9
+text:
+2026년에는 선단 노드 HPC 및 모바일 본격 양산에 따른 수요가 확대될 전망입니다.
+"""
+    client = _FakeClient(
+        [
+            (
+                "직접 확인되는 투자 방향/목적:\n"
+                "- Advanced 노드 CAPA 확보를 위한 투자 진행 중입니다 [E1].\n"
+                "관련 사업 전략:\n"
+                "- 메모리 차세대 기술 경쟁력 강화를 위한 투자를 지속 추진합니다 [E1].\n"
+                "- 2026년에는 선단 노드 HPC 수요가 확대될 전망입니다 [E3]."
+            ),
+            (
+                "직접 확인되는 투자 방향/목적:\n"
+                "- Advanced 노드 CAPA 확보를 위한 투자 진행 중입니다 [E1].\n"
+                "관련 사업 전략:\n"
+                "- 2026년에는 선단 노드 HPC 수요가 확대될 전망입니다 [E3]."
+            ),
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=3,
+        evidence_report_years={1: 2025, 3: 2025},
+    )
+
+    assert "Advanced 노드 CAPA" in answer.content
+    assert "2026년" in answer.content
+    assert "메모리 차세대" not in answer.content
+    assert answer.finish_reason == "stop"
+    assert len(client.calls) == 2
 
 
 def test_generate_grounded_answer_repairs_changed_money_digits() -> None:

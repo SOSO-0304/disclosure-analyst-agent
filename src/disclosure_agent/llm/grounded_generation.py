@@ -27,6 +27,9 @@ _USER_QUESTION = re.compile(
     r"사용자 질문:\s*\n(?P<query>.*?)(?:\n\s*\n|$)",
     re.DOTALL,
 )
+_EVIDENCE_COMPANY = re.compile(
+    r"(?m)^company=(?P<company>.+?)\s+report="
+)
 _MONEY_LITERAL = re.compile(
     r"(?<![\d,])(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*"
     r"(?:조\s*원|억\s*원|만\s*원|천\s*원|원)"
@@ -233,6 +236,31 @@ def _evidence_by_number(user_prompt: str) -> dict[int, str]:
         if match is not None:
             evidence[int(match.group("number"))] = block
     return evidence
+
+
+def _evidence_companies(user_prompt: str) -> tuple[str, ...]:
+    """Return canonical company names represented in the Evidence Pack."""
+
+    return tuple(
+        dict.fromkeys(
+            match.group("company").strip()
+            for match in _EVIDENCE_COMPANY.finditer(user_prompt)
+            if match.group("company").strip()
+        )
+    )
+
+
+def missing_required_company_mentions(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Require every evidence-backed comparison company to appear in the answer."""
+
+    companies = _evidence_companies(user_prompt)
+    if len(companies) <= 1:
+        return ()
+    return tuple(company for company in companies if company not in content)
 
 
 def _business_unit_heading(line: str) -> str | None:
@@ -790,6 +818,13 @@ def _all_invalid_grounding_tokens(
     invalid.extend(
         unsupported_unrequested_investment_amounts(content, user_prompt=user_prompt)
     )
+    invalid.extend(
+        f"[MISSING_COMPANY:{company}]"
+        for company in missing_required_company_mentions(
+            content,
+            user_prompt=user_prompt,
+        )
+    )
     if evidence_report_years:
         invalid.extend(
             invalid_report_year_citations(
@@ -917,6 +952,13 @@ def generate_grounded_answer(
         repair_lines.append(
             "- 연도별 사업보고서 비교에서는 각 연도 사실을 말하는 문장이나 행에 같은 연도의 "
             "사업보고서 Evidence만 인용하세요."
+        )
+    evidence_companies = _evidence_companies(user_prompt)
+    if len(evidence_companies) > 1:
+        repair_lines.append(
+            "- 다중기업 질의에서는 Evidence에 포함된 모든 비교 대상 기업명을 최종 답변에 "
+            "명시하고, 각 기업의 내용을 해당 기업 Evidence에 근거해 설명하세요. "
+            f"비교 대상: {', '.join(evidence_companies)}."
         )
     repair_prompt = "\n".join(repair_lines)
     repaired = client.answer(

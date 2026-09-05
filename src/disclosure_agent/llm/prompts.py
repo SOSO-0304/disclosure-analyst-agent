@@ -223,7 +223,8 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
             "- 질문 범위는 시스템 반도체입니다. Evidence에 함께 등장하는 메모리 전용 투자 "
             "설명이나 목적을 시스템 반도체의 투자 방향·목적으로 재귀속하지 마세요. "
             "질문이 메모리를 함께 요청하지 않았다면 메모리 전용 내용은 '관련 사업 전략' "
-            "등 다른 범주로 옮겨서도 답변에 포함하지 마세요."
+            "등 다른 범주로 옮겨서도 답변에 포함하지 마세요. DRAM, NAND, HBM, DDR, GDDR, "
+            "LPDDR, SOCAMM, SSD 등 메모리 제품·기술 설명도 제외하세요."
         )
         if "투자" in compact and "목적" in compact:
             requirements.append(

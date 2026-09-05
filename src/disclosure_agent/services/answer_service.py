@@ -310,14 +310,25 @@ def _round_robin(groups: tuple[tuple[T, ...], ...], *, limit: int) -> tuple[T, .
 def _dedupe_evidence_items(
     groups: tuple[tuple[EvidenceItem, ...], ...],
 ) -> tuple[EvidenceItem, ...]:
+    """Interleave structured evidence groups while removing duplicate evidence."""
+
     items: list[EvidenceItem] = []
     seen: set[str] = set()
-    for group in groups:
-        for item in group:
+    index = 0
+    while True:
+        added = False
+        for group in groups:
+            if index >= len(group):
+                continue
+            item = group[index]
+            added = True
             if item.evidence_id in seen:
                 continue
             seen.add(item.evidence_id)
             items.append(item)
+        if not added:
+            break
+        index += 1
     return tuple(items)
 
 
@@ -505,6 +516,8 @@ class AnswerService:
                 fallback_year=fallback_year,
                 max_total_chars=max_total_chars,
                 max_completion_tokens=max_completion_tokens,
+                top_k=top_k,
+                candidate_k=candidate_k,
             )
         if plan.mode is AnswerExecutionMode.SUPPLY_CONTRACT_STRUCTURED:
             return self._answer_supply_contract(
@@ -513,6 +526,9 @@ class AnswerService:
                 fallback_company=fallback_company,
                 fallback_year=fallback_year,
                 max_total_chars=max_total_chars,
+                max_completion_tokens=max_completion_tokens,
+                top_k=top_k,
+                candidate_k=candidate_k,
             )
         return self._answer_hybrid(
             query,
@@ -664,6 +680,8 @@ class AnswerService:
         fallback_year: int | None,
         max_total_chars: int,
         max_completion_tokens: int,
+        top_k: int,
+        candidate_k: int,
     ) -> AnswerResult:
         target = resolve_fundraising_query_target(
             self.session,
@@ -672,6 +690,24 @@ class AnswerService:
             fallback_year=fallback_year,
         )
         if target.status != "RESOLVED" or target.company_name is None or target.year is None:
+            if target.reason in {"multiple_companies", "multiple_years"}:
+                hybrid_plan = AnswerQueryPlan(
+                    mode=AnswerExecutionMode.HYBRID_GROUNDED,
+                    route=plan.route,
+                    reason="multi-target fundraising comparison requires grounded synthesis",
+                )
+                return self._answer_hybrid(
+                    query,
+                    hybrid_plan,
+                    fallback_company=fallback_company,
+                    fallback_year=fallback_year,
+                    filing_id=None,
+                    report_name=None,
+                    top_k=top_k,
+                    candidate_k=candidate_k,
+                    max_total_chars=max_total_chars,
+                    max_completion_tokens=max_completion_tokens,
+                )
             return self._unresolved(
                 query,
                 plan,
@@ -734,6 +770,9 @@ class AnswerService:
         fallback_company: str | None,
         fallback_year: int | None,
         max_total_chars: int,
+        max_completion_tokens: int,
+        top_k: int,
+        candidate_k: int,
     ) -> AnswerResult:
         target = resolve_supply_contract_query_target(
             self.session,
@@ -742,6 +781,24 @@ class AnswerService:
             fallback_year=fallback_year,
         )
         if target.status != "RESOLVED" or target.company_name is None or target.year is None:
+            if target.reason in {"multiple_companies", "multiple_years"}:
+                hybrid_plan = AnswerQueryPlan(
+                    mode=AnswerExecutionMode.HYBRID_GROUNDED,
+                    route=plan.route,
+                    reason="multi-target supply-contract comparison requires grounded synthesis",
+                )
+                return self._answer_hybrid(
+                    query,
+                    hybrid_plan,
+                    fallback_company=fallback_company,
+                    fallback_year=fallback_year,
+                    filing_id=None,
+                    report_name=None,
+                    top_k=top_k,
+                    candidate_k=candidate_k,
+                    max_total_chars=max_total_chars,
+                    max_completion_tokens=max_completion_tokens,
+                )
             return self._unresolved(
                 query,
                 plan,

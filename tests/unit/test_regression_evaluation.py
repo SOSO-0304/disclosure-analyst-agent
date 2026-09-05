@@ -13,7 +13,11 @@ from disclosure_agent.retrieval.evidence_pack import EvidenceItem, EvidencePack
 from disclosure_agent.services.answer_service import AnswerResult
 
 
-def _item(rank: int, report_name: str) -> EvidenceItem:
+def _item(
+    rank: int,
+    report_name: str,
+    company_name: str = "삼성전자",
+) -> EvidenceItem:
     return EvidenceItem(
         evidence_id=f"evidence-{rank}",
         source_kind="semantic_chunk",
@@ -21,7 +25,7 @@ def _item(rank: int, report_name: str) -> EvidenceItem:
         score=1.0,
         semantic_score=1.0,
         lexical_score=1.0,
-        company_name="삼성전자",
+        company_name=company_name,
         filing_id=f"filing-{rank}",
         report_name=report_name,
         document_id=f"document-{rank}",
@@ -109,6 +113,44 @@ def test_evaluate_answer_passes_multi_year_grounded_case() -> None:
     assert evaluation.verdict == "PASS"
     assert evaluation.hard_passed is True
     assert evaluation.failure_types == ()
+
+
+def test_evaluate_answer_checks_multi_company_evidence_balance() -> None:
+    query = "삼성전자와 카카오의 2025년 사업보고서에서 핵심 사업 전략을 비교해줘"
+    case = RegressionCase.from_dict(
+        {
+            "id": "COMPANY-BALANCE",
+            "tier": "extended",
+            "category": "multi_company_narrative",
+            "query": query,
+            "expected_mode": "hybrid_grounded",
+            "expected_status": "ANSWERABLE",
+            "min_evidence": 2,
+            "min_evidence_per_company": {"삼성전자": 1, "카카오": 1},
+        }
+    )
+    items = (
+        _item(1, "사업보고서 (2025.12)", "삼성전자"),
+        _item(2, "사업보고서 (2025.12)", "카카오"),
+    )
+    result = AnswerResult(
+        query=query,
+        plan=plan_answer_query(query),
+        status="ANSWERABLE",
+        answer="삼성전자와 카카오의 전략을 비교합니다 [E1][E2].",
+        generator="HCX-007",
+        evidence_pack=EvidencePack(
+            query=query,
+            retrieval_status="MATCHES_FOUND",
+            items=items,
+            total_chars=sum(len(item.content_text) for item in items),
+        ),
+        source_references=(),
+    )
+
+    evaluation = evaluate_answer(case, result)
+
+    assert evaluation.hard_passed is True
 
 
 def test_evaluate_answer_classifies_retrieval_and_grounding_failures() -> None:

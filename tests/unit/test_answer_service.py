@@ -76,6 +76,26 @@ def test_answer_service_dispatches_narrative_query_to_hybrid(monkeypatch) -> Non
     assert result[2] == "hybrid_grounded"
 
 
+def test_hybrid_company_resolution_preserves_multiple_mentions(monkeypatch) -> None:
+    service = AnswerService(SimpleNamespace())
+    monkeypatch.setattr(
+        "disclosure_agent.services.answer_service.match_query_companies",
+        lambda session, query: (
+            SimpleNamespace(listed_name="삼성전자"),
+            SimpleNamespace(listed_name="현대차"),
+            SimpleNamespace(listed_name="카카오"),
+        ),
+    )
+
+    companies, error = service._resolve_hybrid_companies(
+        "삼성전자, 현대차, 카카오의 전략을 비교해줘",
+        None,
+    )
+
+    assert companies == ("삼성전자", "현대차", "카카오")
+    assert error is None
+
+
 def test_hybrid_year_does_not_collapse_multi_year_comparison() -> None:
     year = AnswerService._hybrid_year(
         "카카오의 2023년과 2025년 사업보고서 변화를 비교해줘",

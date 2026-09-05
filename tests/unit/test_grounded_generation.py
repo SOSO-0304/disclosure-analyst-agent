@@ -4,6 +4,7 @@ from disclosure_agent.llm.grounded_generation import (
     generate_grounded_answer,
     invalid_citation_tokens,
     invalid_report_year_citations,
+    missing_multi_company_comparison_synthesis,
     missing_required_company_mentions,
     unsupported_business_unit_attributions,
     unsupported_investment_purpose_claims,
@@ -438,6 +439,82 @@ AI 서비스 전략을 확대합니다.
         content,
         user_prompt=prompt,
     ) == ("카카오",)
+
+
+def test_multi_company_comparison_requires_cross_company_grounded_synthesis() -> None:
+    prompt = """사용자 질문:
+삼성전자와 카카오의 2025년 사업보고서에서 핵심 사업 전략을 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=삼성전자 report=사업보고서 (2025.12)
+text:
+AI 제품 전략을 확대합니다.
+
+[E2] kind=semantic_chunk score=1.0
+company=카카오 report=사업보고서 (2025.12)
+text:
+AI 서비스 전략을 확대합니다.
+"""
+    separate_summaries = (
+        "삼성전자는 AI 제품 전략을 확대합니다 [E1]. "
+        "카카오는 AI 서비스 전략을 확대합니다 [E2]."
+    )
+    comparison = (
+        "삼성전자는 AI를 제품 경쟁력 강화에 활용하는 반면, "
+        "카카오는 플랫폼 서비스 확대에 활용합니다 [E1][E2]."
+    )
+
+    assert missing_multi_company_comparison_synthesis(
+        separate_summaries,
+        user_prompt=prompt,
+    ) == ("[MULTI_COMPANY_COMPARISON_REQUIRED]",)
+    assert missing_multi_company_comparison_synthesis(
+        comparison,
+        user_prompt=prompt,
+    ) == ()
+
+
+def test_generate_grounded_answer_repairs_missing_comparison_synthesis() -> None:
+    prompt = """사용자 질문:
+삼성전자와 카카오의 2025년 사업보고서에서 핵심 사업 전략을 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=삼성전자 report=사업보고서 (2025.12)
+text:
+AI 제품 전략을 확대합니다.
+
+[E2] kind=semantic_chunk score=1.0
+company=카카오 report=사업보고서 (2025.12)
+text:
+AI 서비스 전략을 확대합니다.
+"""
+    client = _FakeClient(
+        [
+            (
+                "삼성전자는 AI 제품 전략을 확대합니다 [E1]. "
+                "카카오는 AI 서비스 전략을 확대합니다 [E2]."
+            ),
+            (
+                "삼성전자는 AI를 제품 경쟁력 강화에 활용하는 반면, "
+                "카카오는 AI를 플랫폼 서비스 확대에 활용합니다 [E1][E2]."
+            ),
+        ]
+    )
+
+    answer = generate_grounded_answer(
+        client,
+        system_prompt="system",
+        user_prompt=prompt,
+        evidence_count=2,
+    )
+
+    assert "[E1][E2]" in answer.content
+    assert "삼성전자" in answer.content
+    assert "카카오" in answer.content
+    assert len(client.calls) == 2
+    assert "기업별 요약만 나열하지 말고" in client.calls[1]
 
 
 def test_generate_grounded_answer_repairs_missing_comparison_company() -> None:

@@ -418,6 +418,140 @@ def _year_comparison_snippets(
     return tuple(selected)
 
 
+_GENERIC_COMPARISON_MARKERS = (
+    "전략",
+    "성장",
+    "AI",
+    "투자",
+    "제품",
+    "서비스",
+    "시장",
+    "사업",
+    "기술",
+    "고객",
+    "확대",
+    "강화",
+    "계획",
+    "추진",
+    "대응",
+)
+
+
+def _scope_comparison_segment_score(
+    text: str,
+    query: str,
+    *,
+    company_names: tuple[str, ...],
+) -> tuple[int, int]:
+    marker_score = sum(
+        1
+        for marker in _GENERIC_COMPARISON_MARKERS
+        if marker.lower() in text.lower()
+    )
+    stopwords = {
+        "사업보고서",
+        "기준",
+        "비교",
+        "비교해서",
+        "설명해줘",
+        "주요",
+        "핵심",
+        "어떻게",
+        "달랐는지",
+        "차이",
+        "각",
+        "기업",
+    }
+    stopwords.update(company_names)
+    query_terms = tuple(
+        term
+        for term in re.findall(r"[A-Za-z0-9가-힣]+", query)
+        if len(term) >= 2 and term not in stopwords
+    )
+    query_score = sum(1 for term in query_terms if term.lower() in text.lower())
+    return marker_score + query_score, -len(text)
+
+
+def _company_year_comparison_snippet(
+    query: str,
+    *,
+    company_name: str,
+    year: int | None,
+    pack: EvidencePack,
+) -> tuple[str, int] | None:
+    companies = tuple(dict.fromkeys(item.company_name for item in pack.items))
+    candidates: list[tuple[tuple[int, int], int, str]] = []
+    for item in pack.items:
+        if item.company_name != company_name:
+            continue
+        if year is not None and extract_query_years(item.report_name) != (year,):
+            continue
+        for segment in _substantive_evidence_segments(item):
+            candidates.append(
+                (
+                    _scope_comparison_segment_score(
+                        segment,
+                        query,
+                        company_names=companies,
+                    ),
+                    item.rank,
+                    segment,
+                )
+            )
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    _, rank, segment = candidates[0]
+    return segment, rank
+
+
+def _render_multi_scope_comparison_fallback(
+    query: str,
+    pack: EvidencePack,
+) -> str | None:
+    """Render company-aware extractive fallback for multi-company report comparisons."""
+
+    compact = "".join(query.split())
+    if "사업보고서" not in query or not any(
+        marker in compact for marker in ("비교", "차이", "달랐", "다른")
+    ):
+        return None
+
+    company_names = tuple(dict.fromkeys(item.company_name for item in pack.items))
+    if len(company_names) <= 1:
+        return None
+
+    years = extract_query_years(query)
+    scoped_years: tuple[int | None, ...] = years if years else (None,)
+    lines: list[str] = []
+    used_refs: list[str] = []
+
+    for company_name in company_names:
+        lines.append(f"{company_name}:")
+        for year in scoped_years:
+            selected = _company_year_comparison_snippet(
+                query,
+                company_name=company_name,
+                year=year,
+                pack=pack,
+            )
+            if selected is None:
+                return None
+            text, rank = selected
+            ref = f"[E{rank}]"
+            used_refs.append(ref)
+            prefix = f"- {year}년: " if year is not None else "- "
+            lines.append(f"{prefix}{text} {ref}")
+
+    citations = "".join(dict.fromkeys(used_refs))
+    lines.append(
+        "비교하면, 각 기업은 위 사업보고서 근거에서 확인되는 서로 다른 사업 전략과 "
+        f"강조점을 보이고 있습니다 {citations}."
+    )
+    return "\n".join(lines)
+
+
 def _render_multi_year_comparison_fallback(
     query: str,
     pack: EvidencePack,
@@ -1124,7 +1258,11 @@ class AnswerService:
             max_completion_tokens=max_completion_tokens,
         )
         if model_result.finish_reason == "grounding_exhausted":
-            comparison_fallback = _render_multi_year_comparison_fallback(query, pack)
+            comparison_fallback = _render_multi_scope_comparison_fallback(query, pack)
+            fallback_kind = "multi_scope_comparison"
+            if comparison_fallback is None:
+                comparison_fallback = _render_multi_year_comparison_fallback(query, pack)
+                fallback_kind = "multi_year_comparison"
             if comparison_fallback is not None:
                 return AnswerResult(
                     query=query,
@@ -1135,7 +1273,7 @@ class AnswerService:
                     evidence_pack=pack,
                     source_references=references,
                     model_result=model_result,
-                    metadata=metadata + _metadata(fallback="multi_year_comparison"),
+                    metadata=metadata + _metadata(fallback=fallback_kind),
                 )
 
         return AnswerResult(

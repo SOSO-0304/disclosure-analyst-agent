@@ -101,6 +101,7 @@ class RetrievalEmbeddingRepository:
         company_name: str | None = None,
         filing_id: str | None = None,
         report_name: str | None = None,
+        report_type: str | None = None,
         year: int | None = None,
         top_k: int = 5,
     ) -> tuple[SemanticSearchHit, ...]:
@@ -138,6 +139,8 @@ class RetrievalEmbeddingRepository:
             statement = statement.where(RetrievalChunkRow.filing_id == filing_id)
         if report_name is not None:
             statement = statement.where(SourceFilingRow.report_name == report_name)
+        if report_type is not None:
+            statement = statement.where(SourceFilingRow.report_name.contains(report_type))
         if year is not None:
             statement = statement.where(SourceFilingRow.report_name.ilike(f"%{year}%"))
 

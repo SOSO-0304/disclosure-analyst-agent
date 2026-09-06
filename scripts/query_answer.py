@@ -24,7 +24,14 @@ def _renumber_top_level_items(answer: str) -> str:
         for line in lines
         if line and not line[0].isspace() and _NUMBERED_HEADING.match(line)
     ]
-    if len(numbered) < 2:
+    if len(numbered) == 1:
+        only = numbered[0]
+        lines = [
+            only.group("body") if line == only.group(0) else line
+            for line in lines
+        ]
+        return "\n".join(lines)
+    if not numbered:
         return answer
 
     counter = 0

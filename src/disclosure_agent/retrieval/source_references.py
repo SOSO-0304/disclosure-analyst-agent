@@ -68,11 +68,10 @@ def render_source_references(references: tuple[SourceReference, ...]) -> str:
         return "\n".join(lines)
 
     for reference in references:
-        labels = ",".join(reference.evidence_labels)
         receipt_date = (
             reference.receipt_date.isoformat()
             if reference.receipt_date is not None
             else "확인되지 않음"
         )
-        lines.append(f"- [{labels}] {reference.report_name} | 공시일: {receipt_date}")
+        lines.append(f"- {reference.report_name} | 공시일: {receipt_date}")
     return "\n".join(lines)

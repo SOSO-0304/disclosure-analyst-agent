@@ -75,6 +75,8 @@ _ABSENCE_PHRASES = (
     "확인되지 않습니다",
 )
 _NEUTRAL_INVESTMENT_HEADING = "공시에서 확인되는 투자 관련 내용은 다음과 같습니다:"
+_LONG_EXTRACTIVE_MIN_CHARS = 180
+
 _MEMORY_ONLY_SCOPE_MARKERS = (
     "메모리",
     "DRAM",
@@ -212,6 +214,35 @@ def _supported_money_literals(user_prompt: str) -> set[str]:
         for number in grouped_numbers:
             supported.add(f"{number}{unit}")
     return supported
+
+
+def overly_extractive_evidence_spans(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Flag long answer spans copied nearly verbatim from Evidence text."""
+
+    evidence_blocks = _evidence_by_number(user_prompt)
+    if not evidence_blocks:
+        return ()
+
+    normalized_evidence = tuple(
+        re.sub(r"\s+", "", block.split("\ntext:\n", 1)[-1])
+        for block in evidence_blocks.values()
+    )
+    invalid: list[str] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        without_citations = _EVIDENCE_CITATION.sub("", line).strip()
+        normalized = re.sub(r"\s+", "", without_citations)
+        if len(normalized) < _LONG_EXTRACTIVE_MIN_CHARS:
+            continue
+        if any(normalized in evidence for evidence in normalized_evidence):
+            invalid.append(line)
+    return tuple(dict.fromkeys(invalid))
 
 
 def unsupported_money_literals(content: str, *, user_prompt: str) -> tuple[str, ...]:
@@ -1002,6 +1033,7 @@ def _strip_lines_with_grounding_violations(
 ) -> str:
     """Drop unsupported claims and neutralize misleading investment headings."""
 
+    overly_extractive = set(overly_extractive_evidence_spans(content, user_prompt=user_prompt))
     unsupported_money = set(unsupported_money_literals(content, user_prompt=user_prompt))
     unsupported_temporal = set(unsupported_temporal_claims(content, user_prompt=user_prompt))
     unsupported_exclusions = set(
@@ -1035,7 +1067,8 @@ def _strip_lines_with_grounding_violations(
         unsupported_unrequested_investment_amounts(content, user_prompt=user_prompt)
     )
     if (
-        not unsupported_money
+        not overly_extractive
+        and not unsupported_money
         and not unsupported_temporal
         and not unsupported_exclusions
         and not unsupported_structure
@@ -1053,7 +1086,8 @@ def _strip_lines_with_grounding_violations(
     for line in content.splitlines():
         stripped = line.strip()
         if (
-            stripped in unsupported_temporal
+            stripped in overly_extractive
+            or stripped in unsupported_temporal
             or stripped in unsupported_exclusions
             or stripped in unsupported_units
             or stripped in unsupported_scope
@@ -1097,6 +1131,7 @@ def _all_invalid_grounding_tokens(
     evidence_report_years: dict[int, int] | None,
 ) -> tuple[str, ...]:
     invalid = list(invalid_citation_tokens(content, evidence_count=evidence_count))
+    invalid.extend(overly_extractive_evidence_spans(content, user_prompt=user_prompt))
     invalid.extend(unsupported_money_literals(content, user_prompt=user_prompt))
     invalid.extend(unsupported_temporal_claims(content, user_prompt=user_prompt))
     invalid.extend(unsupported_explicit_exclusions(content, user_prompt=user_prompt))
@@ -1227,7 +1262,9 @@ def generate_grounded_answer(
         f"- 사용할 수 있는 인용은 [E1]부터 [E{evidence_count}]까지뿐입니다.",
         "- Evidence를 사용한 사실 답변에는 최소 하나 이상의 유효한 [E번호] 인용을 붙이세요.",
         "- [DETERMINISTIC ANALYSIS] 같은 내부 섹션명은 인용으로 쓰지 마세요.",
-        "- Evidence가 뒷받침하는 사실관계는 유지하되 잘못된 인용이나 숫자 표기만 고치세요.",
+        "- 기존 문장을 기계적으로 고치는 데 그치지 말고, 질문에 직접 답하도록 짧고 자연스럽게 다시 작성하세요.",
+        "- Evidence 원문·표·제품 사양·연혁을 길게 복사하지 마세요. 필요한 사실만 추려 자신의 문장으로 요약·통합하세요.",
+        "- Evidence가 뒷받침하는 사실관계는 유지하되, 그 범위 안에서는 핵심 의미와 비교 포인트를 분명히 설명하세요.",
         "- 구체적 사실을 결론에서 다시 말하면 그 문장에도 해당 [E번호]를 다시 붙이세요.",
         "- 금액은 Evidence에 실제로 등장하는 숫자와 단위만 사용하세요. 표의 숫자를 옮길 때 "
         "자릿수나 쉼표를 바꾸지 말고, 근거에 없는 축약이나 임의 환산을 하지 마세요.",

@@ -116,6 +116,23 @@ def test_renumber_top_level_items_closes_removed_heading_gap() -> None:
     assert "4. **기타**:" not in rendered
 
 
+def test_renumber_top_level_items_recovers_when_first_section_was_filtered() -> None:
+    answer = "\n".join(
+        (
+            "2. **DS 부문**:",
+            "   - 세부 내용",
+            "3. **기타 사업 전략**:",
+            "   - 세부 내용",
+        )
+    )
+
+    rendered = _renumber_top_level_items(answer)
+
+    assert "1. **DS 부문**:" in rendered
+    assert "2. **기타 사업 전략**:" in rendered
+    assert "3. **기타 사업 전략**:" not in rendered
+
+
 def test_renumber_top_level_items_does_not_rewrite_year_sentence() -> None:
     answer = "2025. 사업 전략은 다음과 같습니다."
 

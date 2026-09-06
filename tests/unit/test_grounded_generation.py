@@ -5,6 +5,7 @@ from disclosure_agent.llm.grounded_generation import (
     invalid_citation_tokens,
     invalid_report_year_citations,
     missing_multi_company_comparison_synthesis,
+    single_item_numbered_investment_answer,
     missing_required_company_mentions,
     unsupported_business_unit_attributions,
     unsupported_investment_purpose_claims,
@@ -14,6 +15,7 @@ from disclosure_agent.llm.grounded_generation import (
     unsupported_money_literals,
     unsupported_narrow_business_scope_claims,
     unsupported_temporal_claims,
+    unsupported_unrequested_comparison_years,
     unsupported_unrequested_investment_amounts,
 )
 from disclosure_agent.llm.hcx_client import HcxAnswerResult
@@ -76,6 +78,48 @@ def test_invalid_report_year_citations_allows_future_period_inside_single_report
     )
 
     assert invalid == ()
+
+
+def test_comparison_rejects_unrequested_future_year_outlook() -> None:
+    prompt = """사용자 질문:
+A사의 2023년과 2025년 사업보고서를 비교해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=A사 report=사업보고서 (2025.12)
+text:
+2026년에는 AI 수요가 확대될 전망입니다.
+"""
+    content = (
+        "2023년에는 기술 경쟁력 강화에 집중했습니다 [E1]. "
+        "2025년에는 AI 제품 대응을 확대했습니다 [E1]. "
+        "2026년에도 AI 수요가 확대될 전망입니다 [E1]."
+    )
+
+    invalid = unsupported_unrequested_comparison_years(
+        content,
+        user_prompt=prompt,
+    )
+
+    assert any("2026년" in line for line in invalid)
+
+
+def test_single_item_numbered_investment_answer_requires_prose_synthesis() -> None:
+    prompt = """사용자 질문:
+A사의 배터리 사업 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=A사 report=사업보고서 (2025.12)
+text:
+배터리 사업은 신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다.
+"""
+    content = "1. 신규 생산라인 CAPA 확보를 위한 투자가 진행 중입니다 [E1]."
+
+    assert single_item_numbered_investment_answer(
+        content,
+        user_prompt=prompt,
+    ) == ("[SINGLE_ITEM_INVESTMENT_LIST]",)
 
 
 def test_invalid_report_year_citations_allows_multi_year_sentences_in_one_paragraph() -> None:

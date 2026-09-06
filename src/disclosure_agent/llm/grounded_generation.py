@@ -275,6 +275,133 @@ def _evidence_companies(user_prompt: str) -> tuple[str, ...]:
     )
 
 
+def _requested_investment_subscope(user_prompt: str) -> str | None:
+    """Extract a non-company scope immediately governing an investment question."""
+
+    query = _question_text(user_prompt)
+    matches = tuple(
+        re.finditer(
+            r"(?P<scope>[A-Za-z0-9가-힣·\-\s]{2,80})의\s*투자",
+            query,
+        )
+    )
+    if not matches:
+        return None
+
+    scope = " ".join(matches[-1].group("scope").split()).strip()
+    for marker in ("기준으로", "관해서", "관하여", "대해서", "대해", "에서"):
+        if marker in scope:
+            scope = scope.rsplit(marker, 1)[-1].strip()
+
+    for company in _evidence_companies(user_prompt):
+        if company in scope:
+            scope = scope.split(company, 1)[-1].strip()
+            scope = re.sub(r"^(?:의|의\s+)", "", scope).strip()
+
+    scope = re.sub(r"^20\d{2}년\s*", "", scope).strip()
+    scope = re.sub(r"^(?:사업보고서|반기보고서|분기보고서)\s*", "", scope).strip()
+    if not scope or len(scope) > 40:
+        return None
+    return scope
+
+
+def _evidence_text_segments(block: str) -> tuple[str, ...]:
+    text = block.split("\ntext:\n", 1)[-1]
+    return tuple(
+        segment.strip()
+        for segment in re.split(r"(?<=[.!?])\s*|\n+|[□■▪▶]+", text)
+        if segment.strip()
+    )
+
+
+_SCOPE_SUPPORT_STOPWORDS = frozenset(
+    {
+        "투자",
+        "방향",
+        "목적",
+        "계획",
+        "진행",
+        "진행중",
+        "위한",
+        "통해",
+        "관련",
+        "사업",
+        "부문",
+        "기준",
+        "공시",
+        "확인",
+        "다음",
+    }
+)
+
+
+def _claim_scope_terms(claim: str, scope: str) -> tuple[str, ...]:
+    cleaned = _EVIDENCE_CITATION.sub("", claim)
+    scope_tokens = set(re.findall(r"[A-Za-z0-9가-힣]+", scope.lower()))
+    terms: list[str] = []
+    for token in re.findall(r"[A-Za-z0-9가-힣]+", cleaned.lower()):
+        if len(token) < 2 or token in _SCOPE_SUPPORT_STOPWORDS or token in scope_tokens:
+            continue
+        terms.append(token)
+    return tuple(dict.fromkeys(terms))
+
+
+def _scope_local_evidence_supports_claim(
+    claim: str,
+    *,
+    scope: str,
+    evidence_block: str,
+) -> bool:
+    compact_scope = "".join(scope.lower().split())
+    terms = _claim_scope_terms(claim, scope)
+    if not terms:
+        return False
+
+    for segment in _evidence_text_segments(evidence_block):
+        compact_segment = "".join(segment.lower().split())
+        if compact_scope not in compact_segment:
+            continue
+        overlap = sum(term in segment.lower() for term in terms)
+        if overlap >= 1:
+            return True
+    return False
+
+
+def unsupported_investment_subscope_claims(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject claims borrowed from adjacent context in a narrow investment scope."""
+
+    scope = _requested_investment_subscope(user_prompt)
+    if scope is None:
+        return ()
+
+    evidence = _evidence_by_number(user_prompt)
+    invalid: list[str] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.endswith(":"):
+            continue
+
+        refs = [int(match.group(1)) for match in _EVIDENCE_CITATION.finditer(line)]
+        if not refs:
+            continue
+        if any(
+            _scope_local_evidence_supports_claim(
+                line,
+                scope=scope,
+                evidence_block=evidence.get(number, ""),
+            )
+            for number in refs
+        ):
+            continue
+        invalid.append(line)
+
+    return tuple(dict.fromkeys(invalid))
+
+
 def missing_required_company_mentions(
     content: str,
     *,
@@ -884,6 +1011,9 @@ def _strip_lines_with_grounding_violations(
     unsupported_scope = set(
         unsupported_narrow_business_scope_claims(content, user_prompt=user_prompt)
     )
+    unsupported_subscope = set(
+        unsupported_investment_subscope_claims(content, user_prompt=user_prompt)
+    )
     unsupported_purpose = set(
         unsupported_investment_purpose_claims(content, user_prompt=user_prompt)
     )
@@ -906,6 +1036,7 @@ def _strip_lines_with_grounding_violations(
         and not unsupported_structure
         and not unsupported_units
         and not unsupported_scope
+        and not unsupported_subscope
         and not unsupported_purpose
         and not unsupported_context_expansion
         and not unsupported_purpose_structure
@@ -921,6 +1052,7 @@ def _strip_lines_with_grounding_violations(
             or stripped in unsupported_exclusions
             or stripped in unsupported_units
             or stripped in unsupported_scope
+            or stripped in unsupported_subscope
             or stripped in unsupported_purpose
             or stripped in unsupported_context_expansion
             or stripped in unsupported_purpose_structure
@@ -966,6 +1098,7 @@ def _all_invalid_grounding_tokens(
     invalid.extend(unsupported_investment_plan_structure(content, user_prompt=user_prompt))
     invalid.extend(unsupported_business_unit_attributions(content, user_prompt=user_prompt))
     invalid.extend(unsupported_narrow_business_scope_claims(content, user_prompt=user_prompt))
+    invalid.extend(unsupported_investment_subscope_claims(content, user_prompt=user_prompt))
     invalid.extend(unsupported_investment_purpose_claims(content, user_prompt=user_prompt))
     invalid.extend(
         unsupported_unrequested_investment_context_expansion(
@@ -1108,6 +1241,9 @@ def generate_grounded_answer(
         "- 사용자가 투자 방향·목적만 요청했다면 직접적인 투자 관계가 없는 시장 전망·일반 사업 "
         "전략을 별도 '관련 사업 전략' 섹션으로 추가하지 마세요. 직접 근거가 적으면 그 범위가 "
         "제한적임을 그대로 밝히세요.",
+        "- 질문이 특정 제품군·사업영역의 투자를 묻는다면, 같은 Evidence chunk 안의 인접 문장이라도 "
+        "그 제품군·사업영역과 직접 연결되지 않은 그룹 전체 투자 방침이나 일반 효율화 계획을 "
+        "해당 범위의 투자 방향으로 옮기지 마세요.",
         "- Evidence에 없는 '시장 점유율을 높이고자 한다', '~것으로 보인다' 같은 해석적 "
         "결론을 추가하지 마세요.",
     ]

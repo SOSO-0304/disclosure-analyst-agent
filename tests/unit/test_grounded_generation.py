@@ -9,6 +9,7 @@ from disclosure_agent.llm.grounded_generation import (
     unsupported_business_unit_attributions,
     unsupported_investment_purpose_claims,
     unsupported_investment_scope_structure,
+    unsupported_unrequested_investment_context_expansion,
     unsupported_money_literals,
     unsupported_narrow_business_scope_claims,
     unsupported_temporal_claims,
@@ -292,6 +293,64 @@ System LSI 사업은 AI 성장에 따른 중장기 수요 확대를 기회로
     assert "2. **고부가 수주 확대 및 수익 구조 개선**: 전략을 추진합니다 [E3]." in invalid
     assert "3. **응용처 다변화**: 신규 사업 기회를 검토합니다 [E3]." in invalid
     assert "1. **Advanced 노드 CAPA 확보**: 투자가 진행 중입니다 [E1]." not in invalid
+
+
+def test_investment_scope_rejects_unrequested_related_strategy_section() -> None:
+    prompt = """사용자 질문:
+A사의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다.
+
+[E2] kind=semantic_chunk score=0.9
+text:
+시장 수요가 확대되고 가격 경쟁이 심화될 전망입니다.
+"""
+    content = "\n".join(
+        (
+            "직접 확인되는 투자 방향/목적:",
+            "- 신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다 [E1].",
+            "관련 사업 전략:",
+            "- 시장 수요 확대와 가격 경쟁 심화가 예상됩니다 [E2].",
+        )
+    )
+
+    invalid = unsupported_unrequested_investment_context_expansion(
+        content,
+        user_prompt=prompt,
+    )
+
+    assert "관련 사업 전략:" in invalid
+    assert "- 시장 수요 확대와 가격 경쟁 심화가 예상됩니다 [E2]." in invalid
+    assert "- 신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다 [E1]." not in invalid
+
+
+def test_investment_scope_allows_related_context_when_user_requests_strategy() -> None:
+    prompt = """사용자 질문:
+A사의 투자 방향과 관련 사업 전략을 함께 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+text:
+신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다.
+
+[E2] kind=semantic_chunk score=0.9
+text:
+시장 수요 확대에 대응해 고부가 제품 전략을 강화합니다.
+"""
+    content = "\n".join(
+        (
+            "- 신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다 [E1].",
+            "- 관련 사업 전략으로 고부가 제품 대응을 강화합니다 [E2].",
+        )
+    )
+
+    assert unsupported_unrequested_investment_context_expansion(
+        content,
+        user_prompt=prompt,
+    ) == ()
 
 
 def test_investment_purpose_rejects_uncited_market_share_inference() -> None:

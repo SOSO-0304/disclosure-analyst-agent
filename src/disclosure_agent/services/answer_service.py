@@ -487,23 +487,58 @@ _COMPARISON_STRATEGY_MARKERS = (
     "Foundry",
     "System LSI",
     "CAPA",
+    "확대",
+    "강화",
+    "대응",
+    "집중",
+    "선도",
 )
+_FALLBACK_SEGMENT_MAX_CHARS = 320
+
+
+def _bounded_fallback_parts(raw: str) -> tuple[str, ...]:
+    """Split noisy disclosure text into short extractive fallback candidates."""
+
+    normalized = " ".join(raw.split()).strip()
+    if not normalized:
+        return ()
+
+    primary = re.split(r"(?<=[.!?])\s*|[□■▪▶]+", normalized)
+    parts: list[str] = []
+    for piece in primary:
+        piece = piece.strip(" -·")
+        if not piece:
+            continue
+        secondary = re.split(r"\s+-\s+", piece)
+        for candidate in secondary:
+            candidate = candidate.strip(" -·")
+            if not candidate:
+                continue
+            while len(candidate) > _FALLBACK_SEGMENT_MAX_CHARS:
+                cut = candidate.rfind(" ", 0, _FALLBACK_SEGMENT_MAX_CHARS + 1)
+                if cut < _FALLBACK_SEGMENT_MAX_CHARS // 2:
+                    cut = _FALLBACK_SEGMENT_MAX_CHARS
+                head = candidate[:cut].strip()
+                if head:
+                    parts.append(head)
+                candidate = candidate[cut:].strip()
+            if candidate:
+                parts.append(candidate)
+    return tuple(parts)
 
 
 def _substantive_evidence_segments(item: EvidenceItem) -> tuple[str, ...]:
     segments: list[str] = []
-    for raw in re.split(r"(?<=[.!?])\s+|\n+", item.content_text):
-        text = " ".join(raw.split()).strip()
-        if not text:
-            continue
-        if any(
-            text.startswith(prefix)
-            for prefix in ("회사:", "공시:", "문서:", "섹션:", "출처:")
-        ):
-            continue
-        if len(text) < 8:
-            continue
-        segments.append(text)
+    for raw in re.split(r"\n+", item.content_text):
+        for text in _bounded_fallback_parts(raw):
+            if any(
+                text.startswith(prefix)
+                for prefix in ("회사:", "공시:", "문서:", "섹션:", "출처:")
+            ):
+                continue
+            if len(text) < 8:
+                continue
+            segments.append(text)
     return tuple(segments)
 
 

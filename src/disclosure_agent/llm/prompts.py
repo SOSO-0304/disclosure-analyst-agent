@@ -160,6 +160,50 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
     compact = _compact(query)
     upper_compact = compact.upper()
 
+    causal_question = any(
+        marker in compact for marker in ("기여", "때문", "원인", "덕분", "인과", "영향")
+    )
+    if causal_question:
+        requirements.append(
+            "- 질문이 특정 사건·제품·투자와 실적 사이의 원인·기여 관계를 묻고 있습니다. "
+            "Evidence가 그 관계를 직접 설명하지 않으면 시간적 동시 발생이나 일반 사업 설명만으로 "
+            "인과를 단정하지 마세요. 특히 전체 매출액·영업이익을 특정 사건의 기여 금액으로 "
+            "대체하지 말고, 기여 금액·비율은 Evidence가 직접 분리·정량화한 경우에만 답하세요."
+        )
+
+    predictive_probability = (
+        any(term in compact for term in ("확률", "가능성", "성공률"))
+        and any(
+            marker in compact
+            for marker in (
+                "받을확률",
+                "될확률",
+                "성공할확률",
+                "달성할확률",
+                "낼확률",
+                "오를확률",
+                "내릴확률",
+                "받을가능성",
+                "될가능성",
+                "성공할가능성",
+            )
+        )
+    )
+    if predictive_probability:
+        requirements.append(
+            "- 특정 기업·사업·제품의 미래 성공·승인·흑자 등 결과 확률을 묻는 질문입니다. "
+            "일반 산업의 평균 성공률, 전체 신약개발 성공률, 과거 통계를 질문 대상의 개별 확률로 "
+            "적용하지 마세요. 공시만으로 개별 미래 결과 확률을 산출할 수 없으면 숫자를 만들지 말고 "
+            "정량 계산이 불가능하다고 직접 답하세요."
+        )
+
+    one_per_target = any(marker in compact for marker in ("한가지씩", "하나씩", "1개씩"))
+    if one_per_target:
+        requirements.append(
+            "- 사용자가 대상별로 한 가지씩만 요청했습니다. 각 기업·대상마다 가장 핵심적인 항목 "
+            "정확히 한 가지만 제시하고 추가 전략을 같은 대상 아래 더 나열하지 마세요."
+        )
+
     investment_context = (
         "투자" in compact or "집행" in compact or "CAPEX" in upper_compact
     )
@@ -171,6 +215,18 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
         or "실제CAPEX" in upper_compact
     )
     asks_actual_execution = investment_context and actual_execution_marker
+
+    asks_investment_direction_or_purpose = investment_context and any(
+        marker in compact for marker in ("방향", "목적")
+    )
+    if asks_investment_direction_or_purpose:
+        requirements.append(
+            "- 투자 방향·목적은 Evidence가 투자와 직접 연결해 설명한 내용만 사용하세요. "
+            "품질 강화, 시장 확대, 공급망 안정, 수주 전략 같은 일반 사업전략을 근거 없이 "
+            "투자 방향이나 투자 목적으로 재해석하지 마세요. 직접적인 투자 근거가 부족하면 "
+            "그 사실을 먼저 밝히고 일반 사업전략을 추정 투자 방향으로 보충하지 마세요."
+        )
+
     if asks_actual_execution and _has_facility_decision_evidence(pack):
         requirements.append(
             "- 이 질문은 투자 결정 금액을 실제 집행액으로 해석해도 되는지 확인하는 "

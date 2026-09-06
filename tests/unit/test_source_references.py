@@ -80,7 +80,8 @@ def test_render_source_references_includes_report_name_and_receipt_date() -> Non
     rendered = render_source_references(build_source_references(session, _pack()))
 
     assert "근거 공시" in rendered
-    assert "[E1,E2] 분기보고서 (2025.09) | 공시일: 2025-11-14" in rendered
+    assert "[E1,E2]" not in rendered
+    assert "분기보고서 (2025.09) | 공시일: 2025-11-14" in rendered
 
 
 def test_render_source_references_marks_empty_sources() -> None:

@@ -440,6 +440,27 @@ System LSI는 고부가 수주 확대를 통해 수익 구조를 개선하고 �
     assert unsupported_investment_purpose_claims(content, user_prompt=prompt) == (content,)
 
 
+def test_investment_purpose_rejects_uncited_future_growth_conclusion() -> None:
+    prompt = """사용자 질문:
+A사의 2025년 사업보고서를 기준으로 배터리 사업의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=A사 report=사업보고서 (2025.12)
+text:
+배터리 사업은 신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다.
+"""
+    content = (
+        "위와 같이 A사는 경쟁력 강화와 시장 대응을 위한 투자를 지속적으로 추진하며 "
+        "미래 성장 동력을 확보하고자 합니다."
+    )
+
+    assert unsupported_investment_purpose_claims(
+        content,
+        user_prompt=prompt,
+    ) == (content,)
+
+
 def test_investment_purpose_requires_explicit_purpose_relation_in_evidence() -> None:
     prompt = """사용자 질문:
 삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘

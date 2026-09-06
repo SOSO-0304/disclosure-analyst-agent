@@ -152,6 +152,50 @@ def invalid_citation_tokens(content: str, *, evidence_count: int) -> tuple[str, 
     return tuple(invalid)
 
 
+def unsupported_unrequested_comparison_years(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject extra-year outlooks that distract from an explicit report-year comparison."""
+
+    query = _question_text(user_prompt)
+    compact = "".join(query.split())
+    comparison_intent = any(
+        marker in compact for marker in ("비교", "차이", "달라졌", "다른지", "공통점")
+    )
+    requested_years = {int(year) for year in re.findall(r"20\d{2}", query)}
+    if not comparison_intent or len(requested_years) < 2:
+        return ()
+
+    invalid: list[str] = []
+    for segment in re.split(r"(?<=[.!?])\s+|\n+", content):
+        if not segment.strip():
+            continue
+        mentioned = {int(year) for year in re.findall(r"20\d{2}", segment)}
+        if mentioned - requested_years:
+            invalid.append(segment.strip())
+    return tuple(dict.fromkeys(invalid))
+
+
+def single_item_numbered_investment_answer(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject a one-line numbered list for a direction-and-purpose explanation."""
+
+    compact = "".join(_question_text(user_prompt).split())
+    if "투자" not in compact or "방향" not in compact or "목적" not in compact:
+        return ()
+
+    nonempty = [line.strip() for line in content.splitlines() if line.strip()]
+    numbered = [line for line in nonempty if re.match(r"^\d+\.\s+", line)]
+    if len(nonempty) == 1 and len(numbered) == 1:
+        return ("[SINGLE_ITEM_INVESTMENT_LIST]",)
+    return ()
+
+
 def invalid_report_year_citations(
     content: str,
     *,
@@ -1132,6 +1176,12 @@ def _all_invalid_grounding_tokens(
 ) -> tuple[str, ...]:
     invalid = list(invalid_citation_tokens(content, evidence_count=evidence_count))
     invalid.extend(overly_extractive_evidence_spans(content, user_prompt=user_prompt))
+    invalid.extend(
+        unsupported_unrequested_comparison_years(content, user_prompt=user_prompt)
+    )
+    invalid.extend(
+        single_item_numbered_investment_answer(content, user_prompt=user_prompt)
+    )
     invalid.extend(unsupported_money_literals(content, user_prompt=user_prompt))
     invalid.extend(unsupported_temporal_claims(content, user_prompt=user_prompt))
     invalid.extend(unsupported_explicit_exclusions(content, user_prompt=user_prompt))
@@ -1263,6 +1313,9 @@ def generate_grounded_answer(
         "- Evidence를 사용한 사실 답변에는 최소 하나 이상의 유효한 [E번호] 인용을 붙이세요.",
         "- [DETERMINISTIC ANALYSIS] 같은 내부 섹션명은 인용으로 쓰지 마세요.",
         "- 기존 문장을 기계적으로 고치는 데 그치지 말고, 질문에 직접 답하도록 짧고 자연스럽게 다시 작성하세요.",
+        "- 비교 질문에서는 질문에 없는 연도의 전망을 덧붙이지 말고 요청된 대상·연도 사이의 차이에 집중하세요.",
+        "- 투자 방향과 목적을 묻는 답변에서 직접 근거가 하나뿐이면 번호 하나짜리 목록으로 끝내지 말고, "
+        "그 근거가 보여주는 방향과 목적을 자연스러운 문장으로 설명하고 추가 목적의 근거 한계를 밝혀 주세요.",
         "- Evidence 원문·표·제품 사양·연혁을 길게 복사하지 마세요. 필요한 사실만 추려 자신의 문장으로 요약·통합하세요.",
         "- Evidence가 뒷받침하는 사실관계는 유지하되, 그 범위 안에서는 핵심 의미와 비교 포인트를 분명히 설명하세요.",
         "- 구체적 사실을 결론에서 다시 말하면 그 문장에도 해당 [E번호]를 다시 붙이세요.",

@@ -70,7 +70,14 @@ def _renumber_top_level_items(answer: str) -> str:
         if line and not line[0].isspace()
     ]
     numbered = [match for match in matches if match is not None]
-    if len(numbered) < 2:
+    if len(numbered) == 1:
+        only = numbered[0]
+        lines = [
+            only.group("body") if line == only.group(0) else line
+            for line in lines
+        ]
+        return "\n".join(lines)
+    if not numbered:
         return answer
 
     counter = 0

@@ -557,6 +557,68 @@ def unsupported_investment_scope_structure(
     return tuple(dict.fromkeys(invalid))
 
 
+def unsupported_unrequested_investment_context_expansion(
+    content: str,
+    *,
+    user_prompt: str,
+) -> tuple[str, ...]:
+    """Reject adjacent strategy/outlook used to pad a narrow investment answer."""
+
+    compact_query = "".join(_question_text(user_prompt).split())
+    investment_scope = (
+        "투자" in compact_query
+        and any(term in compact_query for term in ("방향", "목적"))
+    )
+    asks_related_context = any(
+        term in compact_query for term in ("전략", "전망", "시장", "사업환경", "수요")
+    )
+    if not investment_scope or asks_related_context:
+        return ()
+
+    evidence = _evidence_by_number(user_prompt)
+    context_markers = (
+        "관련 사업 전략",
+        "사업 전략",
+        "시장 전망",
+        "시장 환경",
+        "수요 전망",
+        "시장 성장",
+        "성장률",
+        "가격 경쟁",
+        "수익 구조",
+        "수주",
+        "시장 수요",
+    )
+    invalid: list[str] = []
+    in_context_section = False
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        heading = line.endswith(":")
+        if heading:
+            if any(marker in line for marker in ("관련 사업 전략", "시장 전망", "사업 전략")):
+                invalid.append(line)
+                in_context_section = True
+                continue
+            in_context_section = False
+
+        refs = [int(match.group(1)) for match in _EVIDENCE_CITATION.finditer(line)]
+        context_like = in_context_section or any(marker in line for marker in context_markers)
+        if not context_like:
+            continue
+        if refs and any(
+            _explicit_investment_purpose(evidence.get(number, ""))
+            for number in refs
+        ):
+            continue
+        invalid.append(line)
+
+    return tuple(dict.fromkeys(invalid))
+
+
 def unsupported_investment_purpose_claims(
     content: str,
     *,
@@ -825,6 +887,12 @@ def _strip_lines_with_grounding_violations(
     unsupported_purpose = set(
         unsupported_investment_purpose_claims(content, user_prompt=user_prompt)
     )
+    unsupported_context_expansion = set(
+        unsupported_unrequested_investment_context_expansion(
+            content,
+            user_prompt=user_prompt,
+        )
+    )
     unsupported_purpose_structure = set(
         unsupported_investment_scope_structure(content, user_prompt=user_prompt)
     )
@@ -839,6 +907,7 @@ def _strip_lines_with_grounding_violations(
         and not unsupported_units
         and not unsupported_scope
         and not unsupported_purpose
+        and not unsupported_context_expansion
         and not unsupported_purpose_structure
         and not unsupported_unrequested_amounts
     ):
@@ -853,6 +922,7 @@ def _strip_lines_with_grounding_violations(
             or stripped in unsupported_units
             or stripped in unsupported_scope
             or stripped in unsupported_purpose
+            or stripped in unsupported_context_expansion
             or stripped in unsupported_purpose_structure
             or stripped in unsupported_unrequested_amounts
         ):
@@ -897,6 +967,12 @@ def _all_invalid_grounding_tokens(
     invalid.extend(unsupported_business_unit_attributions(content, user_prompt=user_prompt))
     invalid.extend(unsupported_narrow_business_scope_claims(content, user_prompt=user_prompt))
     invalid.extend(unsupported_investment_purpose_claims(content, user_prompt=user_prompt))
+    invalid.extend(
+        unsupported_unrequested_investment_context_expansion(
+            content,
+            user_prompt=user_prompt,
+        )
+    )
     invalid.extend(
         unsupported_investment_scope_structure(content, user_prompt=user_prompt)
     )
@@ -1029,9 +1105,9 @@ def generate_grounded_answer(
         "DRAM, NAND, HBM, DDR, GDDR, LPDDR, SOCAMM, SSD 등 메모리 제품·기술 설명도 제외하세요.",
         "- '투자 목적'으로 분류하는 문장은 Evidence가 목적 관계를 직접 표현할 때만 사용하세요. "
         "시장 전망이나 사업 전략을 투자 목적이라고 재명명하지 마세요.",
-        "- 시스템 반도체의 투자 방향·목적 질의에서는 답변을 '직접 확인되는 투자 방향/목적'과 "
-        "'관련 사업 전략'으로 구분하세요. 고부가 수주, 수익 구조 개선, 응용처 다변화처럼 "
-        "직접적인 투자 목적 관계가 없는 사실을 '투자 방향과 목적' 목록에 넣지 마세요.",
+        "- 사용자가 투자 방향·목적만 요청했다면 직접적인 투자 관계가 없는 시장 전망·일반 사업 "
+        "전략을 별도 '관련 사업 전략' 섹션으로 추가하지 마세요. 직접 근거가 적으면 그 범위가 "
+        "제한적임을 그대로 밝히세요.",
         "- Evidence에 없는 '시장 점유율을 높이고자 한다', '~것으로 보인다' 같은 해석적 "
         "결론을 추가하지 마세요.",
     ]
@@ -1046,6 +1122,15 @@ def generate_grounded_answer(
             "- 연도별 사업보고서 비교에서는 각 연도 사실을 말하는 문장이나 행에 같은 연도의 "
             "사업보고서 Evidence만 인용하세요."
         )
+        compact_query = "".join(_question_text(user_prompt).split())
+        if any(
+            marker in compact_query
+            for marker in ("비교", "차이", "달라졌", "다른지", "공통점")
+        ):
+            repair_lines.append(
+                "- 비교 답변은 각 연도·대상의 핵심을 1~2개 수준으로 압축한 뒤 차이를 직접 "
+                "설명하세요. 원문 배경이나 질문 범위 밖의 미래 전망을 길게 반복하지 마세요."
+            )
     evidence_companies = _evidence_companies(user_prompt)
     if len(evidence_companies) > 1:
         repair_lines.append(

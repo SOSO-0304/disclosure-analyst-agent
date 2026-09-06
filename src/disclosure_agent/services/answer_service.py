@@ -69,6 +69,115 @@ _FUNDRAISING_REQUEST_TERMS = (
     (FundraisingInstrument.BOND_WITH_WARRANTS, "신주인수권부사채", "BW"),
     (FundraisingInstrument.EXCHANGEABLE_BOND, "교환사채", "EB"),
 )
+_REPORT_SCOPE_YEARS = re.compile(
+    r"(?P<years>(?:20\d{2}년(?:\s*(?:과|와|및|,|·|/)\s*)?)+)\s*"
+    r"(?P<report>사업보고서|반기보고서|분기보고서)"
+)
+_QUANTIFIED_VALUE = re.compile(
+    r"(?<![\d,])(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*"
+    r"(?:조\s*원|억\s*원|만\s*원|천\s*원|원|%)"
+)
+_ATTRIBUTION_EVIDENCE_MARKERS = (
+    "기여",
+    "기여도",
+    "증가분",
+    "증가 요인",
+    "로 인해",
+    "때문",
+    "덕분",
+    "영향으로",
+)
+
+
+def _report_scoped_years(query: str, report_type: str) -> tuple[int, ...]:
+    """Extract only years syntactically attached to the requested report type."""
+
+    years: list[int] = []
+    for match in _REPORT_SCOPE_YEARS.finditer(query):
+        if match.group("report") != report_type:
+            continue
+        years.extend(
+            int(year)
+            for year in re.findall(r"20\d{2}", match.group("years"))
+        )
+    return tuple(dict.fromkeys(years))
+
+
+def _asks_predictive_probability(query: str) -> bool:
+    """Return whether the user asks for a numeric probability of a future outcome."""
+
+    compact = "".join(query.split())
+    probability_request = any(term in compact for term in ("확률", "가능성", "성공률"))
+    predictive_markers = (
+        "받을확률",
+        "될확률",
+        "성공할확률",
+        "달성할확률",
+        "낼확률",
+        "오를확률",
+        "내릴확률",
+        "받을가능성",
+        "될가능성",
+        "성공할가능성",
+        "달성할가능성",
+        "낼가능성",
+    )
+    return probability_request and any(marker in compact for marker in predictive_markers)
+
+
+def _render_predictive_probability_limit_answer(query: str, pack: EvidencePack) -> str | None:
+    """Do not turn generic disclosure statistics into a subject-specific forecast."""
+
+    if not _asks_predictive_probability(query):
+        return None
+    return (
+        "제공된 공시만으로 질문 대상의 미래 결과 확률을 객관적인 퍼센트로 "
+        "계산할 수 없습니다. 사업보고서에 일반적인 산업 통계나 개발 성공률이 "
+        "기재되어 있더라도 이를 특정 기업·사업·제품의 미래 결과 확률로 그대로 "
+        "적용할 수 없습니다."
+    )
+
+
+def _asks_quantified_attribution(query: str) -> bool:
+    """Return whether the query requests a causal contribution amount or ratio."""
+
+    compact = "".join(query.split())
+    if "기여" not in compact:
+        return False
+    return any(
+        marker in compact
+        for marker in ("금액", "얼마", "비율", "기여도", "정확히", "계산")
+    )
+
+
+def _has_explicit_quantified_attribution(pack: EvidencePack) -> bool:
+    """Require causal wording and a numeric value in the same evidence segment."""
+
+    for item in pack.items:
+        for raw in re.split(r"(?<=[.!?])\s+|\n+", item.content_text):
+            segment = " ".join(raw.split()).strip()
+            if not segment or _QUANTIFIED_VALUE.search(segment) is None:
+                continue
+            if any(marker in segment for marker in _ATTRIBUTION_EVIDENCE_MARKERS):
+                return True
+    return False
+
+
+def _render_quantified_attribution_limit_answer(
+    query: str,
+    pack: EvidencePack,
+) -> str | None:
+    """Reject deriving contribution values from overall performance figures."""
+
+    if not _asks_quantified_attribution(query):
+        return None
+    if _has_explicit_quantified_attribution(pack):
+        return None
+    return (
+        "제공된 공시에서 요청한 요인이 실적에 기여한 금액 또는 비율을 직접 분리해 "
+        "확인할 수 없습니다. 전체 매출액이나 관련 사건의 발생 사실만으로 해당 요인의 "
+        "기여 금액을 계산할 수 없습니다."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1030,6 +1139,12 @@ class AnswerService:
         fallback_year: int | None,
         report_name: str | None,
     ) -> tuple[int, ...]:
+        report_type = AnswerService._infer_report_type(query)
+        if report_type is not None:
+            scoped_years = _report_scoped_years(query, report_type)
+            if scoped_years:
+                return scoped_years
+
         years = extract_query_years(query)
         if years:
             return years
@@ -1234,6 +1349,38 @@ class AnswerService:
                 evidence_pack=pack,
                 source_references=references,
                 metadata=metadata,
+            )
+
+        predictive_probability_answer = _render_predictive_probability_limit_answer(
+            query,
+            pack,
+        )
+        if predictive_probability_answer is not None:
+            return AnswerResult(
+                query=query,
+                plan=plan,
+                status="PARTIAL",
+                answer=predictive_probability_answer,
+                generator="deterministic",
+                evidence_pack=pack,
+                source_references=references,
+                metadata=metadata + _metadata(limitation="predictive_probability"),
+            )
+
+        quantified_attribution_answer = _render_quantified_attribution_limit_answer(
+            query,
+            pack,
+        )
+        if quantified_attribution_answer is not None:
+            return AnswerResult(
+                query=query,
+                plan=plan,
+                status="PARTIAL",
+                answer=quantified_attribution_answer,
+                generator="deterministic",
+                evidence_pack=pack,
+                source_references=references,
+                metadata=metadata + _metadata(limitation="quantified_attribution"),
             )
 
         facility_execution_answer = _render_facility_execution_semantic_answer(

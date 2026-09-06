@@ -7,6 +7,7 @@ from disclosure_agent.services.answer_service import (
     _generation_status,
     _grounding_prompt_for_query,
     _render_facility_execution_semantic_answer,
+    _render_future_market_price_limit_answer,
     _render_predictive_probability_limit_answer,
     _render_quantified_attribution_limit_answer,
     _render_multi_scope_comparison_fallback,
@@ -372,6 +373,18 @@ def test_non_execution_investment_query_keeps_model_path() -> None:
     )
 
     assert _render_facility_execution_semantic_answer(pack.query, pack) is None
+
+
+def test_future_market_price_is_rejected_deterministically() -> None:
+    query = (
+        "LG에너지솔루션의 2025년 사업보고서를 보면 "
+        "2027년 주가가 얼마가 될지 계산할 수 있지?"
+    )
+
+    answer = _render_future_market_price_limit_answer(query)
+
+    assert answer is not None
+    assert "미래 주가를 계산하거나 확정적으로 예측할 수 없습니다" in answer
 
 
 def test_predictive_probability_does_not_reuse_generic_success_statistics() -> None:

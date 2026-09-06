@@ -138,6 +138,30 @@ def _render_predictive_probability_limit_answer(query: str, pack: EvidencePack) 
     )
 
 
+def _asks_future_market_price(query: str) -> bool:
+    """Return whether the user asks to calculate or predict a future market price."""
+
+    compact = "".join(query.split())
+    market_price = any(term in compact for term in ("주가", "주식가격", "주식값"))
+    future_or_prediction = bool(re.search(r"20\d{2}년", compact)) and any(
+        marker in compact
+        for marker in ("얼마가될", "예측", "전망", "계산", "될지", "오를", "내릴")
+    )
+    return market_price and future_or_prediction
+
+
+def _render_future_market_price_limit_answer(query: str) -> str | None:
+    """Reject deriving future stock prices from disclosure documents."""
+
+    if not _asks_future_market_price(query):
+        return None
+    return (
+        "제공된 공시만으로 미래 주가를 계산하거나 확정적으로 예측할 수 없습니다. "
+        "사업보고서는 기업의 공시 정보를 제공하지만, 특정 미래 시점의 시장가격을 "
+        "결정하는 값을 직접 제공하지 않습니다."
+    )
+
+
 def _asks_quantified_attribution(query: str) -> bool:
     """Return whether the query requests a causal contribution amount or ratio."""
 
@@ -1292,6 +1316,7 @@ class AnswerService:
                         year=scoped_year,
                         filing_id=filing_id,
                         report_name=effective_report_name,
+                        report_type=report_type if effective_report_name is None else None,
                         top_k=top_k,
                         candidate_k=candidate_k,
                     )
@@ -1349,6 +1374,19 @@ class AnswerService:
                 evidence_pack=pack,
                 source_references=references,
                 metadata=metadata,
+            )
+
+        future_market_price_answer = _render_future_market_price_limit_answer(query)
+        if future_market_price_answer is not None:
+            return AnswerResult(
+                query=query,
+                plan=plan,
+                status="PARTIAL",
+                answer=future_market_price_answer,
+                generator="deterministic",
+                evidence_pack=pack,
+                source_references=references,
+                metadata=metadata + _metadata(limitation="future_market_price"),
             )
 
         predictive_probability_answer = _render_predictive_probability_limit_answer(

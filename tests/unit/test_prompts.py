@@ -157,7 +157,7 @@ def test_comparison_prompt_prioritizes_concise_direct_difference() -> None:
     prompt = build_grounded_answer_prompt(pack.query, pack)
 
     assert "핵심 전략을 1~2개 수준으로 먼저 압축" in prompt
-    assert "다음 연도 전망·시장 배경" in prompt
+    assert "질문에 명시되지 않은 연도의 전망·시장 배경" in prompt
 
 
 def test_investment_direction_prompt_does_not_pad_with_related_strategy() -> None:

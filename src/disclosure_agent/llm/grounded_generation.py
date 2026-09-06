@@ -771,6 +771,11 @@ def unsupported_investment_purpose_claims(
         "투자 방향과 목적을 통해",
         "것으로 보입니다",
         "시장 점유율",
+        "미래 성장",
+        "성장 동력",
+        "확보하고자",
+        "경쟁력 강화",
+        "시장 대응",
     )
 
     for raw_line in content.splitlines():

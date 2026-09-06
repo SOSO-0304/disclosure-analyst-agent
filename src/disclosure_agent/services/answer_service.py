@@ -561,7 +561,7 @@ def _year_comparison_snippets(
     *,
     year: int,
     pack: EvidencePack,
-    limit: int = 2,
+    limit: int = 1,
 ) -> tuple[tuple[str, int], ...]:
     candidates: list[tuple[tuple[int, int], int, str]] = []
     for item in pack.items:
@@ -742,7 +742,7 @@ def _render_multi_year_comparison_fallback(
         details = " ".join(
             f"{text} [E{rank}]" for text, rank in snippets
         )
-        year_blocks.append(f"{year}년: {details}")
+        year_blocks.append(f"{year}년 공시 핵심: {details}")
 
     if len(year_blocks) < 2:
         return None

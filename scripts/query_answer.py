@@ -14,7 +14,7 @@ from disclosure_agent.storage.database import get_engine, session_scope
 
 
 _EVIDENCE_LABEL = re.compile(r"\s*\[E\d+\]")
-_NUMBERED_HEADING = re.compile(r"^(?P<indent>\s*)(?P<number>\d+)\.\s+(?P<body>.+)$")
+_NUMBERED_HEADING = re.compile(r"^(?P<indent>\s*)(?P<number>[1-9]\d{0,2})\.\s+(?P<body>.+)$")
 
 
 def _renumber_top_level_items(answer: str) -> str:

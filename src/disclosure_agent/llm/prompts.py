@@ -218,8 +218,8 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
         requirements.append(
             "- 비교 질의에서는 대상별 원문을 길게 다시 쓰기보다 각 대상·연도의 핵심 전략을 "
             "1~2개 수준으로 먼저 압축하고, 마지막에 차이 또는 공통점을 직접 비교하세요. "
-            "질문이 요청하지 않은 다음 연도 전망·시장 배경은 핵심 비교에 꼭 필요하지 않으면 "
-            "생략하세요."
+            "질문에 명시되지 않은 연도의 전망·시장 배경은 비교 결론에 필수적이지 않으므로 "
+            "답변에서 생략하세요."
         )
 
     investment_context = (
@@ -251,7 +251,9 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
             requirements.append(
                 "- 사용자는 투자 방향·목적 자체를 요청했습니다. 별도의 '관련 사업 전략', "
                 "'시장 전망', '사업 환경' 섹션을 추가하지 말고, 투자와 직접 연결된 근거만 "
-                "답변하세요."
+                "답변하세요. 직접 확인되는 항목이 하나뿐이면 '1.' 하나짜리 목록으로 끝내지 말고 "
+                "자연스러운 문장으로 투자 방향과 그 문구에서 직접 확인되는 목적을 설명한 뒤, "
+                "추가 목적은 공시에서 직접 확인되지 않는다고 짧게 한계를 밝혀 주세요."
             )
 
     if asks_actual_execution and _has_facility_decision_evidence(pack):
@@ -298,8 +300,10 @@ def _query_specific_requirements(query: str, pack: EvidencePack) -> tuple[str, .
         requirements.append(
             "- AI 전략을 사업부별로 묶을 때는 해당 Evidence가 DX, DS, SDC 등 사업부를 "
             "명시적으로 식별하는 경우에만 그 사업부에 귀속하세요. 사업부가 명시되지 않은 "
-            "산업·시장 설명은 특정 사업부 전략으로 재분류하지 마세요. 같은 AI 전략이나 제품 "
-            "설명을 '기타', 'TV', '모바일' 등 다른 묶음에서 다시 반복하지 마세요."
+            "산업·시장 설명은 특정 사업부 전략으로 재분류하지 마세요. 핵심 전략은 서로 겹치지 "
+            "않는 3~4개 이내의 주제로 통합하고, 상위 사업명과 하위 제품군이 사실상 같은 내용을 "
+            "말하면 하나로 합치세요. 이미 설명한 TV·모바일·가전 등의 내용을 '기타' 섹션에서 "
+            "다시 반복하지 마세요."
         )
 
     if "시스템반도체" in compact:

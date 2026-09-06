@@ -4,12 +4,22 @@
 from __future__ import annotations
 
 import argparse
+import re
 
 from disclosure_agent.config import get_settings
 from disclosure_agent.retrieval.evidence_pack import render_evidence_pack
 from disclosure_agent.retrieval.source_references import render_source_references
 from disclosure_agent.services.answer_service import AnswerService
 from disclosure_agent.storage.database import get_engine, session_scope
+
+
+_EVIDENCE_LABEL = re.compile(r"\s*\[E\d+\]")
+
+
+def _public_answer(answer: str) -> str:
+    """Hide internal evidence labels from the human-facing CLI output."""
+
+    return _EVIDENCE_LABEL.sub("", answer)
 
 
 def _api_key() -> str | None:
@@ -65,7 +75,7 @@ def main() -> None:
         print(f"total_tokens                    {result.model_result.total_tokens}")
 
     print("answer:")
-    print(result.answer)
+    print(_public_answer(result.answer))
     print()
     print(render_source_references(result.source_references))
 

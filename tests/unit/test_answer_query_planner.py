@@ -60,3 +60,12 @@ def test_business_report_change_uses_hybrid_engine() -> None:
     plan = plan_answer_query("2023년과 2025년 사업보고서의 핵심 사업 변화를 비교해줘")
 
     assert plan.mode is AnswerExecutionMode.HYBRID_GROUNDED
+
+
+def test_causal_revenue_contribution_uses_hybrid_engine() -> None:
+    plan = plan_answer_query(
+        "셀트리온의 2025년 매출 증가 중 미국 생산시설 인수가 기여한 금액을 정확히 계산해줘"
+    )
+
+    assert plan.mode is AnswerExecutionMode.HYBRID_GROUNDED
+    assert RetrievalRail.SEMANTIC in plan.route.rails

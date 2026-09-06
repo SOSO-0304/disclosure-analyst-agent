@@ -142,6 +142,45 @@ def test_actual_execution_question_gets_facility_semantic_guardrail() -> None:
     assert "투자 결정 금액과 실제 집행액을 명확히 구분하세요" in prompt
 
 
+def test_comparison_prompt_prioritizes_concise_direct_difference() -> None:
+    item = _item(
+        source_kind="semantic_chunk",
+        content_text="2024년에는 제품 경쟁력을 강화했고 2025년에는 AI 수요 대응을 확대했습니다.",
+    )
+    pack = EvidencePack(
+        query="A사의 2024년과 2025년 사업보고서에서 전략 차이를 비교해줘",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    prompt = build_grounded_answer_prompt(pack.query, pack)
+
+    assert "핵심 전략을 1~2개 수준으로 먼저 압축" in prompt
+    assert "다음 연도 전망·시장 배경" in prompt
+
+
+def test_investment_direction_prompt_does_not_pad_with_related_strategy() -> None:
+    item = _item(
+        source_kind="semantic_chunk",
+        content_text=(
+            "신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다. "
+            "시장 수요는 확대될 전망입니다."
+        ),
+    )
+    pack = EvidencePack(
+        query="A사의 투자 방향과 목적을 설명해줘",
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    prompt = build_grounded_answer_prompt(pack.query, pack)
+
+    assert "별도의 '관련 사업 전략'" in prompt
+    assert "투자와 직접 연결된 근거만 답변하세요" in prompt
+
+
 def test_future_plan_exclusion_query_adds_completeness_checklist() -> None:
     content = "\n".join(
         (

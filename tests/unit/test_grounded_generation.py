@@ -9,6 +9,7 @@ from disclosure_agent.llm.grounded_generation import (
     unsupported_business_unit_attributions,
     unsupported_investment_purpose_claims,
     unsupported_investment_scope_structure,
+    unsupported_investment_subscope_claims,
     unsupported_unrequested_investment_context_expansion,
     unsupported_money_literals,
     unsupported_narrow_business_scope_claims,
@@ -293,6 +294,51 @@ System LSI 사업은 AI 성장에 따른 중장기 수요 확대를 기회로
     assert "2. **고부가 수주 확대 및 수익 구조 개선**: 전략을 추진합니다 [E3]." in invalid
     assert "3. **응용처 다변화**: 신규 사업 기회를 검토합니다 [E3]." in invalid
     assert "1. **Advanced 노드 CAPA 확보**: 투자가 진행 중입니다 [E1]." not in invalid
+
+
+def test_narrow_investment_subscope_rejects_adjacent_group_policy() -> None:
+    prompt = """사용자 질문:
+A사의 2025년 사업보고서를 기준으로 배터리 사업의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=A사 report=사업보고서 (2025.12)
+text:
+배터리 사업은 신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다.
+그룹 전반은 내실을 다지는 활동을 통해 투자 효율성 제고에 집중할 계획입니다.
+"""
+    content = "\n".join(
+        (
+            "1. 신규 생산라인 CAPA 확보를 위한 투자 진행 중입니다 [E1].",
+            "2. 내실을 다지는 활동을 통해 투자 효율성 제고를 추진합니다 [E1].",
+        )
+    )
+
+    invalid = unsupported_investment_subscope_claims(
+        content,
+        user_prompt=prompt,
+    )
+
+    assert "1. 신규 생산라인 CAPA 확보를 위한 투자 진행 중입니다 [E1]." not in invalid
+    assert "2. 내실을 다지는 활동을 통해 투자 효율성 제고를 추진합니다 [E1]." in invalid
+
+
+def test_narrow_investment_subscope_accepts_scope_local_claim() -> None:
+    prompt = """사용자 질문:
+A사의 2025년 사업보고서를 기준으로 배터리 사업의 투자 방향과 목적을 설명해줘
+
+=== EVIDENCE PACK ===
+[E1] kind=semantic_chunk score=1.0
+company=A사 report=사업보고서 (2025.12)
+text:
+배터리 사업은 신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다.
+"""
+    content = "신규 생산라인 CAPA 확보를 위한 투자를 진행 중입니다 [E1]."
+
+    assert unsupported_investment_subscope_claims(
+        content,
+        user_prompt=prompt,
+    ) == ()
 
 
 def test_investment_scope_rejects_unrequested_related_strategy_section() -> None:

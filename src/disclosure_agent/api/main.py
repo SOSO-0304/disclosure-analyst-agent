@@ -46,7 +46,7 @@ def _render_retrieved_context(pack: EvidencePack) -> str:
         blocks.append(
             "\n".join(
                 (
-                    f"[E{item.rank}] {item.company_name} | {item.report_name}",
+                    f"{item.company_name} | {item.report_name}",
                     item.content_text,
                 )
             )

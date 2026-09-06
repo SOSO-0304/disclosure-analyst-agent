@@ -7,6 +7,8 @@ from disclosure_agent.services.answer_service import (
     _generation_status,
     _grounding_prompt_for_query,
     _render_facility_execution_semantic_answer,
+    _render_predictive_probability_limit_answer,
+    _render_quantified_attribution_limit_answer,
     _render_multi_scope_comparison_fallback,
     _render_multi_year_comparison_fallback,
     _round_robin,
@@ -125,6 +127,16 @@ def test_hybrid_years_preserve_all_comparison_years() -> None:
     )
 
     assert years == (2023, 2025)
+
+
+def test_hybrid_years_separate_report_scope_from_forecast_target() -> None:
+    years = AnswerService._hybrid_years(
+        "LG에너지솔루션의 2025년 사업보고서를 보면 2027년 주가가 얼마가 될지 계산할 수 있지?",
+        fallback_year=None,
+        report_name=None,
+    )
+
+    assert years == (2025,)
 
 
 def test_infers_explicit_report_type_from_query() -> None:
@@ -360,6 +372,65 @@ def test_non_execution_investment_query_keeps_model_path() -> None:
     )
 
     assert _render_facility_execution_semantic_answer(pack.query, pack) is None
+
+
+def test_predictive_probability_does_not_reuse_generic_success_statistics() -> None:
+    item = _semantic_item(
+        1,
+        2025,
+        "일반적인 신약개발 과정에서 후보물질 탐색부터 최종 승인까지 성공 가능성은 0.01%입니다.",
+    )
+    query = "한미약품의 신약이 FDA 승인을 받을 확률을 사업보고서만 보고 숫자로 계산해줘"
+    pack = EvidencePack(
+        query=query,
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    answer = _render_predictive_probability_limit_answer(query, pack)
+
+    assert answer is not None
+    assert "객관적인 퍼센트로 계산할 수 없습니다" in answer
+    assert "일반적인 산업 통계나 개발 성공률" in answer
+
+
+def test_quantified_attribution_does_not_substitute_total_revenue() -> None:
+    item = _semantic_item(
+        1,
+        2025,
+        "2025년 연결기준 매출액은 4조 1,624억 원입니다.",
+    )
+    query = "셀트리온의 2025년 매출 증가 중 미국 생산시설 인수가 기여한 금액을 정확히 계산해줘"
+    pack = EvidencePack(
+        query=query,
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    answer = _render_quantified_attribution_limit_answer(query, pack)
+
+    assert answer is not None
+    assert "기여한 금액 또는 비율을 직접 분리해 확인할 수 없습니다" in answer
+    assert "전체 매출액" in answer
+
+
+def test_quantified_attribution_keeps_model_path_when_directly_disclosed() -> None:
+    item = _semantic_item(
+        1,
+        2025,
+        "미국 생산시설 인수 효과가 매출 증가에 기여한 금액은 500억 원입니다.",
+    )
+    query = "미국 생산시설 인수가 매출 증가에 기여한 금액은 얼마야?"
+    pack = EvidencePack(
+        query=query,
+        retrieval_status="MATCHES_FOUND",
+        items=(item,),
+        total_chars=len(item.content_text),
+    )
+
+    assert _render_quantified_attribution_limit_answer(query, pack) is None
 
 
 def test_investment_plan_prompt_excludes_shareholder_return_by_default() -> None:

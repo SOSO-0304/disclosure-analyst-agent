@@ -76,6 +76,7 @@ class HybridRetriever:
         year: int | None,
         filing_id: str | None = None,
         report_name: str | None = None,
+        report_type: str | None = None,
         top_k: int = 5,
         candidate_k: int = 40,
     ) -> HybridSearchResult:
@@ -133,6 +134,7 @@ class HybridRetriever:
                 company_name=company_name,
                 filing_id=filing_id,
                 report_name=report_name,
+                report_type=report_type,
                 year=year if not exact_scope else None,
                 top_k=candidate_k,
             )

@@ -762,7 +762,7 @@ def test_generate_grounded_answer_repairs_wrong_annual_report_year_citation() ->
     assert "같은 연도의 사업보고서 Evidence" in client.calls[1]
 
 
-def test_generate_grounded_answer_repairs_narrow_scope_without_rejecting_forecast_year() -> None:
+def test_generate_grounded_answer_repairs_narrow_investment_scope_without_context_padding() -> None:
     prompt = """사용자 질문:
 삼성전자의 2025년 사업보고서를 기준으로 시스템 반도체의 투자 방향과 목적을 설명해줘
 
@@ -786,10 +786,8 @@ text:
                 "- 2026년에는 선단 노드 HPC 수요가 확대될 전망입니다 [E3]."
             ),
             (
-                "직접 확인되는 투자 방향/목적:\n"
-                "- Advanced 노드 CAPA 확보를 위한 투자 진행 중입니다 [E1].\n"
-                "관련 사업 전략:\n"
-                "- 2026년에는 선단 노드 HPC 수요가 확대될 전망입니다 [E3]."
+                "공시에서 직접 확인되는 투자 방향/목적은 "
+                "Advanced 노드 CAPA 확보를 위한 투자 진행입니다 [E1]."
             ),
         ]
     )
@@ -803,8 +801,9 @@ text:
     )
 
     assert "Advanced 노드 CAPA" in answer.content
-    assert "2026년" in answer.content
+    assert "2026년" not in answer.content
     assert "메모리 차세대" not in answer.content
+    assert "관련 사업 전략" not in answer.content
     assert answer.finish_reason == "stop"
     assert len(client.calls) == 2
 

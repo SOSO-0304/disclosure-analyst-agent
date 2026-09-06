@@ -318,8 +318,8 @@ def test_multi_year_comparison_fallback_preserves_years_strategy_terms_and_citat
     answer = _render_multi_year_comparison_fallback(query, pack)
 
     assert answer is not None
-    assert "2023년:" in answer
-    assert "2025년:" in answer
+    assert "2023년 공시 핵심:" in answer
+    assert "2025년 공시 핵심:" in answer
     assert "DDR5" in answer
     assert "HBM4" in answer
     assert "[E1]" in answer
@@ -355,8 +355,8 @@ def test_multi_year_comparison_fallback_bounds_noisy_source_segments() -> None:
 
     assert answer is not None
     assert len(answer) < 1800
-    assert "2023년:" in answer
-    assert "2025년:" in answer
+    assert "2023년 공시 핵심:" in answer
+    assert "2025년 공시 핵심:" in answer
 
 
 def test_multi_year_comparison_fallback_skips_non_comparison_query() -> None:

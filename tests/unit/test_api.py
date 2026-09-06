@@ -39,7 +39,7 @@ def _item() -> EvidenceItem:
     )
 
 
-def test_render_retrieved_context_keeps_evidence_label_and_text() -> None:
+def test_render_retrieved_context_hides_internal_evidence_label_and_keeps_text() -> None:
     item = _item()
     pack = EvidencePack(
         query="질문",
@@ -50,7 +50,8 @@ def test_render_retrieved_context_keeps_evidence_label_and_text() -> None:
 
     rendered = _render_retrieved_context(pack)
 
-    assert "[E1] 삼성전자 | 사업보고서 (2025.12)" in rendered
+    assert "삼성전자 | 사업보고서 (2025.12)" in rendered
+    assert "[E1]" not in rendered
     assert "HBM 판매를 확대했습니다." in rendered
 
 
@@ -207,4 +208,4 @@ def test_answer_endpoint_matches_festival_schema(monkeypatch) -> None:
     assert "[E1]" not in payload["answer"]
     assert "근거 공시" in payload["answer"]
     assert "- 사업보고서 (2025.12)" in payload["answer"]
-    assert "[E1]" in payload["retrieved_context"]
+    assert "[E1]" not in payload["retrieved_context"]

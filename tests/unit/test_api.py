@@ -133,6 +133,14 @@ def test_renumber_top_level_items_recovers_when_first_section_was_filtered() -> 
     assert "3. **기타 사업 전략**:" not in rendered
 
 
+def test_renumber_top_level_items_removes_single_orphan_number() -> None:
+    answer = "1. **Advanced 노드 CAPA 확보**: 투자가 진행 중입니다."
+
+    rendered = _renumber_top_level_items(answer)
+
+    assert rendered == "**Advanced 노드 CAPA 확보**: 투자가 진행 중입니다."
+
+
 def test_renumber_top_level_items_does_not_rewrite_year_sentence() -> None:
     answer = "2025. 사업 전략은 다음과 같습니다."
 

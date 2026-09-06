@@ -326,6 +326,39 @@ def test_multi_year_comparison_fallback_preserves_years_strategy_terms_and_citat
     assert "[E3]" in answer
 
 
+def test_multi_year_comparison_fallback_bounds_noisy_source_segments() -> None:
+    noisy = (
+        "메모리 전략을 강화했습니다. "
+        + "차량용 메모리 제품 세부 사양과 기술 설명 " * 80
+        + "□ AI 서버 수요 대응을 위해 HBM 제품 공급을 확대했습니다."
+    )
+    items = (
+        _semantic_item(1, 2023, noisy),
+        _semantic_item(
+            2,
+            2025,
+            "AI 서버 수요에 대응해 HBM4와 고부가 제품 공급을 확대했습니다.",
+        ),
+    )
+    query = (
+        "삼성전자의 2023년과 2025년 사업보고서를 기준으로 "
+        "메모리·반도체 사업 전략이 어떻게 달라졌는지 비교해줘"
+    )
+    pack = EvidencePack(
+        query=query,
+        retrieval_status="MATCHES_FOUND",
+        items=items,
+        total_chars=sum(len(item.content_text) for item in items),
+    )
+
+    answer = _render_multi_year_comparison_fallback(query, pack)
+
+    assert answer is not None
+    assert len(answer) < 1800
+    assert "2023년:" in answer
+    assert "2025년:" in answer
+
+
 def test_multi_year_comparison_fallback_skips_non_comparison_query() -> None:
     item = _semantic_item(
         1,

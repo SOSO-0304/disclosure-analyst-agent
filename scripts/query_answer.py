@@ -14,12 +14,35 @@ from disclosure_agent.storage.database import get_engine, session_scope
 
 
 _EVIDENCE_LABEL = re.compile(r"\s*\[E\d+\]")
+_NUMBERED_HEADING = re.compile(r"^(?P<indent>\s*)(?P<number>\d+)\.\s+(?P<body>.+)$")
+
+
+def _renumber_top_level_items(answer: str) -> str:
+    lines = answer.splitlines()
+    numbered = [
+        _NUMBERED_HEADING.match(line)
+        for line in lines
+        if line and not line[0].isspace() and _NUMBERED_HEADING.match(line)
+    ]
+    if len(numbered) < 2:
+        return answer
+
+    counter = 0
+    rendered: list[str] = []
+    for line in lines:
+        match = _NUMBERED_HEADING.match(line)
+        if match is None or match.group("indent"):
+            rendered.append(line)
+            continue
+        counter += 1
+        rendered.append(f"{counter}. {match.group('body')}")
+    return "\n".join(rendered)
 
 
 def _public_answer(answer: str) -> str:
-    """Hide internal evidence labels from the human-facing CLI output."""
+    """Hide internal evidence labels and normalize filtered numbering."""
 
-    return _EVIDENCE_LABEL.sub("", answer)
+    return _renumber_top_level_items(_EVIDENCE_LABEL.sub("", answer))
 
 
 def _api_key() -> str | None:
